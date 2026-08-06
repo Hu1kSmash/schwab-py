@@ -1,17 +1,12 @@
 '''Defines the basic client and methods for creating one. This client is
-completely unopinionated, and provides an easy-to-use wrapper around the TD
-Ameritrade HTTP API.'''
+completely unopinionated, and provides an easy-to-use wrapper around the Schwab
+HTTP API.'''
 
-from abc import ABC, abstractmethod
 from enum import Enum
 
 import datetime
-import json
 import logging
-import pickle
 import schwab
-import time
-import warnings
 
 from schwab.orders.generic import OrderBuilder
 
@@ -790,7 +785,7 @@ class BaseClient(EnumEnforcer):
         if need_previous_close is not None:
             params['needPreviousClose'] = need_previous_close
 
-        path = '/marketdata/v1/pricehistory'.format(symbol)
+        path = '/marketdata/v1/pricehistory'
         return self._get_request(path, params)
 
 

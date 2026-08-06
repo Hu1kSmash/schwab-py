@@ -353,8 +353,6 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                         'Redirect server exited. Are you attempting to use a ' +
                         'callback URL without a port number specified?')
 
-            import traceback
-
             # Attempt to send a request to the server
             try:
                 with warnings.catch_warnings():

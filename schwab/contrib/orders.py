@@ -1,7 +1,6 @@
 import autopep8
 import schwab
 
-from schwab.orders.generic import OrderBuilder
 from schwab.orders.common import (
         EquityInstrument,
         OptionInstrument,
