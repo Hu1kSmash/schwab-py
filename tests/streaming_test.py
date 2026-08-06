@@ -2449,7 +2449,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                     "ASK_SIZE": 20,
                     "LAST_SIZE": 1,
                     "NET_CHANGE": 1.1196,
-                    "STRIKE_TYPE": 70,
+                    "STRIKE_PRICE": 70,
                     "CONTRACT_TYPE": "C",
                     "UNDERLYING": "GOOG",
                     "EXPIRATION_MONTH": 5,
@@ -2510,7 +2510,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                     "ASK_SIZE": 51,
                     "LAST_SIZE": 1,
                     "NET_CHANGE": -1.03,
-                    "STRIKE_TYPE": 160,
+                    "STRIKE_PRICE": 160,
                     "CONTRACT_TYPE": "C",
                     "UNDERLYING": "MSFT",
                     "EXPIRATION_MONTH": 5,
@@ -6405,3 +6405,29 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         })
 
 
+class LevelOneOptionStrikeFieldTest(IsolatedAsyncioTestCase):
+    """Field 20 of LEVELONE_OPTIONS is documented by Schwab as "Strike Price".
+    It was named STRIKE_TYPE, which is a different thing, so messages were
+    relabeled with a name that described neither the field nor its contents."""
+
+    @no_duplicates
+    def test_field_twenty_is_the_strike_price(self):
+        fields = streaming.StreamClient.LevelOneOptionFields
+        self.assertEqual(20, fields.STRIKE_PRICE.value)
+        self.assertEqual('STRIKE_PRICE', fields.key_mapping()['20'])
+
+    @no_duplicates
+    def test_old_spelling_still_resolves(self):
+        # Existing code naming the field keeps working, and resolves to the
+        # same field rather than a second one.
+        fields = streaming.StreamClient.LevelOneOptionFields
+        self.assertIs(fields.STRIKE_PRICE, fields.STRIKE_TYPE)
+        self.assertEqual(
+                1, [m.name for m in fields].count('STRIKE_PRICE'))
+
+    @no_duplicates
+    def test_an_alias_does_not_decide_the_label(self):
+        # key_mapping used to iterate __members__, which yields aliases too, so
+        # whichever alias came last would have named the field.
+        fields = streaming.StreamClient.LevelOneOptionFields
+        self.assertNotIn('STRIKE_TYPE', fields.key_mapping().values())

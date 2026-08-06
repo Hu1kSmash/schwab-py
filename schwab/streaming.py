@@ -45,9 +45,11 @@ class _BaseFieldEnum(Enum):
         try:
             return cls._key_mapping
         except AttributeError:
+            # Iterate the enum rather than __members__, which also yields
+            # aliases. An alias is a second spelling of a field, not a second
+            # field, and it must not decide what the field is labeled.
             cls._key_mapping = dict(
-                (str(enum.value), name)
-                for name, enum in cls.__members__.items())
+                (str(enum.value), enum.name) for enum in cls)
             return cls._key_mapping
 
     @classmethod
@@ -1214,7 +1216,13 @@ class StreamClient(EnumEnforcer):
         #: Net change
         NET_CHANGE = 19
 
-        #: Strike type
+        #: Contract strike price
+        STRIKE_PRICE = 20
+
+        #: Deprecated spelling of :attr:`STRIKE_PRICE`. Field 20 is the
+        #: contract strike price; it was never a "type". Kept so existing code
+        #: referring to it keeps working, but messages are now labeled
+        #: ``STRIKE_PRICE``.
         STRIKE_TYPE = 20
 
         #: Contract type
