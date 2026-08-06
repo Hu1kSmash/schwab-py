@@ -216,7 +216,21 @@ class StreamClient(EnumEnforcer):
         # Initialize the JSON parser to be the naive parser which directly calls
         # ``json.loads``
         self.json_decoder = NaiveJsonStreamDecoder()
-        self._lock = asyncio.Lock()
+
+        # Guarantees a single reader. websockets raises if two coroutines call
+        # recv() concurrently, so exactly one coroutine may be inside a read at
+        # a time -- but unlike the lock this replaces, it is not held while
+        # waiting for a response, so a request does not block message handling.
+        self._read_lock = asyncio.Lock()
+
+        # Keeps one request outstanding at a time, so a response can be matched
+        # against the request it answers without ambiguity.
+        self._request_lock = asyncio.Lock()
+
+        # (request_id, service, command, future) for the request currently
+        # awaiting a response, or None. Whoever is reading routes the matching
+        # response here rather than the reader having to be the requester.
+        self._pending_request = None
 
     def set_json_decoder(self, json_decoder):
         '''
@@ -245,6 +259,26 @@ class StreamClient(EnumEnforcer):
 
         await self._socket.send(json.dumps(obj))
 
+    async def _receive_from_socket(self):
+        if self._socket is None:
+            raise ValueError(
+                'Socket not open. Did you forget to call login()?')
+
+        raw = await self._socket.recv()
+        try:
+            ret = self.json_decoder.decode_json_string(raw)
+        except json.decoder.JSONDecodeError as e:
+            msg = ('Failed to parse message. This often happens with ' +
+                   'unknown symbols or other error conditions. Full ' +
+                   'message text: ' + raw)
+            raise UnparsableMessage(raw, e, msg)
+
+        self.logger.debug(
+            'Receive %s: Returning message from stream: %s',
+            self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+
+        return ret
+
     async def _receive(self):
         if self._socket is None:
             raise ValueError(
@@ -256,21 +290,10 @@ class StreamClient(EnumEnforcer):
             self.logger.debug(
                 'Receive %s: Returning message from overflow: %s',
                 self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
-        else:
-            raw = await self._socket.recv()
-            try:
-                ret = self.json_decoder.decode_json_string(raw)
-            except json.decoder.JSONDecodeError as e:
-                msg = ('Failed to parse message. This often happens with ' +
-                       'unknown symbols or other error conditions. Full ' +
-                       'message text: ' + raw)
-                raise UnparsableMessage(raw, e, msg)
 
-            self.logger.debug(
-                'Receive %s: Returning message from stream: %s',
-                self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+            return ret
 
-        return ret
+        return await self._receive_from_socket()
 
     async def _init_from_preferences(self, prefs, websocket_connect_args):
         # Record streamer subscription keys
@@ -308,81 +331,185 @@ class StreamClient(EnumEnforcer):
 
         return request, request_id
 
+    @staticmethod
+    def _validate_response(resp, request_id, service, command):
+        '''
+        Checks a response frame against the request it is supposed to answer.
+        Returns ``None`` if it matches, or the exception to fail that request
+        with if it does not.
+        '''
+        # Validate request ID
+        resp_request_id = int(resp['response'][0]['requestid'])
+        if resp_request_id != request_id:
+            return UnexpectedResponse(
+                resp, 'unexpected requestid: {}'.format(resp_request_id))
+
+        # Validate service
+        resp_service = resp['response'][0]['service']
+        if resp_service != service:
+            return UnexpectedResponse(
+                resp, 'unexpected service: {}'.format(resp_service))
+
+        # Validate command
+        resp_command = resp['response'][0]['command']
+        if resp_command != command:
+            return UnexpectedResponse(
+                resp, 'unexpected command: {}'.format(resp_command))
+
+        # Validate response code
+        resp_code = resp['response'][0]['content']['code']
+        if resp_code != 0:
+            return UnexpectedResponseCode(
+                resp,
+                'unexpected response code: {}, msg is \'{}\''.format(
+                    resp_code, resp['response'][0]['content']['msg']))
+
+        return None
+
+    async def _read_and_route(self, *, use_overflow=True):
+        '''
+        Reads one frame and routes it. The caller must hold ``_read_lock``,
+        which is what guarantees a single reader: ``websockets`` raises if two
+        coroutines call ``recv()`` concurrently.
+
+        Returns the frame if it is for the caller to deal with, or ``None`` if
+        it was a response which has been delivered to the operation waiting on
+        it.
+
+        ``use_overflow`` is ``False`` for a caller waiting on a response, which
+        must read from the socket rather than from the queue of frames set
+        aside for ``handle_message`` -- otherwise it would take back the frames
+        it just deferred, and never get past them.
+        '''
+        frame = (await self._receive() if use_overflow
+                 else await self._receive_from_socket())
+
+        if 'response' not in frame:
+            return frame
+
+        pending = self._pending_request
+        if pending is None:
+            # A response nobody is waiting for. Hand it back so the caller can
+            # complain about it.
+            return frame
+
+        request_id, service, command, future = pending
+        if not future.done():
+            error = self._validate_response(frame, request_id, service, command)
+            if error is None:
+                future.set_result(frame)
+            else:
+                future.set_exception(error)
+
+        return None
+
+    def _fail_pending_request(self, exception):
+        '''Hands an exception to the operation waiting on a response, if any.
+
+        Used when the read fails rather than the response: without this, a
+        connection which drops while a request is outstanding would leave that
+        request waiting for a reply which can never arrive.
+        '''
+        pending = self._pending_request
+        if pending is not None and not pending[3].done():
+            pending[3].set_exception(exception)
+
     async def _await_response(self, request_id, service, command):
-        deferred_messages = []
+        '''
+        Waits for the response to a request which has already been sent.
 
-        # Context handler to ensure we always append the deferred messages,
-        # regardless of how we exit the await loop below
-        class WriteDeferredMessages:
-            def __init__(self, this_client):
-                self.this_client = this_client
+        The wait is over whichever of two things happens first: the response is
+        routed to us by whoever is currently reading the socket, or the socket
+        becomes free and we read it ourselves. That is what stops a subscription
+        from blocking behind a ``handle_message`` which is parked on a quiet
+        stream -- the reader delivers our response as soon as it arrives,
+        without ever having to give up the socket.
+        '''
+        loop = asyncio.get_running_loop()
+        future = self._pending_request[3]
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                self.this_client._overflow_items.extendleft(deferred_messages)
-
-        # The lock which serializes stream operations is held for the whole of
-        # this wait, so a response which never arrives would block every other
-        # operation on the client, including message handling, indefinitely.
-        # The websockets keepalive does not help: a connection which is alive
-        # but simply not answering keeps responding to pings.
         deadline = (None if self._response_timeout is None
-                    else asyncio.get_running_loop().time()
-                    + self._response_timeout)
+                    else loop.time() + self._response_timeout)
 
-        with WriteDeferredMessages(self):
-            while True:
-                if deadline is None:
-                    resp = await self._receive()
-                else:
-                    remaining = deadline - asyncio.get_running_loop().time()
+        def remaining():
+            return None if deadline is None else max(deadline - loop.time(), 0)
+
+        def timed_out():
+            return ResponseTimeoutError(
+                    service, command, self._response_timeout,
+                    'timed out after {}s waiting for a response to {}/{}'.format(
+                        self._response_timeout, service, command))
+
+        while not future.done():
+            acquire = asyncio.ensure_future(self._read_lock.acquire())
+            done, _ = await asyncio.wait(
+                    {acquire, future}, timeout=remaining(),
+                    return_when=asyncio.FIRST_COMPLETED)
+
+            if acquire in done:
+                try:
+                    if future.done():
+                        break
                     try:
-                        resp = await asyncio.wait_for(
-                                self._receive(), timeout=max(remaining, 0))
+                        frame = await asyncio.wait_for(
+                                self._read_and_route(use_overflow=False),
+                                timeout=remaining())
                     except asyncio.TimeoutError:
-                        raise ResponseTimeoutError(
-                                service, command, self._response_timeout,
-                                'timed out after {}s waiting for a response to '
-                                '{}/{}'.format(
-                                    self._response_timeout, service, command))
+                        raise timed_out()
+                    except BaseException as exc:
+                        # The read failed, so nothing will ever answer this
+                        # request. Fail it with the same error.
+                        self._fail_pending_request(exc)
+                        raise
+                    if frame is not None:
+                        # Not ours, so it belongs to handle_message. Set it
+                        # aside as it arrives rather than at the end: a
+                        # concurrent handle_message reads between our reads, so
+                        # holding frames back would let a later one be
+                        # dispatched first. appendleft here, pop from the right
+                        # in _receive, so arrival order is preserved.
+                        self._overflow_items.appendleft(frame)
+                finally:
+                    self._read_lock.release()
+                continue
 
-                if 'response' not in resp:
-                    deferred_messages.append(resp)
-                    continue
+            # We did not become the reader. Cancel the attempt, taking care
+            # of the race where it succeeded just as we gave up on it --
+            # otherwise the lock would be left held by nobody.
+            acquire.cancel()
+            if acquire.done() and not acquire.cancelled():
+                self._read_lock.release()
 
-                # Validate request ID
-                resp_request_id = int(resp['response'][0]['requestid'])
-                if resp_request_id != request_id:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected requestid: {}'.format(
-                            resp_request_id))
+            if not done:
+                raise timed_out()
 
-                # Validate service
-                resp_service = resp['response'][0]['service']
-                if resp_service != service:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected service: {}'.format(
-                            resp_service))
+        return future.result()
 
-                # Validate command
-                resp_command = resp['response'][0]['command']
-                if resp_command != command:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected command: {}'.format(
-                            resp_command))
+    async def _request_response(self, request, request_id, service, command):
+        '''Sends a request and waits for the response which answers it.
 
-                # Validate response code
-                resp_code = resp['response'][0]['content']['code']
-                if resp_code != 0:
-                    raise UnexpectedResponseCode(
-                        resp,
-                        'unexpected response code: {}, msg is \'{}\''.format(
-                            resp_code,
-                            resp['response'][0]['content']['msg']))
-
-                break
+        ``_request_lock`` keeps one request outstanding at a time, which is what
+        lets a single pending slot be enough and keeps the response validation
+        unambiguous. Note it does not cover reading, so message handling
+        continues while a request is in flight.
+        '''
+        async with self._request_lock:
+            future = asyncio.get_running_loop().create_future()
+            self._pending_request = (request_id, service, command, future)
+            try:
+                await self._send({'requests': [request]})
+                await self._await_response(request_id, service, command)
+            finally:
+                self._pending_request = None
+                # Nobody will look at this future again. Cancel it if it is
+                # still open, so a reader which grabbed a reference to it just
+                # before it was cleared cannot complete it into the void, and
+                # retrieve any exception so asyncio does not report it as never
+                # having been retrieved.
+                if not future.done():
+                    future.cancel()
+                elif not future.cancelled():
+                    future.exception()
 
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
@@ -401,9 +528,7 @@ class StreamClient(EnumEnforcer):
             service=service, command=command,
             parameters=parameters)
 
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, service, command)
+        await self._request_response(request, request_id, service, command)
 
     def _on_handler_task_done(self, task):
         self._handler_tasks.discard(task)
@@ -452,8 +577,23 @@ class StreamClient(EnumEnforcer):
                 task.add_done_callback(self._on_handler_task_done)
 
     async def handle_message(self):
-        async with self._lock:
-            msg = await self._receive()
+        # Read until something arrives which is actually ours. A response to a
+        # request that is in flight is routed to whoever is waiting for it and
+        # is not a message to be handled, so keep reading in that case rather
+        # than returning nothing.
+        while True:
+            async with self._read_lock:
+                try:
+                    msg = await self._read_and_route()
+                except BaseException as exc:
+                    # A read failure is also a failure for any request waiting
+                    # on a response, which will otherwise wait for a reply that
+                    # can no longer arrive.
+                    self._fail_pending_request(exc)
+                    raise
+
+            if msg is not None:
+                break
 
         # response
         if 'response' in msg:
@@ -534,9 +674,7 @@ class StreamClient(EnumEnforcer):
         request, request_id = self._make_request(
             service='ADMIN', command='LOGIN',
             parameters=request_parameters)
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGIN')
+        await self._request_response(request, request_id, 'ADMIN', 'LOGIN')
 
     ##########################################################################
     # LOGOUT
@@ -552,9 +690,8 @@ class StreamClient(EnumEnforcer):
             service='ADMIN', command='LOGOUT',
             parameters={})
         try:
-            async with self._lock:
-                await self._send({'requests': [request]})
-                await self._await_response(request_id, 'ADMIN', 'LOGOUT')
+            await self._request_response(
+                    request, request_id, 'ADMIN', 'LOGOUT')
         finally:
             # The stream is unusable after a logout whether or not the venue
             # acknowledged it, so the socket is closed either way. A failure to
