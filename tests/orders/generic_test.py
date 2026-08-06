@@ -709,7 +709,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
 
     ##########################################################################
     # Functional tests from here:
-    # https://developer.tdameritrade.com/content/place-order-samples
+    # Adapted from the order samples in the retired TDAmeritrade docs.
     @no_duplicates
     def test_quantity_negative(self):
         with self.assertRaises(ValueError):
@@ -732,7 +732,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
 
     ##########################################################################
     # Functional tests from here:
-    # https://developer.tdameritrade.com/content/place-order-samples
+    # Adapted from the order samples in the retired TDAmeritrade docs.
 
     @no_duplicates
     def test_buy_market_stock(self):

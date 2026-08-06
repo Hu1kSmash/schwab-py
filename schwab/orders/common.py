@@ -173,62 +173,50 @@ class ComplexOrderStrategyType(Enum):
     #: No complex order strategy. This is the default.
     NONE = 'NONE'
 
-    #: `Covered call <https://tickertape.tdameritrade.com/trading/
-    #: selling-covered-call-options-strategy-income-hedging-15135>`__
+    #: Covered call
     COVERED = 'COVERED'
 
-    #: `Vertical spread <https://tickertape.tdameritrade.com/trading/
-    #: vertical-credit-spreads-high-probability-15846>`__
+    #: Vertical spread
     VERTICAL = 'VERTICAL'
 
-    #: `Ratio backspread <https://tickertape.tdameritrade.com/trading/
-    #: pricey-stocks-ratio-spreads-15306>`__
+    #: Ratio backspread
     BACK_RATIO = 'BACK_RATIO'
 
-    #: `Calendar spread <https://tickertape.tdameritrade.com/trading/
-    #: calendar-spreads-trading-primer-15095>`__
+    #: Calendar spread
     CALENDAR = 'CALENDAR'
 
-    #: `Diagonal spread <https://tickertape.tdameritrade.com/trading/
-    #: love-your-diagonal-spread-15030>`__
+    #: Diagonal spread
     DIAGONAL = 'DIAGONAL'
 
-    #: `Straddle spread <https://tickertape.tdameritrade.com/trading/
-    #: straddle-strangle-option-volatility-16208>`__
+    #: Straddle spread
     STRADDLE = 'STRADDLE'
 
-    #: `Strandle spread <https://tickertape.tdameritrade.com/trading/
-    #: straddle-strangle-option-volatility-16208>`__
+    #: Strandle spread
     STRANGLE = 'STRANGLE'
 
     COLLAR_SYNTHETIC = 'COLLAR_SYNTHETIC'
 
-    #: `Butterfly spread <https://tickertape.tdameritrade.com/trading/
-    #: butterfly-spread-options-15976>`__
+    #: Butterfly spread
     BUTTERFLY = 'BUTTERFLY'
 
     #: `Condor spread <https://www.investopedia.com/terms/c/
     #: condorspread.asp>`__
     CONDOR = 'CONDOR'
 
-    #: `Iron condor spread <https://tickertape.tdameritrade.com/trading/
-    #: iron-condor-options-spread-your-trading-wings-15948>`__
+    #: Iron condor spread
     IRON_CONDOR = 'IRON_CONDOR'
 
-    #: `Roll a vertical spread <https://tickertape.tdameritrade.com/trading/
-    #: exit-winning-losing-trades-16685>`__
+    #: Roll a vertical spread
     VERTICAL_ROLL = 'VERTICAL_ROLL'
 
-    #: `Collar strategy <https://tickertape.tdameritrade.com/trading/
-    #: stock-hedge-options-collars-15529>`__
+    #: Collar strategy
     COLLAR_WITH_STOCK = 'COLLAR_WITH_STOCK'
 
     #: `Double diagonal spread <https://optionstradingiq.com/
     #: the-ultimate-guide-to-double-diagonal-spreads/>`__
     DOUBLE_DIAGONAL = 'DOUBLE_DIAGONAL'
 
-    #: `Unbalanced butterfy spread  <https://tickertape.tdameritrade.com/
-    #: trading/unbalanced-butterfly-strong-directional-bias-15913>`__
+    #: Unbalanced butterfy spread
     UNBALANCED_BUTTERFLY = 'UNBALANCED_BUTTERFLY'
     UNBALANCED_CONDOR = 'UNBALANCED_CONDOR'
     UNBALANCED_IRON_CONDOR = 'UNBALANCED_IRON_CONDOR'

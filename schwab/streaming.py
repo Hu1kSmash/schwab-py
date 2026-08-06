@@ -623,8 +623,6 @@ class StreamClient(EnumEnforcer):
 
     async def login(self, websocket_connect_args=None):
         '''
-        `Official Documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640574>`__
 
         Performs initial stream setup:
          * Fetches streaming information from the HTTP client's
@@ -731,8 +729,6 @@ class StreamClient(EnumEnforcer):
 
     class AccountActivityFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640580>`__
 
         Data fields for equity account activity. Primarily an implementation detail
         and not used in client code. Provided here as documentation for key
@@ -754,8 +750,6 @@ class StreamClient(EnumEnforcer):
 
     async def account_activity_sub(self):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640580>`__
 
         Subscribe to account activity for the account id associated with this
         streaming client. See :class:`AccountActivityFields` for more info.
@@ -766,8 +760,6 @@ class StreamClient(EnumEnforcer):
 
     async def account_activity_unsubs(self):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640580>`__
 
         Un-Subscribe to account activity for the account id associated with this
         streaming client. See :class:`AccountActivityFields` for more info.
@@ -787,8 +779,6 @@ class StreamClient(EnumEnforcer):
 
     class ChartEquityFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640589>`__
 
         Data fields for equity OHLCV data. Primarily an implementation detail
         and not used in client code. Provided here as documentation for key
@@ -824,8 +814,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_equity_subs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640587>`__
 
         Subscribe to equity charts. Behavior is undefined if called multiple
         times.
@@ -837,8 +825,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_equity_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640587>`__
 
         Un-Subscribe to equity charts. Behavior is undefined if called multiple
         times.
@@ -848,8 +834,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_equity_add(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640588>`__
 
         Add a symbol to the equity charts subscription. Behavior is undefined
         if called before :meth:`chart_equity_subs`.
@@ -873,8 +857,6 @@ class StreamClient(EnumEnforcer):
 
     class ChartFuturesFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640592>`__
 
         Data fields for equity OHLCV data. Primarily an implementation detail
         and not used in client code. Provided here as documentation for key
@@ -904,8 +886,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_futures_subs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640587>`__
 
         Subscribe to futures charts. Behavior is undefined if called multiple
         times.
@@ -918,8 +898,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_futures_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640587>`__
 
         Un-Subscribe to futures charts. Behavior is undefined if called multiple
         times.
@@ -930,8 +908,6 @@ class StreamClient(EnumEnforcer):
 
     async def chart_futures_add(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640590>`__
 
         Add a symbol to the futures chart subscription. Behavior is undefined
         if called before :meth:`chart_futures_subs`.
@@ -955,8 +931,6 @@ class StreamClient(EnumEnforcer):
 
     class LevelOneEquityFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640599>`__
 
         Fields for equity quotes.
         '''
@@ -1119,8 +1093,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_equity_subs(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640599>`__
 
         Subscribe to level one equity quote data.
 
@@ -1137,8 +1109,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_equity_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640599>`__
 
         Un-Subscribe to level one equity quote data.
 
@@ -1149,8 +1119,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_equity_add(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640599>`__
 
         Add symbols to the list to receive quotes for.
 
@@ -1178,8 +1146,6 @@ class StreamClient(EnumEnforcer):
 
     class LevelOneOptionFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640601>`__
         '''
 
         #: Option symbol
@@ -1352,8 +1318,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_option_subs(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640602>`__
 
         Subscribe to level one option quote data.
 
@@ -1370,8 +1334,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_option_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640602>`__
 
         Un-Subscribe to level one option quote data.
 
@@ -1381,8 +1343,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_option_add(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640602>`__
 
         Add symbols to the list to receive quotes for.
 
@@ -1410,8 +1370,6 @@ class StreamClient(EnumEnforcer):
 
     class LevelOneFuturesFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640603>`__
         '''
 
         #: Ticker symbol in upper case.
@@ -1539,8 +1497,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_subs(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640604>`__
 
         Subscribe to level one futures quote data.
 
@@ -1557,8 +1513,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640604>`__
 
         Un-Subscribe to level one futures quote data.
 
@@ -1569,8 +1523,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_add(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640604>`__
 
         Add symbols to the list to receive quotes for.
 
@@ -1598,8 +1550,6 @@ class StreamClient(EnumEnforcer):
 
     class LevelOneForexFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640606>`__
         '''
 
         #: Ticker symbol in upper case.
@@ -1694,8 +1644,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_forex_subs(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640606>`__
 
         Subscribe to level one forex quote data.
 
@@ -1712,8 +1660,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_forex_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640606>`__
 
         Un-Subscribe to level one forex quote data.
 
@@ -1724,8 +1670,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_forex_add(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640606>`__
 
         Add symbols to the list to receive quotes for.
 
@@ -1754,8 +1698,6 @@ class StreamClient(EnumEnforcer):
 
     class LevelOneFuturesOptionsFields(_BaseFieldEnum):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640609>`__
         '''
 
         #: Ticker symbol in upper case.
@@ -1856,8 +1798,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_options_subs(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640610>`__
 
         Subscribe to level one futures options quote data.
 
@@ -1874,8 +1814,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_options_unsubs(self, symbols):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640610>`__
 
         Un-Subscribe to level one futures options quote data.
 
@@ -1886,8 +1824,6 @@ class StreamClient(EnumEnforcer):
 
     async def level_one_futures_options_add(self, symbols, *, fields=None):
         '''
-        `Official documentation <https://developer.tdameritrade.com/content/
-        streaming-data#_Toc504640610>`__
 
         Add symbols to the list to receive quotes for.
 

@@ -203,7 +203,7 @@ process looks like this:
 .. code-block:: shell
 
   # Notice we don't prefix this with "python" because this is a script that was 
-  # installed by pip when you installed tda-api
+  # installed by pip when you installed schwab-py
   schwab-order-codegen.py --token_file <your token file path> --api_key <your 
   API key>
 
@@ -211,7 +211,7 @@ process looks like this:
 
 This script is installed by ``pip``, and will only be accessible if you've added
 pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to ask for help on our `Discord server <https://discord.gg/BEr6y6Xqyv>`__.
+free to `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 
 --------------------------
@@ -227,7 +227,7 @@ generated from the schema provided in the `official API documents
 <https://developer.schwab.com/products/trader-api--individual/details/specifications/Retail%20Trader%20API%20Production>`__,
 but many of the finer points, such as which fields should be populated for which 
 order types, etc. are best guesses.  If you find something is inaccurate or 
-missing, please `let us know <https://github.com/alexgolec/schwab-py/issues>`__.
+missing, please `let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 That being said, experienced traders who understand how various order types and 
 complex strategies work should find this builder easy to use, at least for the 
@@ -404,9 +404,9 @@ things have been observed, however:
    debit or credit desired.
 
 If you successfully use these strategies, we want to know about it. Please let 
-us know by joining our `Discord server <https://discord.gg/BEr6y6Xqyv>`__ to 
+us know `on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__ to 
 chat about it, or by `creating a feature request 
-<https://github.com/alexgolec/schwab-py/issues>`__.
+<https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 .. autoclass:: schwab.orders.common::ComplexOrderStrategyType
   :members:
@@ -449,8 +449,7 @@ order spec schema describes some things that are outside my ability to document,
 so rather than make stuff up, I'm putting them here in the hopes that someone 
 will come along and shed some light on them. You can make suggestions by filing 
 an issue on our `GitHub issues page 
-<https://github.com/alexgolec/schwab-py/issues>`__, or by joining our `Discord 
-server <https://discord.gg/M3vjtHj>`__.
+<https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 
 .. _undocumented_quantity:

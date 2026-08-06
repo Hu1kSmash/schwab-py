@@ -35,7 +35,7 @@ a way that's appropriate to the context in which you're running:
    flow <schwab.auth.client_from_manual_flow>`.
 
 Here's how you can use it. If for some reason this doesn't work, please report 
-your issues in the `Discord server <https://discord.gg/BEr6y6Xqyv>`__. See 
+your issues `on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__. See 
 :func:`~schwab.auth.easy_client` for details:
 
 .. code-block:: python
@@ -109,7 +109,7 @@ and use it on another.
 
 This script is installed by ``pip``, and will only be accessible if you've added
 pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to ask for help on our `Discord server <https://discord.gg/BEr6y6Xqyv>`__.
+free to `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 
 .. _token_expiration:
@@ -250,7 +250,7 @@ As simple as it seems, the auth is complex and mistakes are easy to make.  This
 section outlines some of the more common issues you might encounter. If you find 
 yourself dealing with something that isn't listed here, or if you try the 
 suggested remedies and are still seeing issues, see the :ref:`help` page. You 
-can also `join our Discord server <https://discord.gg/M3vjtHj>`__ to ask 
+can also `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__ to ask
 questions.
 
 
@@ -315,8 +315,8 @@ This error is raised when ``schwab-py`` attempts to perform an operation using
 an invalid access token. If you don't know what that means, that's normal: you 
 shouldn't see this error. Some users have reported seeing it, and the 
 ``schwab-py`` authors are working on updating the library to debug it. If you 
-see this error, please share the stack trace in our `Discord server 
-<https://discord.gg/Nq7AwrRV>`__. 
+see this error, please share the stack trace `on the issue tracker
+<https://github.com/Hu1kSmash/schwab-py/issues>`__. 
 
 In the meantime, you can work around this bug by deleting your old token and 
 creating a new one.
@@ -358,7 +358,7 @@ experiencing token parsing issues, remember that:
 
 If you didn't do any of this and are still seeing issues using a token file that 
 you're confident is valid, please `file a ticket 
-<https://github.com/alexgolec/schwab-py/issues>`__. Just remember, **never share 
+<https://github.com/Hu1kSmash/schwab-py/issues>`__. Just remember, **never share 
 your token file, not even with** ``schwab-py`` **developers**. Sharing the token
 file is as dangerous as sharing your Schwab username and password.
 

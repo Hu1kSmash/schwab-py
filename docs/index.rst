@@ -3,22 +3,20 @@
 
 .. image:: _static/github-logo.png
    :width: 40
-   :target: https://github.com/alexgolec/schwab-py
+   :target: https://github.com/Hu1kSmash/schwab-py
 
-.. image:: _static/patreon.png
-   :width: 110
-   :target: https://www.patreon.com/schwabpy
+.. note::
 
-.. image:: _static/discord-logo.png
-   :width: 50
-   :target: https://discord.gg/M3vjtHj
-
+   This is a maintained fork of `alexgolec/schwab-py
+   <https://github.com/alexgolec/schwab-py>`__, which is the work of Alex Golec
+   and remains the upstream project. See the `changelog
+   <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for what
+   differs.
 
 .. toctree::
   :maxdepth: 2
   :caption: Contents:
 
-  tda-transition
   getting-started
   auth
   client

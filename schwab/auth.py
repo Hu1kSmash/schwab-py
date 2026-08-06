@@ -395,10 +395,10 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         print('>>',callback_url)
         print()
         print('See here to learn more about self-signed SSL certificates:')
-        print('https://schwab-py.readthedocs.io/en/latest/auth.html#ssl-errors')
+        print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
         print()
         print('If you encounter any issues, see here for troubleshooting:')
-        print('https://schwab-py.readthedocs.io/en/latest/auth.html#troubleshooting')
+        print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
         print('***********************************************************************')
         print()
 
@@ -540,7 +540,7 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
     print('    Enter/Return.')
     print()
     print('If you encounter any issues, see here for troubleshooting:')
-    print('https://schwab-py.readthedocs.io/en/latest/auth.html#troubleshooting')
+    print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
     print('\n**************************************************************\n')
 
     if callback_url.startswith('http://'):
@@ -583,7 +583,7 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
     deserialize it, without inspecting it in any way.
 
     Note the read and write methods must take particular arguments. Please see 
-    `this example <https://github.com/alexgolec/schwab-py/tree/master/examples/
+    `this example <https://github.com/Hu1kSmash/schwab-py/tree/master/examples/
     client_from_access_functions.py>`__ for details.
 
     :param api_key: Your Schwab application's app key.
