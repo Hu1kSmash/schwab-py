@@ -8,6 +8,36 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.7.1
+
+No library changes: `schwab/` is identical to 1.7.0 apart from the version string.
+This release exists because the 1.7.0 tag shipped install instructions which
+installed the wrong project.
+
+### Fixed
+
+**The install instructions installed upstream.** The README's getting-started
+section and `docs/getting-started.rst` both said `pip install schwab-py`, which
+fetches the original project from PyPI. A reader who got as far as installing
+got upstream, whatever the fork notice at the top of the page said -- and it
+would appear to work, since the importable package has the same name either way.
+The fork notice itself still pinned 1.6.0.
+
+**The documentation build could not run from a clean checkout.**
+`docs/requirements.txt` pinned `websockets==12.0`, and this library imports
+`websockets.asyncio`, which does not exist before 14.0. It went unnoticed because
+a development environment already has a current websockets, so it only failed
+somewhere clean. `authlib` and `httpx` were pinned below the floors `setup.py`
+requires. All are floors now, so they cannot drift from `setup.py` silently.
+
+### Added
+
+A security policy, an issue template chooser, a pull request template, and
+`.gitignore` rules for the token file -- which is a live credential, and which
+nothing previously stopped git from offering to commit.
+
+---
+
 ## 1.7.0
 
 ### Fixed
