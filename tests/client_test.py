@@ -2456,6 +2456,12 @@ class ClientTest(_TestClient, unittest.TestCase):
     client_class    = Client
     magicmock_class = MagicMock
 
+    def test_close_session(self):
+        # The asyncio client could always be closed; the synchronous one held
+        # its connections until it happened to be collected.
+        self.client.close_session()
+        self.mock_session.close.assert_called_once_with()
+
 class AsyncClientTest(_TestClient, unittest.TestCase):
     """
     Subclass set to resync AsyncClient and use AsyncMagicMock
