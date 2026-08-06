@@ -413,6 +413,35 @@ class ClientFromTokenFileTest(unittest.TestCase):
     @patch('schwab.auth.Client')
     @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
     @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_writes_through_a_symlink(
+            self, async_session, sync_session, client):
+        # Renaming onto a symlink would replace the link with a regular file
+        # and orphan its target, so a caller who links their token file into
+        # place would find the link quietly destroyed.
+        real_path = os.path.join(self.tmp_dir.name, 'real_token.json')
+        with open(real_path, 'w') as f:
+            json.dump(self.token, f)
+
+        link_path = os.path.join(self.tmp_dir.name, 'linked_token.json')
+        os.symlink(real_path, link_path)
+
+        auth.client_from_token_file(link_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+
+        updated_token = {'updated': 'token'}
+        update_token(updated_token)
+
+        self.assertTrue(os.path.islink(link_path))
+        with open(real_path, 'r') as f:
+            self.assertEqual(json.load(f), {
+                'token': updated_token,
+                'creation_timestamp': TOKEN_CREATION_TIMESTAMP
+            })
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
     def test_enforce_enums_being_disabled(self, async_session, sync_session, client):
         self.write_token()
 
