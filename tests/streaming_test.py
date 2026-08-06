@@ -6212,7 +6212,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         """
         There's no service's sub/add commands without field_type defined but this tests for fields=None behavior if field_type=None
         Warning: Sub commands seems to fail if there's no fields parameters,
-        check logs : https://github.com/alexgolec/schwab-api/pull/256#issuecomment-950406363
+        (observed on the older tda-api implementation this was adapted from)
 
         The streaming client will properly throw UnexpectedResponse
         """
@@ -6241,7 +6241,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         """
         There's no service's sub/add commands without field_type defined but this tests for fields=None behavior if field_type=None
         Warning: Sub commands seems to fail if there's no fields parameters,
-        check logs : https://github.com/alexgolec/schwab-api/pull/256#issuecomment-950406363
+        (observed on the older tda-api implementation this was adapted from)
 
         The streaming client will properly throw UnexpectedResponse
         """
