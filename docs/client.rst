@@ -63,6 +63,20 @@ of slightly increased application complexity.
       import asyncio
       asyncio.run(main())
 
+Both clients hold an HTTP session with open connections, and both can be told
+to let go of it:
+
+.. code-block:: python
+
+  c.close_session()          # synchronous client
+  await c.close_async_session()   # asyncio client
+
+Neither is worth calling if you create one client and keep it for the life of
+the process, which is what most applications do. They matter when clients are
+created repeatedly, where the connections would otherwise be released only
+whenever the session happens to be garbage collected. A client cannot be used
+after being closed.
+
 +++++++++++++++++++
 Calling Conventions
 +++++++++++++++++++
