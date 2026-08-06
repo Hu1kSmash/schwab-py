@@ -576,9 +576,10 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(cm.exception.service, 'ACCT_ACTIVITY')
         self.assertEqual(cm.exception.command, 'SUBS')
 
-        # The point of the timeout: the lock is released, so the client is
+        # The point of the timeout: no lock is left held, so the client is
         # still usable rather than wedged forever.
-        self.assertFalse(self.client._lock.locked())
+        self.assertFalse(self.client._read_lock.locked())
+        self.assertFalse(self.client._request_lock.locked())
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -593,7 +594,111 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # arrive.
         await self.client.account_activity_sub()
 
-        self.assertFalse(self.client._lock.locked())
+        self.assertFalse(self.client._read_lock.locked())
+        self.assertFalse(self.client._request_lock.locked())
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_subscribe_does_not_block_behind_handle_message(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        # A stream which produces nothing until we say so, so handle_message
+        # parks inside recv() exactly as it does on a quiet market.
+        inbound = asyncio.Queue()
+
+        async def recv():
+            return await inbound.get()
+
+        socket.recv.side_effect = recv
+        socket.send.reset_mock()
+
+        listener = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)   # let it reach the read
+
+        subscribe = asyncio.create_task(
+                self.client.level_one_equity_subs(['SPY']))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # The whole point: the request goes out immediately rather than waiting
+        # for a message to arrive first.
+        socket.send.assert_awaited_once()
+
+        # The reader delivers the response to the waiting subscribe, without
+        # the subscribe ever needing the socket for itself.
+        await inbound.put(json.dumps(
+            self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')))
+        await asyncio.wait_for(subscribe, timeout=5)
+
+        # ... and handle_message is still waiting for a real message, which it
+        # gets when one actually arrives.
+        stream_item = self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')
+        await inbound.put(json.dumps(stream_item))
+        await asyncio.wait_for(listener, timeout=5)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_messages_are_dispatched_in_arrival_order(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        inbound = asyncio.Queue()
+
+        async def recv():
+            return await inbound.get()
+
+        socket.recv.side_effect = recv
+
+        seen = []
+        self.client.add_chart_equity_handler(
+                lambda m: seen.append(m['content'][0]['key']))
+
+        first = self.streaming_entry('CHART_EQUITY', 'SUBS',
+                                     [{'key': 'FIRST'}])
+        second = self.streaming_entry('CHART_EQUITY', 'SUBS',
+                                      [{'key': 'SECOND'}])
+
+        # A request is in flight, so it is the one reading. The message it
+        # reads is not its response, so it sets it aside for handle_message.
+        subscribe = asyncio.create_task(
+                self.client.chart_equity_subs(['GOOG']))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await inbound.put(json.dumps(first))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # Now a consumer starts reading too, and a second message arrives
+        # before the request has been answered.
+        listener = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+        await inbound.put(json.dumps(second))
+        await inbound.put(json.dumps(
+            self.success_response(1, 'CHART_EQUITY', 'SUBS')))
+
+        await asyncio.wait_for(subscribe, timeout=5)
+        await asyncio.wait_for(listener, timeout=5)
+        await asyncio.wait_for(self.client.handle_message(), timeout=5)
+
+        # The message which arrived first must be handled first, even though a
+        # request was reading when it arrived and a consumer read the next one.
+        self.assertEqual(['FIRST', 'SECOND'], seen)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_read_failure_fails_a_waiting_request(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        # A request is in flight when the connection drops. It must fail rather
+        # than wait for a reply which can no longer arrive.
+        socket.recv.side_effect = ConnectionError('connection lost')
+
+        with self.assertRaises(ConnectionError):
+            await self.client.level_one_equity_subs(['SPY'])
+
+        self.assertFalse(self.client._read_lock.locked())
+        self.assertFalse(self.client._request_lock.locked())
+        self.assertIsNone(self.client._pending_request)
 
     @no_duplicates
     async def test_response_timeout_is_configurable(self):
