@@ -8,6 +8,81 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.10.0
+
+The rest of the production audit -- the findings which were real but not
+urgent, plus the one piece of design it turned up.
+
+One behaviour change worth reading before upgrading: a rejected token refresh
+now raises a schwab-py exception rather than an authlib one.
+
+### Added
+
+**`TokenRefreshError`, so a failed refresh has a type of ours.** The session
+refreshes the token on the way past an ordinary request, so a refusal by
+Schwab surfaced from `get_quote` as
+`authlib.integrations.base_client.errors.OAuthError` -- a type this library
+never mentioned, from a package the user did not choose to depend on. Measured
+across the failure spectrum, callers were catching three different third-party
+types and none of them ours.
+
+`schwab.utils.TokenRefreshError` now wraps it, keeping the original as
+`__cause__` and carrying the token's age:
+
+```python
+from schwab.utils import TokenRefreshError
+
+try:
+    r = c.get_quote('AAPL')
+except TokenRefreshError as e:
+    if e.token_age is not None and e.token_age > 7 * 24 * 60 * 60:
+        alert('token past its seven day window, log in again')
+    else:
+        retry_later()
+```
+
+It deliberately does **not** classify the failure as terminal or transient.
+Schwab documents the seven day refresh token term but not what the token
+endpoint returns when that term expires, so a classifier keyed on error codes
+would be built on a payload shape nobody has seen. The age is documented; the
+error code is not. Offered upstream as #263.
+
+**`Client.close_session()`.** `AsyncClient` could always be closed and the
+synchronous client could not, so an application creating clients repeatedly
+held their connections until each session happened to be garbage collected.
+Both are now documented, which neither was. Offered upstream as #265.
+
+### Fixed
+
+**Temporary token files left behind by a hard kill are now swept.** The
+cleanup on the exception path never runs for a `SIGKILL`, and what a killed
+write leaves behind is not an empty file -- it is a complete, readable copy of
+the token. Measured: 25 processes killed inside the write window left 12 of
+them, and nothing ever removed them. A refresh token stays valid for the rest
+of its seven days, so a process which crash-loops accumulates live credentials
+next to its token file. Each subsequent write now removes any it finds, but
+only files matching this library's own temporary name, and only once they are
+a minute old -- another process may be partway through its own write, and
+deleting its temporary file would break it. Added to #232, which introduced
+the temporary file.
+
+**The wait for the login callback server is bounded, and checks what
+answered.** A server which started but never answered left
+`client_from_login_flow` spinning with nothing on screen to say why; it was
+still going when killed at 12 seconds. Worse, the status check's response was
+assigned and never read, so *any* listener on that port counted as the
+callback server -- and continuing hands it the login redirect, which carries an
+authorization code good enough to take over the account. A non-200 now refuses
+the flow. Interactive path only. Offered upstream as #264.
+
+### Documentation
+
+`client_from_access_functions` said "Please see this example for details"
+about the exact signatures a custom token-storage function must have, and
+linked to a file which returns 404 in this fork and upstream. The one place
+the signatures were explained was the one place that was not there. They are
+now written out inline, where they cannot rot the same way.
+
 ## 1.9.0
 
 From a production-readiness audit which mostly ran the library rather than
