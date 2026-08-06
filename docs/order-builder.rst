@@ -64,7 +64,8 @@ by :func:`schwab.orders.equities.equity_buy_limit`:
 
 Some key points are:
 
- * The ``LIMIT`` order type notifies TD that you'd like to place a limit order.
+ * The ``LIMIT`` order type notifies Schwab that you'd like to place a limit
+   order.
  * The order strategy type is ``SINGLE``, meaning this order is not a composite 
    order.
  * The order leg collection contains a single leg to purchase the equity.
@@ -73,7 +74,7 @@ Some key points are:
 
 If this seems like a lot of detail to specify a rather simple order, it is. The 
 thing about the order spec object is that it can express *every* order that can 
-be made through the TD Ameritrade API. For an advanced example, here is a order 
+be made through the Schwab API. For an advanced example, here is an order 
 spec for a standing order to enter a long position in ``GOOG`` at $1310 or less 
 that triggers a one-cancels-other order that exits the position if the price 
 rises to $1400 or falls below $1250:
@@ -401,7 +402,7 @@ Complex Options Strategies
 ++++++++++++++++++++++++++
 
 Schwab supports a number of complex options strategies. These strategies are 
-complex affairs, with each leg of the trade specified in the order legs. TD 
+complex affairs, with each leg of the trade specified in the order legs. Schwab
 performs additional validation on these strategies, so they are somewhat 
 complicated to place. However, the benefit is more flexibility, as trades like 
 trailing stop orders based on net debit/credit can be specified.
