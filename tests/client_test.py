@@ -2211,6 +2211,74 @@ class _TestClient:
         self.assertEqual(str(cm.exception), 'cusip must be passed as str')
 
 
+    # ISO-8601 datetime parameters
+
+
+    @no_duplicates
+    def test_orders_aware_datetime_is_converted_to_utc(self):
+        # Schwab documents fromEnteredTime/toEnteredTime as
+        # yyyy-MM-dd'T'HH:mm:ss.SSSZ -- the trailing Z means UTC. A datetime
+        # which carries a non-UTC timezone therefore has to be converted, not
+        # just formatted, or the wall clock of another zone is sent labelled as
+        # UTC.
+        eastern = pytz.timezone('America/New_York')
+        # 2024-06-05 04:03:02 UTC, expressed in New York as 00:03:02-04:00.
+        aware = eastern.localize(
+                datetime.datetime(year=2024, month=6, day=5,
+                                  hour=0, minute=3, second=2))
+
+        self.client.get_orders_for_account(
+                ACCOUNT_HASH,
+                from_entered_datetime=aware,
+                to_entered_datetime=aware)
+
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
+                'fromEnteredTime': '2024-06-05T04:03:02Z',
+                'toEnteredTime': '2024-06-05T04:03:02Z',
+            })
+
+
+    @no_duplicates
+    def test_transactions_aware_datetime_is_converted_to_utc(self):
+        eastern = pytz.timezone('America/New_York')
+        aware = eastern.localize(
+                datetime.datetime(year=2024, month=6, day=5,
+                                  hour=0, minute=3, second=2))
+
+        self.client.get_transactions(
+                ACCOUNT_HASH, start_date=aware, end_date=aware)
+
+        self.mock_session.get.assert_called_once_with(
+            self.make_url(
+                '/trader/v1/accounts/{accountHash}/transactions'), params={
+                'types': ','.join(
+                    t.value for t in self.client.Transactions.TransactionType),
+                'startDate': '2024-06-05T04:03:02Z',
+                'endDate': '2024-06-05T04:03:02Z',
+            })
+
+
+    @no_duplicates
+    def test_utc_aware_datetime_is_unchanged(self):
+        # The same instant already expressed in UTC must serialize identically,
+        # so the conversion cannot be doing something zone-specific.
+        aware = datetime.datetime(year=2024, month=6, day=5,
+                                  hour=4, minute=3, second=2,
+                                  tzinfo=datetime.timezone.utc)
+
+        self.client.get_orders_for_account(
+                ACCOUNT_HASH,
+                from_entered_datetime=aware,
+                to_entered_datetime=aware)
+
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
+                'fromEnteredTime': '2024-06-05T04:03:02Z',
+                'toEnteredTime': '2024-06-05T04:03:02Z',
+            })
+
+
 class ClientTest(_TestClient, unittest.TestCase):
     """
     Subclass set to use Client and MagicMock
