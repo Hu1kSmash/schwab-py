@@ -125,9 +125,15 @@ gone.
 Subscribing to Streams
 ----------------------
 
-These functions have names that follow the pattern ``SERVICE_NAME_subs``. These 
-functions send a request to enable streaming data for a particular data stream. 
-They are *not* thread safe, so they should only be called in series.
+These functions have names that follow the pattern ``SERVICE_NAME_subs``. These
+functions send a request to enable streaming data for a particular data stream.
+They are *not* thread safe, so they should only be called from one thread.
+
+They can, however, be called while another coroutine is waiting in
+``handle_message()``. One request is in flight at a time, and whichever coroutine
+is reading the socket hands the response to whoever is waiting for it, so a
+subscription made against a quiet stream is sent immediately rather than waiting
+for a message to arrive first.
 
 When subscriptions are called multiple times on the same stream, the results 
 vary. What's more, these results aren't documented in the official 
@@ -158,8 +164,8 @@ Un-Subscribing to Streams
 These functions have names that follow the pattern ``SERVICE_NAME_unsubs``.
 These functions send a request to disable the symbols of a streaming data for a
 particular data stream. They are *not* thread safe, so they should only be
-called in series. When unsubscribing to services with symbols, symbols which
-were not explicitly unsubscribed remain subscribed.
+called from one thread. When unsubscribing to services with symbols, symbols
+which were not explicitly unsubscribed remain subscribed.
 
 
 --------------------
