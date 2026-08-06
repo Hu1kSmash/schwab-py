@@ -163,9 +163,14 @@ class RedirectTimeoutError(Exception):
 class RedirectServerExitedError(Exception):
     pass
 
-# Capture the real time.time so that we can use it in server initialization 
+# Capture the real time.time so that we can use it in server initialization
 # while simultaneously mocking it in testing
 __TIME_TIME = time.time
+
+#: Seconds to wait for the local callback server to start answering before
+#: giving up. Generous: it only has to bind a port and start a thread, but a
+#: loaded machine can take a moment.
+SERVER_STARTUP_TIMEOUT = 30.0
 
 def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                            asyncio=False, enforce_enums=False, 
@@ -278,7 +283,11 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                 pass
 
     with callback_server():
-        # Wait until the server successfully starts
+        # Wait until the server successfully starts. Bounded, because a server
+        # which comes up but never answers would otherwise leave this spinning
+        # with nothing on screen to say why.
+        startup_deadline = __TIME_TIME() + SERVER_STARTUP_TIMEOUT
+
         while True:
             # Check if the server is still alive
             if server.exitcode is not None:
@@ -287,7 +296,11 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                         'Redirect server exited. Are you attempting to use a ' +
                         'callback URL without a port number specified?')
 
-            import traceback
+            if __TIME_TIME() >= startup_deadline:
+                raise RedirectServerExitedError(
+                        ('Redirect server did not become ready within {} '
+                         'seconds. It is running, but not answering on port '
+                         '{}.').format(SERVER_STARTUP_TIMEOUT, callback_port))
 
             # Attempt to send a request to the server
             try:
@@ -299,9 +312,22 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                     resp = httpx.get(
                             'https://127.0.0.1:{}/schwab-py-internal/status'.format(
                                 callback_port), verify=False)
-                break
-            except httpx.ConnectError as e:
+            except httpx.ConnectError:
+                # Not listening yet.
                 pass
+            else:
+                # It answered. Anything other than success means the port is
+                # occupied by something which is not our callback server, and
+                # continuing would hand the login redirect to a stranger.
+                if resp.status_code == httpx.codes.OK:
+                    break
+
+                raise RedirectServerExitedError(
+                        ('Something other than the schwab-py callback server '
+                         'is listening on port {}: it answered the status '
+                         'check with HTTP {}. Refusing to start a login flow '
+                         'which would send your authorization code to '
+                         'it.').format(callback_port, resp.status_code))
 
             time.sleep(0.1)
 
