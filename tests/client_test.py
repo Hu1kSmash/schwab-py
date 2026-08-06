@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import httpx
 import logging
 import os
 import pytest
@@ -8,8 +9,10 @@ import unittest
 import warnings
 from unittest.mock import ANY, MagicMock, Mock, patch
 
+from authlib.integrations.base_client.errors import OAuthError
 from schwab.client import AsyncClient, Client
 from schwab.orders.generic import OrderBuilder
+from schwab.utils import TokenRefreshError
 
 from .utils import AsyncMagicMock, ResyncProxy, no_duplicates
 
@@ -2362,6 +2365,88 @@ class _TestClient:
         naive_warnings = [str(w.message) for w in caught
                           if 'no timezone' in str(w.message)]
         self.assertEqual([], naive_warnings)
+
+
+    # Token refresh failures
+
+
+    @no_duplicates
+    def test_oauth_error_becomes_a_schwab_exception(self):
+        # The refresh happens on the way past an ordinary request, so this is
+        # what an application which never touches the token directly sees.
+        self.mock_session.get.side_effect = OAuthError(
+                error='unsupported_token_type',
+                description='Bad refresh_token')
+
+        with self.assertRaises(TokenRefreshError):
+            self.client.get_quote(SYMBOL)
+
+
+    @no_duplicates
+    def test_token_refresh_error_preserves_the_original(self):
+        original = OAuthError(error='unsupported_token_type',
+                              description='Bad refresh_token')
+        self.mock_session.get.side_effect = original
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertIs(original, cm.exception.__cause__)
+        self.assertIn('Bad refresh_token', str(cm.exception))
+
+
+    @no_duplicates
+    def test_token_refresh_error_reports_token_age(self):
+        # The age is the signal worth reasoning about: Schwab documents the
+        # seven day term but not what it returns when the term expires.
+        eight_days = 8 * 60 * 60 * 24
+
+        metadata = Mock()
+        metadata.token_age.return_value = eight_days
+        self.client.token_metadata = metadata
+
+        self.mock_session.get.side_effect = OAuthError(
+                error='unsupported_token_type',
+                description='Bad refresh_token')
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertEqual(eight_days, cm.exception.token_age)
+        self.assertIn('8.0 days old', str(cm.exception))
+
+
+    @no_duplicates
+    def test_token_refresh_error_without_metadata(self):
+        # Clients built directly, as the tests do, have no token metadata.
+        self.assertIsNone(self.client.token_metadata)
+
+        self.mock_session.get.side_effect = OAuthError(
+                error='unsupported_token_type',
+                description='Bad refresh_token')
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertIsNone(cm.exception.token_age)
+        self.assertIn('age is unknown', str(cm.exception))
+
+
+    @no_duplicates
+    def test_network_errors_are_not_relabelled_as_token_errors(self):
+        # A connection failure while refreshing and one while fetching a quote
+        # are the same problem, and are not distinguishable from here. Claiming
+        # the token is at fault would be a guess.
+        self.mock_session.get.side_effect = httpx.ConnectError('no route')
+
+        with self.assertRaises(httpx.ConnectError):
+            self.client.get_quote(SYMBOL)
+
+
+    @no_duplicates
+    def test_successful_requests_are_unaffected(self):
+        self.client.get_quote(SYMBOL)
+        self.mock_session.get.assert_called_once()
 
 
 class ClientTest(_TestClient, unittest.TestCase):

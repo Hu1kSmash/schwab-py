@@ -125,9 +125,9 @@ means most users will want to adopt some sort of proactive token refreshing
 method.  For instance, if you trade during the weekdays, you may want to delete 
 and recreate your token on Sunday before the markets open. 
 
-For users wanting to craft more custom workflows, the client :meth:`exposes the 
-age of the token <schwab.client.Client.token_age>`. Note, however, that the 
-seven day token age restriction is implemented by Schwab, and so the token may 
+For users wanting to craft more custom workflows, the client :meth:`exposes the
+age of the token <schwab.client.Client.token_age>`. Note, however, that the
+seven day token age restriction is implemented by Schwab, and so the token may
 become expired sooner *or* later than seven days.
 
 
@@ -174,6 +174,42 @@ wherever they are accepted, and a warning is emitted when there was any. The
 warning is worth acting on: the value is being corrected in passing, but the
 copy it came from is still wrong. Whitespace *inside* a value is left alone,
 since that is the caller's value and not a paste artifact.
+
+
++++++++++++++++++++++++++
+Catching a Failed Refresh
++++++++++++++++++++++++++
+
+Every request refreshes the token first if it is close to expiring, so a
+refresh Schwab rejects surfaces from an ordinary call rather than from anything
+token-shaped:
+
+.. code-block:: python
+
+  from schwab.utils import TokenRefreshError
+
+  try:
+      r = c.get_quote('AAPL')
+  except TokenRefreshError as e:
+      # e.token_age is seconds since the token was first authorized, or None
+      # if this client was built without token metadata.
+      if e.token_age is not None and e.token_age > 7 * 24 * 60 * 60:
+          alert('token past its seven day window, log in again')
+      else:
+          retry_later()
+
+.. autoclass:: schwab.utils.TokenRefreshError
+
+**The age is the signal, not the error.** Schwab documents the seven day term
+but not what it returns when that term expires, so this library will not tell
+you from the error itself whether a retry can succeed. What it can tell you is
+how old the token is, and a token past seven days is not coming back without
+someone completing the login flow again.
+
+Only a refusal by the token endpoint is reported this way. A connection failure
+while refreshing raises the ``httpx`` exception it always did, because a
+connection failure while refreshing and one while fetching a quote are the same
+problem and cannot be told apart from inside the library.
 
 
 ----------------------
