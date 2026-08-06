@@ -11,8 +11,9 @@ import json
 import logging
 import schwab
 import urllib.parse
+import warnings
 
-import websockets.legacy.client as ws_client
+import websockets.asyncio.client as ws_client
 
 from .utils import EnumEnforcer, LazyLog
 
@@ -96,6 +97,61 @@ class _Handler:
             return new_msg
         else:
             return msg
+
+
+# Kwargs which websockets 14.0 renamed when it introduced the asyncio
+# implementation, mapped to their current names.
+_RENAMED_CONNECT_ARGS = {
+    'extra_headers': 'additional_headers',
+}
+
+# Kwargs which websockets 14.0 removed outright, with no equivalent in the
+# asyncio implementation.
+_REMOVED_CONNECT_ARGS = ('create_protocol', 'read_limit')
+
+
+def _adapt_connect_args(websocket_connect_args):
+    '''
+    Adapts user-provided ``websocket_connect_args`` to the ``websockets``
+    asyncio client.
+
+    ``StreamClient.login`` documents ``websocket_connect_args`` as a
+    passthrough to the ``websockets`` ``connect()`` call, so users may be
+    passing kwargs which were valid under the legacy implementation. websockets
+    14.0 renamed some of those and removed others. Translate the renames so
+    existing code keeps working, and raise an actionable error for the removals
+    rather than letting an opaque ``TypeError`` surface from deep inside this
+    library.
+    '''
+    adapted = dict(websocket_connect_args)
+
+    for old_name, new_name in _RENAMED_CONNECT_ARGS.items():
+        if old_name not in adapted:
+            continue
+
+        if new_name in adapted:
+            raise ValueError(
+                'websocket_connect_args contains both {!r} and {!r}. {!r} is '
+                'the name used by websockets 14.0 and later; please pass only '
+                'that one.'.format(old_name, new_name, new_name))
+
+        warnings.warn(
+            'websocket_connect_args[{!r}] was renamed to {!r} in websockets '
+            '14.0. It is being translated automatically, but please update '
+            'your code as this shim will be removed in a future '
+            'release.'.format(old_name, new_name),
+            DeprecationWarning, stacklevel=4)
+
+        adapted[new_name] = adapted.pop(old_name)
+
+    for removed in _REMOVED_CONNECT_ARGS:
+        if removed in adapted:
+            raise ValueError(
+                'websocket_connect_args[{!r}] was removed in websockets 14.0 '
+                'and has no equivalent in the asyncio implementation. Please '
+                'remove it.'.format(removed))
+
+    return adapted
 
 
 class StreamClient(EnumEnforcer):
@@ -201,6 +257,8 @@ class StreamClient(EnumEnforcer):
 
         # Initialize socket
         wss_url = stream_info['streamerSocketUrl']
+
+        websocket_connect_args = _adapt_connect_args(websocket_connect_args)
 
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
@@ -356,11 +414,19 @@ class StreamClient(EnumEnforcer):
         All stream operations are available after this method completes.
 
         :param websocket_connect_args: ``dict`` of additional arguments to pass
-                                       to the websocket ``connect`` call. Useful 
-                                       for setting timeouts and other connection 
-                                       parameters. See `the official 
-                                       documentation <https://websockets.readthedocs.io/en/stable/reference/client.html#websockets.client.connect>`__
+                                       to the websocket ``connect`` call. Useful
+                                       for setting timeouts and other connection
+                                       parameters. See `the official
+                                       documentation <https://websockets.readthedocs.io/en/stable/reference/asyncio/client.html#websockets.asyncio.client.connect>`__
                                        for details.
+
+                                       Note that websockets 14.0 renamed
+                                       ``extra_headers`` to
+                                       ``additional_headers`` and removed
+                                       ``create_protocol`` and ``read_limit``.
+                                       ``extra_headers`` is still accepted and
+                                       translated, but emits a
+                                       ``DeprecationWarning``.
         '''
 
         # Fetch required data and initialize the client

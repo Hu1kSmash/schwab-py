@@ -2,6 +2,7 @@ import schwab
 import urllib.parse
 import json
 import copy
+import warnings
 from .utils import account_preferences, has_diff, MockResponse, no_duplicates
 from unittest.mock import ANY, AsyncMock, call, MagicMock, Mock, patch
 from unittest import IsolatedAsyncioTestCase
@@ -300,6 +301,79 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         await self.client.login(websocket_connect_args={'args': 'yes'})
 
         ws_connect.assert_awaited_once_with(ANY, ssl='ssl_context', args='yes')
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_websocket_connect_args_extra_headers_translated(
+            self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        socket.recv.side_effect = [json.dumps(self.success_response(
+            0, 'ADMIN', 'LOGIN'))]
+
+        headers = {'X-Custom-Header': 'value'}
+        with self.assertWarns(DeprecationWarning):
+            await self.client.login(
+                websocket_connect_args={'extra_headers': headers})
+
+        ws_connect.assert_awaited_once_with(ANY, additional_headers=headers)
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_websocket_connect_args_both_header_names(
+            self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        with self.assertRaises(ValueError):
+            await self.client.login(websocket_connect_args={
+                'extra_headers': {'X-Custom-Header': 'value'},
+                'additional_headers': {'X-Custom-Header': 'value'}})
+
+        ws_connect.assert_not_awaited()
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_websocket_connect_args_removed(self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        for removed in ('create_protocol', 'read_limit'):
+            with self.assertRaises(ValueError):
+                await self.client.login(
+                    websocket_connect_args={removed: object()})
+
+        ws_connect.assert_not_awaited()
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_websocket_connect_args_unaffected(self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        socket.recv.side_effect = [json.dumps(self.success_response(
+            0, 'ADMIN', 'LOGIN'))]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', DeprecationWarning)
+            await self.client.login(
+                websocket_connect_args={'additional_headers': {'a': 'b'}})
+
+        ws_connect.assert_awaited_once_with(
+            ANY, additional_headers={'a': 'b'})
 
 
     @no_duplicates
