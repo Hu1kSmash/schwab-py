@@ -69,7 +69,7 @@ jobs:
         python3 setup.py sdist bdist_wheel
         twine check dist/*
 
-  readthedocs-test:
+  docs:
     strategy:
       fail-fast: false
       matrix:
