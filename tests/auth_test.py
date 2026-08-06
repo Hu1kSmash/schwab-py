@@ -1050,3 +1050,62 @@ class EasyClientTest(unittest.TestCase):
 
         c = auth.easy_client(API_KEY, APP_SECRET, CALLBACK_URL, self.token_path,
                              max_token_age=0)
+
+
+class NormalizeCredentialTest(unittest.TestCase):
+    """A key or secret copy-pasted out of the developer console easily picks up
+    a trailing space or newline. Schwab does not handle that consistently, so
+    the symptom is an intermittent authentication failure a long way from its
+    cause."""
+
+    def setUp(self):
+        self.normalize = [
+                v for k, v in vars(auth).items()
+                if 'normalize_credential' in k][0]
+
+    @no_duplicates
+    def test_strips_and_warns(self):
+        for value in (' KEY123 ', 'KEY123\n', '\tKEY123'):
+            with self.assertWarns(UserWarning):
+                self.assertEqual('KEY123', self.normalize(value, 'api_key'))
+
+    @no_duplicates
+    def test_clean_value_is_untouched_and_silent(self):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            self.assertEqual('KEY123', self.normalize('KEY123', 'api_key'))
+
+    @no_duplicates
+    def test_internal_whitespace_is_left_alone(self):
+        # Only surrounding whitespace is a paste artifact. Anything in the
+        # middle is the caller's value and not ours to alter.
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            self.assertEqual('KEY 123', self.normalize('KEY 123', 'api_key'))
+
+    @no_duplicates
+    def test_non_string_passes_through(self):
+        self.assertIsNone(self.normalize(None, 'api_key'))
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_entry_point_strips_before_use(
+            self, async_session, sync_session, client):
+        tmp = tempfile.TemporaryDirectory()
+        token_path = os.path.join(tmp.name, 'token.json')
+        with open(token_path, 'w') as f:
+            json.dump({'token': {'token': 'yes'},
+                       'creation_timestamp': TOKEN_CREATION_TIMESTAMP}, f)
+
+        with self.assertWarns(UserWarning):
+            auth.client_from_token_file(
+                    token_path, ' ' + API_KEY + ' ', APP_SECRET + '\n')
+
+        # The stripped values are what actually reach the session.
+        _, kwargs = sync_session.call_args
+        self.assertEqual(APP_SECRET, kwargs['client_secret'])
+        self.assertEqual(API_KEY, sync_session.call_args[0][0])
