@@ -168,8 +168,9 @@ class ResponseTimeoutError(Exception):
 class StreamClient(EnumEnforcer):
 
     #: Seconds to wait for the streaming server to respond to a request before
-    #: giving up. Requests are made while holding a lock which serializes all
-    #: stream operations, so waiting forever wedges the whole client.
+    #: giving up. A request which is never answered would otherwise wait
+    #: forever, and only one request is outstanding at a time, so it would also
+    #: block every subsequent one.
     DEFAULT_RESPONSE_TIMEOUT = 60.0
 
     def __init__(self, client, *, account_id=None,
