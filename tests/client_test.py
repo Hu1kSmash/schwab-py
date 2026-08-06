@@ -1063,6 +1063,48 @@ class _TestClient:
             params={'symbol': 'AAPL'})
 
 
+    # Schwab honours `period` and ignores the date range when both are sent, so
+    # a caller who asks for a range and still gets a period's worth of data has
+    # been silently ignored. get_price_history's own docstring says period
+    # "should not be provided if start_datetime and end_datetime".
+
+    @patch('schwab.client.base.datetime.datetime', mockdatetime)
+    def test_price_history_helpers_omit_period_when_given_a_range(self):
+        helpers = [name for name in dir(self.client)
+                   if name.startswith('get_price_history_every')]
+        self.assertEqual(7, len(helpers))
+
+        for name in helpers:
+            for kwargs in ({'start_datetime': EARLIER_DATETIME},
+                           {'end_datetime': EARLIER_DATETIME},
+                           {'start_datetime': EARLIER_DATETIME,
+                            'end_datetime': NOW_DATETIME}):
+                self.mock_session.get.reset_mock()
+                getattr(self.client, name)('AAPL', **kwargs)
+                params = self.mock_session.get.call_args[1]['params']
+
+                self.assertNotIn(
+                        'period', params,
+                        '{} sent period alongside {}'.format(
+                            name, sorted(kwargs)))
+                self.assertIn('startDate', params)
+                self.assertIn('endDate', params)
+
+    @patch('schwab.client.base.datetime.datetime', mockdatetime)
+    def test_price_history_helpers_keep_period_without_a_range(self):
+        # With no range asked for, the synthesized one spans decades and is not
+        # something to request. period is what should describe the request.
+        helpers = [name for name in dir(self.client)
+                   if name.startswith('get_price_history_every')]
+
+        for name in helpers:
+            self.mock_session.get.reset_mock()
+            getattr(self.client, name)('AAPL')
+            params = self.mock_session.get.call_args[1]['params']
+
+            self.assertIn('period', params,
+                          '{} dropped period with no range'.format(name))
+
     # get_price_history_every_minute
 
     @patch('schwab.client.base.datetime.datetime', mockdatetime)
@@ -1091,8 +1133,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1111,8 +1151,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1235,8 +1273,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1255,8 +1291,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1378,8 +1412,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1398,8 +1430,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1521,8 +1551,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1541,8 +1569,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1664,8 +1690,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1684,8 +1708,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1807,8 +1829,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1827,8 +1847,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1950,8 +1968,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # DAILY
                 'frequency': 1,
@@ -1970,8 +1986,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # DAILY
                 'frequency': 1,
