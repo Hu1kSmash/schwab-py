@@ -8,6 +8,34 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.7.2
+
+### Fixed
+
+**Cancelling a stream request left the client unusable.** A request waiting for
+its response races two things: the response arriving via whoever is currently
+reading the socket, and the socket becoming free so it can read for itself. The
+second is an `asyncio.Lock.acquire()`, and it can succeed at the same moment the
+waiter stops waiting.
+
+That race was handled when the wait timed out, but not when the waiting
+coroutine was cancelled. A cancellation delivered while the acquire had already
+completed skipped the branch which releases, so the read lock was left held by
+nobody:
+
+    after cancel: read_lock held=True, request_lock held=False
+    client still usable after a cancelled request: no
+
+Nothing could read after that, for the rest of the process. Every exit from the
+wait now releases what it took.
+
+This was introduced in 1.7.0 by the change which stopped requests blocking
+behind a waiting consumer, so it does not affect 1.6.0 or earlier. Anyone on
+1.7.0 or 1.7.1 who cancels stream operations -- during shutdown, or by wrapping
+a subscription in a timeout -- should take this.
+
+---
+
 ## 1.7.1
 
 No library changes: `schwab/` is identical to 1.7.0 apart from the version string.
