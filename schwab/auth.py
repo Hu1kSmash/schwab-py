@@ -516,9 +516,24 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
     simply accept the token object and use ``json`` to serialize and
     deserialize it, without inspecting it in any way.
 
-    Note the read and write methods must take particular arguments. Please see 
-    `this example <https://github.com/alexgolec/schwab-py/tree/master/examples/
-    client_from_access_functions.py>`__ for details.
+    The two functions have specific signatures:
+
+    .. code-block:: python
+
+      def token_read_func():
+          # Returns whatever token_write_func last stored, as the object it was
+          # given. Called once, when the client is created.
+          ...
+
+      def token_write_func(token, *args, **kwargs):
+          # Stores the token. Called whenever it is refreshed. The extra
+          # arguments come from the underlying OAuth session and can be
+          # ignored, but they have to be accepted.
+          ...
+
+    Store and return the token object as it is given to you. It is a plain
+    ``dict``, so ``json`` is enough, and inspecting or reshaping it is a good
+    way to end up with a token this library cannot load.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret. Provided upon :ref:`app approval 
