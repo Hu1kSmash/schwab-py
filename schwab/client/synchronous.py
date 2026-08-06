@@ -9,6 +9,21 @@ import json
 
 
 class Client(BaseClient):
+
+    def close_session(self):
+        '''Closes the underlying HTTP session and the connections it is
+        holding.
+
+        Only worth calling if you are creating clients repeatedly -- one client
+        held for the life of the process needs nothing. Without it, connections
+        are released whenever the session is garbage collected, which is not a
+        moment anything guarantees.
+
+        The client cannot be used after this. :meth:`AsyncClient
+        .close_async_session` is the equivalent for the asyncio client.
+        '''
+        self.session.close()
+
     def _get_request(self, path, params):
         dest = 'https://api.schwabapi.com' + path
 
