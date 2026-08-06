@@ -93,6 +93,53 @@ def __write_token_file(token_path, token):
             pass
         raise
 
+    __sweep_stale_token_temp_files(directory)
+
+
+#: How long a temporary token file must go untouched before a later write will
+#: remove it. A write takes about a millisecond, so anything this old is not a
+#: write in progress.
+TOKEN_TEMP_FILE_MAX_AGE = 60.0
+
+
+def __sweep_stale_token_temp_files(directory):
+    '''Removes temporary token files abandoned by a process which was killed.
+
+    The cleanup above runs on the way out of an exception, which a SIGKILL does
+    not give anybody. What is left behind is not an empty file: it is a
+    complete, readable copy of the token, holding a refresh token which stays
+    valid for the rest of its seven days. Nothing else ever removes them, so a
+    process which crashes repeatedly leaves a growing pile of live credentials
+    next to the token file.
+
+    Only files matching the name this module gives its own temporaries are
+    considered, and only once they are old enough that they cannot be a write
+    in progress -- another process may be partway through one right now, and
+    deleting its temporary file would break it. The token directory is often
+    the user's own, so anything else found there is none of our business.
+
+    Failures are ignored throughout. This is tidying, and it must never be the
+    reason a token write appears to fail.
+    '''
+    try:
+        names = os.listdir(directory)
+    except OSError:  # pragma: no cover
+        return
+
+    cutoff = time.time() - TOKEN_TEMP_FILE_MAX_AGE
+
+    for name in names:
+        if not (name.startswith('.schwab-py-token') and name.endswith('.tmp')):
+            continue
+
+        path = os.path.join(directory, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.unlink(path)
+        except OSError:  # pragma: no cover
+            # Vanished under us, or not ours to delete. Either way, fine.
+            pass
+
 
 def __make_update_token_func(token_path):
     def update_token(t, *args, **kwargs):
