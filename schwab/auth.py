@@ -47,6 +47,11 @@ def __write_token_file(token_path, token):
     refresh -- would leave a partial file that cannot be parsed on the next
     start, and recovering from that requires a fresh interactive login.
     '''
+    # Renaming onto a symlink replaces the link itself rather than writing
+    # through it, which would silently orphan whatever the caller pointed it at.
+    # Resolve first so a linked token file keeps working as it did.
+    token_path = os.path.realpath(token_path)
+
     directory = os.path.dirname(os.path.abspath(token_path)) or '.'
 
     # The temporary file must share a filesystem with the destination for the
@@ -64,6 +69,23 @@ def __write_token_file(token_path, token):
 
         os.chmod(tmp_path, TOKEN_FILE_MODE)
         os.replace(tmp_path, token_path)
+
+        # The rename is atomic, but the directory entry recording it is only
+        # durable once the directory itself is flushed. Not every platform
+        # permits opening a directory, so this is best effort: failing to sync
+        # here can only mean the previous token survives a crash, which is a
+        # great deal better than neither surviving.
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+        except OSError:  # pragma: no cover
+            pass
+        else:
+            try:
+                os.fsync(dir_fd)
+            except OSError:  # pragma: no cover
+                pass
+            finally:
+                os.close(dir_fd)
     except BaseException:
         try:
             os.unlink(tmp_path)
