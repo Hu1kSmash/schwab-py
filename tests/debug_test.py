@@ -139,6 +139,17 @@ class RegisterRedactionsTest(unittest.TestCase):
         register_redactions.assert_not_called()
 
     @no_duplicates
+    @patch('schwab.debug._COLLECT_RESPONSE_REDACTIONS', False)
+    @patch('schwab.debug.register_redactions', new_callable=Mock)
+    def test_register_from_request_does_nothing_when_not_collecting(
+            self, register_redactions):
+        # Walking every response is only worth paying for when the logs are
+        # going to be shared, which is what enable_bug_report_logging signals.
+        resp = MockResponse({'success': 1}, 200)
+        schwab.debug.register_redactions_from_response(resp)
+        register_redactions.assert_not_called()
+
+    @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
     def test_register_unparseable_json(self, register_redactions):
         class MR(MockResponse):
@@ -157,3 +168,19 @@ class EnableDebugLoggingTest(unittest.TestCase):
             schwab.debug.enable_bug_report_logging()
         except AttributeError:
             self.fail("debug.enable_bug_report_logging() raised AttributeError unexpectedly")
+
+
+class ClientRedactionWiringTest(unittest.TestCase):
+    '''The clients call register_redactions_from_response after every request.
+    A local definition of that name in either client module would shadow the
+    import and silently turn all response redaction into a no-op.'''
+
+    @no_duplicates
+    def test_clients_use_the_real_redactor(self):
+        from schwab.client import asynchronous, synchronous
+
+        for module in (synchronous, asynchronous):
+            self.assertIs(
+                    module.register_redactions_from_response,
+                    schwab.debug.register_redactions_from_response,
+                    '{} does not use the real redactor'.format(module.__name__))
