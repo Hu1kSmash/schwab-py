@@ -83,11 +83,19 @@ class BaseClient(EnumEnforcer):
             raise ValueError(error_str)
 
     def _format_date_as_iso(self, var_name, dt):
-        '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ'''
+        '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ssZ'''
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
 
         if not isinstance(dt, self._DATETIME):
             dt = datetime.datetime(year=dt.year, month=dt.month, day=dt.day)
+
+        # The trailing Z asserts UTC, so a datetime carrying some other
+        # timezone has to be converted rather than merely formatted. Without
+        # this, 00:03:02-04:00 is sent as '00:03:02Z', which is a different
+        # instant by the size of the offset. A naive datetime has no timezone
+        # to convert from and is passed through as written.
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(datetime.timezone.utc)
 
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
