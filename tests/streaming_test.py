@@ -686,6 +686,52 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_cancelling_a_request_does_not_wedge_the_client(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        # A request which is reading when it gets cancelled. The cancellation
+        # can arrive after the read lock has been acquired but before the
+        # acquiring branch is entered, so releasing it has to happen on every
+        # exit rather than only the ones that read something.
+        never = asyncio.Event()
+
+        async def never_responds():
+            await never.wait()
+
+        socket.recv.side_effect = never_responds
+
+        subscribe = asyncio.create_task(
+                self.client.level_one_equity_subs(['SPY']))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        subscribe.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await subscribe
+        await asyncio.sleep(0)
+
+        self.assertFalse(self.client._read_lock.locked())
+        self.assertFalse(self.client._request_lock.locked())
+        self.assertIsNone(self.client._pending_request)
+
+        # And the client still works afterwards, which is the point.
+        inbound = asyncio.Queue()
+
+        async def recv():
+            return await inbound.get()
+
+        socket.recv.side_effect = recv
+        again = asyncio.create_task(
+                self.client.level_one_equity_subs(['SPY']))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await inbound.put(json.dumps(
+            self.success_response(2, 'LEVELONE_EQUITIES', 'SUBS')))
+        await asyncio.wait_for(again, timeout=5)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_read_failure_fails_a_waiting_request(self, ws_connect):
         socket = await self.login_and_get_socket(ws_connect)
 

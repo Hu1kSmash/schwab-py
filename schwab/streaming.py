@@ -441,12 +441,20 @@ class StreamClient(EnumEnforcer):
 
         while not future.done():
             acquire = asyncio.ensure_future(self._read_lock.acquire())
-            done, _ = await asyncio.wait(
-                    {acquire, future}, timeout=remaining(),
-                    return_when=asyncio.FIRST_COMPLETED)
+            became_reader = False
 
-            if acquire in done:
-                try:
+            # Every exit from this block goes through the finally, including
+            # being cancelled while waiting. Without that, a cancellation
+            # delivered after the acquire had already succeeded would leave the
+            # read lock held by nobody and wedge the client permanently.
+            try:
+                done, _ = await asyncio.wait(
+                        {acquire, future}, timeout=remaining(),
+                        return_when=asyncio.FIRST_COMPLETED)
+
+                became_reader = acquire in done and not acquire.cancelled()
+
+                if became_reader:
                     if future.done():
                         break
                     try:
@@ -468,19 +476,18 @@ class StreamClient(EnumEnforcer):
                         # dispatched first. appendleft here, pop from the right
                         # in _receive, so arrival order is preserved.
                         self._overflow_items.appendleft(frame)
-                finally:
+                elif not done:
+                    raise timed_out()
+            finally:
+                if became_reader:
                     self._read_lock.release()
-                continue
-
-            # We did not become the reader. Cancel the attempt, taking care
-            # of the race where it succeeded just as we gave up on it --
-            # otherwise the lock would be left held by nobody.
-            acquire.cancel()
-            if acquire.done() and not acquire.cancelled():
-                self._read_lock.release()
-
-            if not done:
-                raise timed_out()
+                else:
+                    # We did not become the reader, or we are unwinding. Give up
+                    # the attempt, handling the race where it succeeded just as
+                    # we stopped waiting for it.
+                    acquire.cancel()
+                    if acquire.done() and not acquire.cancelled():
+                        self._read_lock.release()
 
         return future.result()
 
