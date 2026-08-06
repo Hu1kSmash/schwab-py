@@ -82,9 +82,32 @@ class BaseClient(EnumEnforcer):
                     ', '.join(exp_type_names), name, value_type_name)
             raise ValueError(error_str)
 
+    def _warn_if_naive(self, var_name, dt):
+        '''Warns that a datetime carrying no timezone is ambiguous.
+
+        Schwab's date parameters name an instant, and a datetime with no
+        ``tzinfo`` does not. The two encodings resolve the ambiguity
+        differently -- the epoch-millisecond parameters read a naive datetime
+        as the host's local time, the ISO ones send its wall clock labelled as
+        UTC -- so the same code sends different requests on different machines.
+        Rather than pick one and silently reinterpret what the caller wrote,
+        say so and let them attach the timezone they meant.
+        '''
+        if isinstance(dt, self._DATETIME) and dt.tzinfo is None:
+            warnings.warn(
+                    ('{} was given a datetime with no timezone. Schwab\'s date '
+                     'parameters identify an instant, so the request depends on '
+                     'the timezone of the machine it is sent from. Attach one '
+                     'explicitly, for example '
+                     'datetime.datetime(..., tzinfo=datetime.timezone.utc) or '
+                     'zoneinfo.ZoneInfo(\'America/New_York\'), to get the same '
+                     'request everywhere.').format(var_name),
+                    stacklevel=4)
+
     def _format_date_as_iso(self, var_name, dt):
         '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ssZ'''
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
+        self._warn_if_naive(var_name, dt)
 
         if not isinstance(dt, self._DATETIME):
             dt = datetime.datetime(year=dt.year, month=dt.month, day=dt.day)
@@ -109,7 +132,10 @@ class BaseClient(EnumEnforcer):
     def _format_date_as_millis(self, var_name, dt):
         'Converts datetime objects to compatible millisecond values'
         self._assert_type(var_name, dt, [self._DATETIME])
+        self._warn_if_naive(var_name, dt)
 
+        # timestamp() reads a naive datetime as local time, which is what
+        # _warn_if_naive is about. An aware one converts unambiguously.
         return int(dt.timestamp() * 1000)
 
 
