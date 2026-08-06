@@ -3,8 +3,10 @@ completely unopinionated, and provides an easy-to-use wrapper around the TD
 Ameritrade HTTP API.'''
 
 from abc import ABC, abstractmethod
+from authlib.integrations.base_client.errors import OAuthError
 from enum import Enum
 
+import contextlib
 import datetime
 import json
 import logging
@@ -15,7 +17,7 @@ import warnings
 
 from schwab.orders.generic import OrderBuilder
 
-from ..utils import EnumEnforcer
+from ..utils import EnumEnforcer, TokenRefreshError
 
 
 def get_logger():
@@ -66,6 +68,43 @@ class BaseClient(EnumEnforcer):
     def _req_num(self):
         self.request_number += 1
         return self.request_number
+
+    @contextlib.contextmanager
+    def _translate_token_errors(self):
+        '''Presents a failed token refresh as a schwab-py exception.
+
+        authlib raises OAuthError when Schwab rejects a refresh. That happens
+        in the middle of an ordinary request, because the session refreshes the
+        token on the way past, so an application which never touches the token
+        directly still has to catch it -- and to catch it, has to import
+        authlib and know a type this library does not document anywhere.
+
+        Only OAuthError is translated. It can only come from the token
+        endpoint: a data request which fails does not raise at all, since httpx
+        reports status through the response. Network errors are left as the
+        httpx exceptions they are, because a connection failure while
+        refreshing and one while fetching a quote are the same problem and are
+        not distinguishable from here.
+        '''
+        try:
+            yield
+        except OAuthError as e:
+            age = None
+            if self.token_metadata is not None:
+                age = self.token_metadata.token_age()
+
+            detail = ('The token is {:.1f} days old; Schwab documents a '
+                      'refresh token as valid for 7 days after it is '
+                      'authorized, and refreshing does not extend that.'
+                      ).format(age / 86400.0) if age is not None else (
+                    'This client was built without token metadata, so the '
+                    'token\'s age is unknown.')
+
+            raise TokenRefreshError(
+                    'Failed to refresh the Schwab token: {}. {} If the window '
+                    'has closed, the login flow has to be completed again; '
+                    'retrying will not help.'.format(e, detail),
+                    token_age=age) from e
 
     def _assert_type(self, name, value, exp_types):
         value_type = type(value)
