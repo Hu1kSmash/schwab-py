@@ -5,6 +5,7 @@ import os
 import pytest
 import pytz
 import unittest
+import warnings
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from schwab.client import AsyncClient, Client
@@ -2291,6 +2292,76 @@ class _TestClient:
                 'fromEnteredTime': '2024-06-05T04:03:02Z',
                 'toEnteredTime': '2024-06-05T04:03:02Z',
             })
+
+
+    @no_duplicates
+    def test_naive_datetime_warns_on_iso_parameters(self):
+        naive = datetime.datetime(year=2024, month=6, day=5,
+                                  hour=4, minute=3, second=2)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_orders_for_account(
+                    ACCOUNT_HASH, from_entered_datetime=naive)
+
+        messages = [str(w.message) for w in caught]
+        self.assertTrue(
+                any('no timezone' in m for m in messages),
+                'expected a naive-datetime warning, got {}'.format(messages))
+        self.assertTrue(
+                any('from_entered_datetime' in m for m in messages),
+                'the warning should name the parameter, got {}'.format(messages))
+
+
+    @no_duplicates
+    def test_naive_datetime_warns_on_millisecond_parameters(self):
+        naive = datetime.datetime(year=2024, month=6, day=5,
+                                  hour=4, minute=3, second=2)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_price_history(SYMBOL, start_datetime=naive)
+
+        messages = [str(w.message) for w in caught]
+        self.assertTrue(
+                any('no timezone' in m for m in messages),
+                'expected a naive-datetime warning, got {}'.format(messages))
+        self.assertTrue(
+                any('start_datetime' in m for m in messages),
+                'the warning should name the parameter, got {}'.format(messages))
+
+
+    @no_duplicates
+    def test_aware_datetime_does_not_warn(self):
+        aware = datetime.datetime(year=2024, month=6, day=5,
+                                  hour=4, minute=3, second=2,
+                                  tzinfo=datetime.timezone.utc)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_orders_for_account(
+                    ACCOUNT_HASH,
+                    from_entered_datetime=aware, to_entered_datetime=aware)
+            self.client.get_price_history(
+                    SYMBOL, start_datetime=aware, end_datetime=aware)
+
+        naive_warnings = [str(w.message) for w in caught
+                          if 'no timezone' in str(w.message)]
+        self.assertEqual([], naive_warnings)
+
+
+    @no_duplicates
+    def test_date_object_does_not_warn(self):
+        # A date has no time of day to be ambiguous about.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_orders_for_account(
+                    ACCOUNT_HASH,
+                    from_entered_datetime=datetime.date(2024, 6, 5))
+
+        naive_warnings = [str(w.message) for w in caught
+                          if 'no timezone' in str(w.message)]
+        self.assertEqual([], naive_warnings)
 
 
 class ClientTest(_TestClient, unittest.TestCase):
