@@ -400,6 +400,66 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
             await self.client.logout()
 
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logout_closes_socket(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        socket.recv.side_effect = [json.dumps(self.success_response(
+            1, 'ADMIN', 'LOGOUT'))]
+
+        await self.client.logout()
+
+        socket.close.assert_awaited_once()
+        self.assertIsNone(self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logout_closes_socket_even_when_rejected(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        response = self.success_response(1, 'ADMIN', 'LOGOUT')
+        response['response'][0]['content']['code'] = 9
+        socket.recv.side_effect = [json.dumps(response)]
+
+        # The stream is finished either way, so a rejected logout must not
+        # leave the connection open.
+        with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
+            await self.client.logout()
+
+        socket.close.assert_awaited_once()
+        self.assertIsNone(self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        await self.client.close()
+
+        socket.close.assert_awaited_once()
+        self.assertIsNone(self.client._socket)
+
+        # Closing again is not an error, and does not close twice.
+        await self.client.close()
+        socket.close.assert_awaited_once()
+
+    @no_duplicates
+    async def test_close_without_login(self):
+        # Tearing down a client which never connected must not raise.
+        await self.client.close()
+        self.assertIsNone(self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_async_context_manager_closes(self, ws_connect):
+        async with self.client as c:
+            socket = await self.login_and_get_socket(ws_connect)
+            self.assertIs(c, self.client)
+
+        socket.close.assert_awaited_once()
+        self.assertIsNone(self.client._socket)
+
 
     ##########################################################################
     # ACCT_ACTIVITY
