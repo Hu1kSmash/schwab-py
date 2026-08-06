@@ -62,11 +62,27 @@ even though upstream is currently quiet; the PRs are a queue for whenever it is 
 
 1. `CHANGELOG.md` — a new section, written for someone who has to decide whether to upgrade.
 2. `schwab/version.py` — bump. Minor for added surface or changed behaviour, patch for fixes alone.
-3. Commit, then `git tag -a vX.Y.Z`.
-4. `git push origin main && git push origin vX.Y.Z`.
-5. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
+3. **The install instructions**, which name the version and go stale silently:
 
-Verify before tagging: full suite on **both** CPython 3.12 and 3.14, and `python -m build --sdist`.
+   ```shell
+   grep -rn 'schwab-py@v' README.rst docs/
+   ```
+
+   Today that is the fork notice and the install section in `README.rst`, and
+   the install step in `docs/getting-started.rst`. Nothing checks these, and a
+   reader following a stale one installs the wrong release without any sign
+   that they have.
+
+4. Commit, then `git tag -a vX.Y.Z`.
+5. `git push origin main && git push origin vX.Y.Z`.
+6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
+
+Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
+`python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
+
+Never write a bare `pip install schwab-py` anywhere. That installs the original
+project from PyPI, which is not this code — and it will appear to work, since
+the importable package has the same name.
 
 ## Not on PyPI, deliberately
 

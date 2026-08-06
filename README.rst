@@ -24,7 +24,7 @@
 
    .. code-block:: shell
 
-     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.6.0"
+     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.7.0"
 
    Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
    the ``schwab`` package. Pick one.
@@ -65,11 +65,13 @@ it. You app must be approved by Schwab before you can use it (this can take
 several days).  You can find more detailed instructions `here 
 <https://github.com/Hu1kSmash/schwab-py/blob/main/docs/getting-started.rst>`__.
 
-Next, install ``schwab-py``:
+Next, install ``schwab-py``. Note this fork is not on PyPI, so install it from
+git, pinned to a release --- ``pip install schwab-py`` would fetch the original
+project from PyPI instead:
 
-.. code-block:: python
+.. code-block:: shell
 
-  pip install schwab-py
+  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.7.0"
 
 You're good to go! To demonstrate, here's how you can authenticate and fetch
 daily historical price data for the past twenty years:
