@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.abspath('..'))
 # -- Project information -----------------------------------------------------
 
 project = 'schwab-py'
-copyright = '2024, Alex Golec'
-author = 'Alex Golec'
+copyright = '2024, Alex Golec. Fork maintained by Hu1kSmash'
+author = 'Alex Golec and contributors'
 
 
 # -- General configuration ---------------------------------------------------

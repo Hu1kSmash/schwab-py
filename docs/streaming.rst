@@ -228,19 +228,17 @@ requested.
 Stream Statuses
 ---------------
 
-Schwab's streaming functionality is very similar to that of the former 
-TDAmeritrade. So similar, in fact, that this module is largely a direct 
-adaptation of the implementation developed for the older `tda-api library
-<https://tda-api.readthedocs.io/en/latest/streaming.html>`__. 
+Schwab's streaming functionality is closely modelled on that of the former 
+TDAmeritrade API, and this module was adapted from an implementation written 
+against it.
 
-As a result of this nearly direct copy-pasting, some streams may have been 
-carried over which don't actually work. What's more, some streams *never* 
-worked, even in ``tda-api``, but were only implemented because some old, 
-now-defunct documentation referred to them.
+As a result, some streams may have been carried over which don't actually work. 
+Some never worked at all, and were implemented only because now-defunct 
+documentation referred to them.
 
 The community is in the process of making sense of this new world. You are 
 encouraged to try and use this streaming library and report what you find back 
-to our `Discord server <https://discord.gg/BEr6y6Xqyv>`__. We'll be updating 
+`on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__. We'll be updating 
 this page as we discover new things.
 
 The following streams are confirmed working:
@@ -415,7 +413,7 @@ in these streams refusing to connect, typically returning errors about
 unavailable services. Due to this behavior and the lack of official 
 documentation for book streams generally, ``schwab-api`` assumes these streams are not
 actually implemented, and so excludes them. If you have any insight into using
-them, please `let us know <https://github.com/alexgolec/schwab-api/issues>`__.
+them, please `let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 
 -------------------------------------
@@ -451,7 +449,7 @@ happens.
 Note to preserve equivalence with what little documentation there is, the NYSE
 book is called "listed." Testing indicates this stream corresponds to the NYSE
 book, but if you find any behavior that suggests otherwise please
-`let us know <https://github.com/alexgolec/schwab-api/issues>`__.
+`let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
 
 .. automethod:: schwab.streaming::StreamClient.nyse_book_subs
 .. automethod:: schwab.streaming::StreamClient.nyse_book_unsubs

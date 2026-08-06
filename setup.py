@@ -11,8 +11,10 @@ with open('schwab/version.py', 'r') as f:
 setuptools.setup(
     name='schwab-py',
     version=version,
+    # Authorship stays with the original author, who wrote essentially all of
+    # this. His contact details are deliberately not carried over: support for
+    # this fork should not land in his inbox.
     author='Alex Golec',
-    author_email='bottomless.septic.tank@gmail.com',
     maintainer='Hu1kSmash',
     description=('Unofficial API wrapper for the Schwab HTTP API '
                  '(maintained fork of alexgolec/schwab-py)'),
@@ -59,7 +61,7 @@ setuptools.setup(
     },
     keywords='finance trading equities bonds options research',
     project_urls={
-        'Documentation': 'https://schwab-py.readthedocs.io/en/latest/',
+        'Documentation': 'https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst',
         'Source': 'https://github.com/Hu1kSmash/schwab-py',
         'Tracker': 'https://github.com/Hu1kSmash/schwab-py/issues',
         'Upstream': 'https://github.com/alexgolec/schwab-py',

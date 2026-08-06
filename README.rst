@@ -33,25 +33,8 @@
    <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything not caused by the changes listed
    in the changelog is better reported upstream, where it will help more people.
 
-.. image:: https://img.shields.io/discord/720378361880248621.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2
-  :target: https://discord.gg/BEr6y6Xqyv
-
-.. image:: 
-   https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%schwabpy%26type%3Dpatrons&style=flat
-  :target: https://patreon.com/schwabpy
-
-.. image:: https://readthedocs.org/projects/schwab-py/badge/?version=latest
-  :target: https://schwab-py.readthedocs.io/en/latest/?badge=latest
-
-.. image:: https://github.com/alexgolec/schwab-py/workflows/tests/badge.svg
-  :target: https://github.com/alexgolec/schwab-py/actions?query=workflow%3Atests
-
-.. image:: https://badge.fury.io/py/schwab-py.svg
-  :target: https://badge.fury.io/py/schwab-py
-
-.. image:: 
-   http://codecov.io/github/alexgolec/schwab-py/coverage.svg?branch=master
-  :target: http://codecov.io/github/alexgolec/schwab-py?branch=master
+.. image:: https://github.com/Hu1kSmash/schwab-py/workflows/tests/badge.svg
+  :target: https://github.com/Hu1kSmash/schwab-py/actions?query=workflow%3Atests
 
 What is ``schwab-py``?
 ----------------------
@@ -67,20 +50,11 @@ programmatic interface over each endpoint. Notable functionality includes:
 * Trades and trade management
 * Account info
 
-I used to use ``tda-api``, how do I migrate?
---------------------------------------------
-
-Now that TDAmeritrade is no more, the old ``tda-api`` library will no longer 
-work. Check out our `transition guide 
-<https://schwab-py.readthedocs.io/en/latest/tda-transition.html>`__ for 
-instructions on getting started.
-
-
 How do I use ``schwab-py``?
 ---------------------------
 
 For a full description of ``schwab-py``'s functionality, check out the 
-`documentation <https://schwab-py.readthedocs.io/en/latest/>`__. Meawhile, 
+`documentation <https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst>`__. Meanwhile,
 here's a quick getting started guide:
 
 Before you do anything, create an account and an application on the
@@ -89,7 +63,7 @@ You'll receive an API key and app secret, which you can pass to this wrapper.
 You'll also want to take note of your callback URI, as the login flow requires 
 it. You app must be approved by Schwab before you can use it (this can take 
 several days).  You can find more detailed instructions `here 
-<https://schwab-py.readthedocs.io/en/latest/getting-started.html>`__.
+<https://github.com/Hu1kSmash/schwab-py/blob/main/docs/getting-started.rst>`__.
 
 Next, install ``schwab-py``:
 
@@ -148,15 +122,16 @@ offer:
 What else?
 ----------
 
-We have a `Discord server <https://discord.gg/BEr6y6Xqyv>`__! You can join to 
-get help using ``schwab-py`` or just to chat with interesting people.
+Bug reports, suggestions, and patches are welcome. Submit issues
+`here <https://github.com/Hu1kSmash/schwab-py/issues>`__ and pull requests `here <https://github.com/Hu1kSmash/schwab-py/pulls>`__.
 
-Bug reports, suggestions, and patches are always welcome! Submit issues
-`here <https://github.com/alexgolec/schwab-py/issues>`__ and pull requests
-`here <https://github.com/alexgolec/schwab-py/pulls>`__.
+Please read the fork notice at the top first: problems which are not caused by
+this fork's changes are usually better reported `upstream
+<https://github.com/alexgolec/schwab-py/issues>`__.
 
 ``schwab-py`` is released under the
-`MIT license <https://github.com/alexgolec/schwab-py/blob/master/LICENSE>`__.
+`MIT license <https://github.com/Hu1kSmash/schwab-py/blob/main/LICENSE>`__, and remains
+copyright Alex Golec.
 
 **Disclaimer:** *schwab-py is an unofficial API wrapper. It is in no way 
 endorsed by or affiliated with Charles Schwab or any associated organization.
