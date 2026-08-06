@@ -8,6 +8,89 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.8.0
+
+Most of this comes from reading Schwab's published documentation against the
+library, rather than from finding something at runtime.
+
+### Fixed
+
+**Field 20 of `LEVELONE_OPTIONS` is the strike price, not a "strike type".**
+Schwab's streamer documentation gives it as `| 20 | Strike Price | double |
+Contract strike price |`. It was named `STRIKE_TYPE`, so every relabeled option
+quote carried a key describing neither the field nor its contents -- and the
+enum had no strike price at all, across fifty-six fields on an options quote
+feed. Reported upstream as #197.
+
+`STRIKE_TYPE` is kept as an alias, so code naming it keeps working. Messages are
+now labeled `STRIKE_PRICE`, which is a **breaking change** for anything reading
+that key.
+
+This needed a supporting fix. `key_mapping` built its number-to-name table from
+`__members__`, which yields aliases as well as canonical members, so whichever
+alias was defined last would silently have decided the label. It now iterates
+the enum itself. No other field enum has an alias, so nothing else changes.
+
+**A historical order with an `UNKNOWN` field could not be reconstructed, and
+said so badly.** Schwab documents `UNKNOWN` as a value both `duration` and
+`orderType` can come back as, while stating it is not accepted as an input.
+Omitting it from the request enums is therefore right, but
+`construct_repeat_order` fed historical values into those same enums and failed
+with a bare `KeyError: 'UNKNOWN'`, naming neither the field nor the problem.
+
+Such an order genuinely cannot be repeated, so the fix is to say so rather than
+to accept the value: `UnrepeatableOrderError` names the field, carries the
+value, and explains that Schwab reports it but will not accept it.
+
+**`get_price_history`'s docstring contradicted Schwab's documentation.** It said
+`period` "should not be provided" alongside a date range. What Schwab documents,
+under `startDate`, is "if not specified startDate will be (endDate - period)" --
+so `period` derives a start date when one is absent rather than overriding one
+that is present. Supplying both is harmless. The valid `period` values per
+`period_type` are now documented too; they were not stated anywhere.
+
+That wording is what led 1.7.0's release notes to claim Schwab honours `period`
+over an explicit range. It does not, and those notes have been corrected.
+
+### Added
+
+`UnrepeatableOrderError`, described above.
+
+### Changed
+
+Documented what this fork already did but never explained: that the token file is
+a credential written `0600` and replaced atomically, that surrounding whitespace
+is stripped from keys and secrets and why the warning is worth acting on, and
+that a subscription can be made while another coroutine waits in
+`handle_message`.
+
+CI now runs `actions/checkout` and `actions/setup-python` at v7 rather than v2,
+which were five years old and being force-run on a Node runtime they were not
+built for. Dependabot watches them monthly so they cannot drift that far again.
+
+### Verified against the documentation, and correct
+
+Worth recording, since the point of the exercise was to find gaps: all thirteen
+order enums match the published schemas value for value, apart from the `UNKNOWN`
+handling above. All eleven market-data parameter enums match. Every market-data
+endpoint and parameter is implemented. Across eight streaming services and 230
+fields, every field number is correct and field 20 was the only name that meant
+something different from the field.
+
+One thing that looked wrong and is not: the `CHART_EQUITY` field table in
+Schwab's streamer documentation disagrees with this library, and the library is
+right. Against a real message, only the library's mapping yields self-consistent
+OHLC; the documented one gives an open of 779 on a $421 stock and a high below
+the low.
+
+### Breaking changes
+
+- Option quotes are relabeled with `STRIKE_PRICE` where they previously used
+  `STRIKE_TYPE`. The enum member `STRIKE_TYPE` still resolves, so only code
+  reading the key out of a relabeled message is affected.
+
+---
+
 ## 1.7.2
 
 ### Fixed
