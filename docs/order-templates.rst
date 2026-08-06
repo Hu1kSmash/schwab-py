@@ -67,6 +67,12 @@ Buy orders
 
 .. autofunction:: schwab.orders.equities.equity_buy_market
 .. autofunction:: schwab.orders.equities.equity_buy_limit
+.. autofunction:: schwab.orders.equities.equity_buy_stop
+.. autofunction:: schwab.orders.equities.equity_buy_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_buy_trailing_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_market_on_close
+.. autofunction:: schwab.orders.equities.equity_buy_limit_on_close
 
 +++++++++++
 Sell orders
@@ -74,6 +80,12 @@ Sell orders
 
 .. autofunction:: schwab.orders.equities.equity_sell_market
 .. autofunction:: schwab.orders.equities.equity_sell_limit
+.. autofunction:: schwab.orders.equities.equity_sell_stop
+.. autofunction:: schwab.orders.equities.equity_sell_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_sell_trailing_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_market_on_close
+.. autofunction:: schwab.orders.equities.equity_sell_limit_on_close
 
 +++++++++++++++++
 Sell short orders
@@ -81,6 +93,12 @@ Sell short orders
 
 .. autofunction:: schwab.orders.equities.equity_sell_short_market
 .. autofunction:: schwab.orders.equities.equity_sell_short_limit
+.. autofunction:: schwab.orders.equities.equity_sell_short_stop
+.. autofunction:: schwab.orders.equities.equity_sell_short_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_short_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_sell_short_trailing_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_short_market_on_close
+.. autofunction:: schwab.orders.equities.equity_sell_short_limit_on_close
 
 +++++++++++++++++++
 Buy to cover orders
@@ -88,6 +106,12 @@ Buy to cover orders
 
 .. autofunction:: schwab.orders.equities.equity_buy_to_cover_market
 .. autofunction:: schwab.orders.equities.equity_buy_to_cover_limit
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_stop
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_trailing_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_market_on_close
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_limit_on_close
 
 
 -----------------
