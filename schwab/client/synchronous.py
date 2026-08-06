@@ -49,7 +49,7 @@ class Client(BaseClient):
         dest = 'https://api.schwabapi.com' + path
 
         req_num = self._req_num()
-        self.logger.debug('Req %s: DELETE to %s'.format(req_num, dest))
+        self.logger.debug('Req %s: DELETE to %s', req_num, dest)
 
         resp = self.session.delete(dest)
         self._log_response(resp, req_num)

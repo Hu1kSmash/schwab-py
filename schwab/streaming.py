@@ -4,13 +4,11 @@ from enum import Enum
 
 import asyncio
 import copy
-import datetime
 import httpx
 import inspect
 import json
 import logging
 import schwab
-import urllib.parse
 
 import websockets.legacy.client as ws_client
 
