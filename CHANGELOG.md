@@ -8,6 +8,38 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.8.1
+
+### Fixed
+
+**`enable_bug_report_logging()` wrote its report to whatever `sys.stderr` was at
+import time.** The stream was captured as a default argument, which Python
+evaluates once when the module is imported -- not when the logs are written,
+which happens at program exit. An application that redirects `sys.stderr` after
+importing the library, as a daemon writing to a log file does, had its bug
+report delivered to the stream it redirected away from. Measured with a
+`StringIO` standing in for the log file, the redirected stream received 0 bytes
+before the fix and the whole report after it.
+
+If that original stream had since been closed, the program's last output was a
+traceback out of an `atexit` handler instead of the report. This library's own
+test suite printed one on every run.
+
+`sys.stderr` is now looked up when the report is written, and a closed stream is
+treated as nowhere to write rather than something to raise about. Passing
+`output=` explicitly is unchanged. Offered upstream as #257.
+
+### Documentation
+
+The README's "Why should I use `schwab-py`?" section listed two reasons and left
+out the two largest parts of the library: the streaming client and order
+construction. Rewritten to cover both, with the "minimal wrapping" claim narrowed
+to the HTTP layer where it holds -- the parameter enums, `OrderBuilder` and the
+streaming relabeler are all deliberately opinionated. Offered upstream as #255.
+
+Nothing in this release changes how a request is built or an order is
+constructed.
+
 ## 1.8.0
 
 Most of this comes from reading Schwab's published documentation against the
