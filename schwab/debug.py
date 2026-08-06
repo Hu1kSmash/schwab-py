@@ -73,8 +73,16 @@ def register_redactions_from_response(resp):
 
 
 def register_redactions(obj, key_path=None,
+                        # Note these are matched as substrings of the key, so
+                        # a pattern which is short or common catches unrelated
+                        # fields, and redaction is plain string substitution
+                        # over the whole log. 'account' would match
+                        # accountValue and accountColor and take every balance
+                        # and the word 'Green' with it, so the two Schwab
+                        # identifiers worth hiding are named in full.
                         bad_patterns=[
-                            'auth', 'acl', 'displayname', 'id', 'key', 'token'],
+                            'accountnumber', 'acl', 'auth', 'displayname',
+                            'hashvalue', 'id', 'key', 'token'],
                         whitelisted=set([
                             'requestid',
                             'token_type',

@@ -125,6 +125,44 @@ class RegisterRedactionsTest(unittest.TestCase):
             r'\[.*\] Other Bad Number: 200002\n')
 
     @no_duplicates
+    def test_schwab_account_identifiers_are_redacted(self):
+        # accountNumber and hashValue are how Schwab names the two identifiers
+        # a user is least likely to want in a bug report they paste into a
+        # public issue. The default patterns were inherited from an API which
+        # called them accountId and displayName.
+        schwab.debug.register_redactions({
+            'accounts': [{'accountNumber': '12345678',
+                          'hashValue': 'ABCDEF0123456789'}]})
+
+        self.logger.info('account 12345678 has hash ABCDEF0123456789')
+
+        self.dump_logs()
+        logged = self.captured.getvalue()
+        self.assertNotIn('12345678', logged)
+        self.assertNotIn('ABCDEF0123456789', logged)
+
+    @no_duplicates
+    def test_redaction_does_not_swallow_ordinary_values(self):
+        # The redactor replaces registered values by plain string substitution
+        # anywhere they appear, so a pattern which matches short or common
+        # values corrupts the rest of the log. Balances, colours and account
+        # types must not be caught.
+        schwab.debug.register_redactions({
+            'securitiesAccount': {
+                'accountNumber': '12345678',
+                'type': 'MARGIN',
+                'currentBalances': {'accountValue': 100.0}},
+            'accountColor': 'Green'})
+
+        self.logger.info('MARGIN order, value 100.0, colour Green')
+
+        self.dump_logs()
+        logged = self.captured.getvalue()
+        self.assertIn('MARGIN', logged)
+        self.assertIn('100.0', logged)
+        self.assertIn('Green', logged)
+
+    @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
     def test_register_from_request_success(self, register_redactions):
         resp = MockResponse({'success': 1}, 200)
