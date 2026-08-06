@@ -10,6 +10,7 @@ import os
 import psutil
 import queue
 import sys
+import tempfile
 import time
 import urllib
 import urllib3
@@ -27,12 +28,55 @@ def get_logger():
     return logging.getLogger(__name__)
 
 
+# The token grants full access to the account it was issued for, so it is
+# written readable only by its owner.
+TOKEN_FILE_MODE = 0o600
+
+
+def __write_token_file(token_path, token):
+    '''
+    Serializes ``token`` to ``token_path``, atomically and readable only by the
+    current user.
+
+    The token is written to a temporary file in the same directory and then
+    renamed over the destination. ``os.replace`` is atomic within a filesystem,
+    so a reader either sees the complete previous token or the complete new one,
+    and a process which dies partway through leaves the existing token intact.
+    Writing in place would truncate the file first, so an interrupted write --
+    a machine losing power, a supervisor killing a long-running process during a
+    refresh -- would leave a partial file that cannot be parsed on the next
+    start, and recovering from that requires a fresh interactive login.
+    '''
+    directory = os.path.dirname(os.path.abspath(token_path)) or '.'
+
+    # The temporary file must share a filesystem with the destination for the
+    # rename to be atomic, so it is created alongside it rather than in /tmp.
+    fd, tmp_path = tempfile.mkstemp(
+            dir=directory, prefix='.schwab-py-token', suffix='.tmp')
+
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(token, f)
+            # Flush all the way to disk before the rename, so that a crash
+            # cannot leave the destination pointing at an empty file.
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.chmod(tmp_path, TOKEN_FILE_MODE)
+        os.replace(tmp_path, token_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:  # pragma: no cover
+            pass
+        raise
+
+
 def __make_update_token_func(token_path):
     def update_token(t, *args, **kwargs):
         get_logger().info('Updating token to file %s', token_path)
 
-        with open(token_path, 'w') as f:
-            json.dump(t, f)
+        __write_token_file(token_path, t)
     return update_token
 
 
