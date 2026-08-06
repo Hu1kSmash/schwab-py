@@ -2,7 +2,8 @@ import json
 import unittest
 import sys
 
-from schwab.contrib.orders import construct_repeat_order, code_for_builder
+from schwab.contrib.orders import (
+        construct_repeat_order, code_for_builder, UnrepeatableOrderError)
 
 class ConstructRepeatOrderTest(unittest.TestCase):
 
@@ -804,3 +805,41 @@ class ConstructRepeatOrderTest(unittest.TestCase):
                 }]
             }]
         }, repeat_order)
+
+
+class UnrepeatableOrderTest(unittest.TestCase):
+    """Schwab documents UNKNOWN as a value duration and orderType can come back
+    as, and says explicitly it is not accepted as an input. Reconstructing such
+    an order used to raise a bare KeyError from inside an enum lookup."""
+
+    def order(self, **overrides):
+        o = {
+            'session': 'NORMAL',
+            'duration': 'DAY',
+            'orderType': 'LIMIT',
+            'orderStrategyType': 'SINGLE',
+            'price': '1.00',
+            'orderLegCollection': [{
+                'orderLegType': 'EQUITY',
+                'instruction': 'BUY',
+                'quantity': 1,
+                'instrument': {'assetType': 'EQUITY', 'symbol': 'AAPL'},
+            }],
+        }
+        o.update(overrides)
+        return o
+
+    def test_unknown_duration_is_reported_clearly(self):
+        with self.assertRaises(UnrepeatableOrderError) as cm:
+            construct_repeat_order(self.order(duration='UNKNOWN'))
+        self.assertEqual('duration', cm.exception.historical_field)
+        self.assertEqual('UNKNOWN', cm.exception.value)
+
+    def test_unknown_order_type_is_reported_clearly(self):
+        with self.assertRaises(UnrepeatableOrderError) as cm:
+            construct_repeat_order(self.order(orderType='UNKNOWN'))
+        self.assertEqual('orderType', cm.exception.historical_field)
+
+    def test_an_ordinary_order_still_reconstructs(self):
+        builder = construct_repeat_order(self.order())
+        self.assertEqual('LIMIT', builder.build()['orderType'])
