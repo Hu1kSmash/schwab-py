@@ -74,10 +74,17 @@ it can raise are unchanged.
 **The price history helpers ignored the date range they were given.**
 `get_price_history` documents that `period` "should not be provided if
 `start_datetime` and `end_datetime`", and all seven `get_price_history_every_*`
-helpers provided both. Schwab honours `period` and drops the range, so a request
-bounded to one hour came back with a full day. `period` is now sent only when no
-range was asked for, since the helpers synthesize one spanning decades when the
-caller gives none.
+helpers provided both. `period` is now sent only when no range was asked for,
+since the helpers synthesize one spanning decades when the caller gives none.
+
+What Schwab does when it receives both is **not** consistent across accounts. The
+upstream report describes the range being disregarded; a funded margin account we
+had measurements from returned byte-identical responses with and without `period`
+across four frequency and range combinations, so there the range was honoured
+either way. Both can be true — entitlements, symbol class, or the API changing
+since the report would all explain it. The fix does not depend on which: sending a
+`period` the caller never asked for is wrong regardless, and it is what the
+library's own docstring says not to do.
 
 **The asyncio example called a function which does not exist.**
 `asyncio.run_until_complete()` is not a thing; `run_until_complete` is a method

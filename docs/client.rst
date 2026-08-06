@@ -235,11 +235,13 @@ to read the documentation below to learn how much data is available.
 .. note::
 
    Give any of these a ``start_datetime`` or an ``end_datetime`` and you get
-   that range. Earlier versions sent a period alongside the range, and Schwab
-   honours the period and ignores the range -- so a request bounded to one hour
-   came back with a full day, and the bounds were silently discarded. If you
-   previously worked around that by filtering client-side, you will now get
-   fewer candles than before.
+   that range. Earlier versions also sent a ``period``, which
+   :meth:`Client.get_price_history` documents should not accompany a range.
+
+   What Schwab does with both is not consistent across accounts: it has been
+   reported disregarding the range, and measured honouring it. If your account
+   was in the first group you will now get the range you asked for; if it was in
+   the second, nothing changes.
 
 
 .. automethod:: schwab.client.Client.get_price_history_every_minute
