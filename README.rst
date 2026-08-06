@@ -47,8 +47,9 @@ programmatic interface over each endpoint. Notable functionality includes:
 * Quotes, fundamentals, and historical pricing data
 * Options chains
 * Streaming quotes and order book depth data
-* Trades and trade management
+* Order construction, placement and management
 * Account info
+* Synchronous and ``asyncio`` clients over the same interface
 
 How do I use ``schwab-py``?
 ---------------------------
@@ -95,18 +96,49 @@ daily historical price data for the past twenty years:
 Why should I use ``schwab-py``?
 -------------------------------
 
-``schwab-py`` was designed to provide a few important pieces of functionality:
+Schwab's API is capable, but several corners of it are tedious to get right and
+unforgiving when you get them wrong. ``schwab-py`` takes on those corners and
+stays out of your way everywhere else:
 
-1. **Safe Authentication**: Schwab's API supports OAuth authentication, but too 
-   many people online end up rolling their own implementation of the OAuth 
-   callback flow. This is both unnecessarily complex and dangerous.  
+1. **Safe authentication.** Schwab's API supports OAuth authentication, but too
+   many people online end up rolling their own implementation of the OAuth
+   callback flow. This is both unnecessarily complex and dangerous.
    ``schwab-py`` handles token fetch and refreshing for you.
 
-2. **Minimal API Wrapping**: Unlike some other API wrappers, which build in lots 
-   of logic and validation, ``schwab-py`` takes raw values and returns raw 
-   responses, allowing you to interpret the complex API responses as you see 
-   fit. Anything you can do with raw HTTP requests you can do with 
-   ``schwab-py``, only more easily.
+2. **A usable streaming client.** Schwab's streamer is a raw websocket that
+   identifies every field by number, and the same number means different things
+   on different services --- field ``2`` is the ask price on
+   ``LEVELONE_EQUITIES`` and the open price on ``CHART_EQUITY``. ``schwab-py``
+   carries the field tables for all thirteen services and relabels each message
+   as it arrives, so you receive ``{'ASK_PRICE': 421.6, ...}`` rather than
+   ``{'2': 421.6, ...}``. It also handles login and logout, keeps track of which
+   response belongs to which request, and lets you register a handler per
+   service rather than demultiplexing the stream yourself.
+
+3. **Order construction Schwab will accept.** Order JSON is deeply nested, and a
+   malformed order comes back rejected with little explanation of what was
+   wrong. ``OrderBuilder`` assembles it from named parts and validates the
+   values it can, and ``schwab.orders.equities`` and ``schwab.orders.options``
+   provide ready-made templates for the common equity orders and option
+   strategies. ``schwab.contrib.orders`` runs the process backwards: hand it an
+   order you have already placed and it returns the builder that would place it
+   again.
+
+4. **Enums rather than magic strings.** Each endpoint's legal parameter values
+   are enums on the client, so a misspelled projection or an invalid order
+   duration fails immediately in Python instead of arriving as an opaque HTTP
+   400 in the middle of a session.
+
+5. **Minimal wrapping everywhere else.** Unlike some other API wrappers, which
+   build in lots of logic and validation, ``schwab-py`` takes raw values and
+   returns the raw ``httpx`` response, allowing you to interpret the complex API
+   responses as you see fit. Anything you can do with raw HTTP requests you can
+   do with ``schwab-py``, only more easily.
+
+The documentation linked above is worth reading even if you end up calling the
+API directly. Schwab's own developer portal is behind a login, so for a good
+deal of this API those pages are the most accessible description of how it
+actually behaves.
 
 Why should I *not* use ``schwab-py``?
 -------------------------------------
