@@ -131,6 +131,51 @@ seven day token age restriction is implemented by Schwab, and so the token may
 become expired sooner *or* later than seven days.
 
 
+--------------
+The Token File
+--------------
+
+The token file is a credential in its own right. Anyone holding it can read your
+balances and positions and place trades with them, so it deserves the same care
+as a password.
+
+``schwab-py`` writes it readable only by you (mode ``0600``). A file written by
+an older version, or copied around with a permissive umask, is corrected the
+first time the token is refreshed. It is worth checking anyway::
+
+  ls -l /path/to/token.json
+
+The write is atomic: the new token goes to a temporary file in the same
+directory, which is flushed and then renamed over the destination. So a process
+which dies partway through a refresh -- killed by a supervisor, or a machine
+losing power -- leaves the previous token intact rather than a half-written file
+that cannot be parsed. That matters because an unparseable token file cannot be
+repaired; it requires a fresh interactive login.
+
+If ``token_path`` is a symlink, the link is followed and its target is written,
+rather than the link being replaced.
+
+Never commit a token file, never paste one into an issue, and never share it in
+logs. See :ref:`the help page <help>` for what redaction does and does not
+cover.
+
+
+++++++++++++++++++++++++++
+A Note on Keys and Secrets
+++++++++++++++++++++++++++
+
+Copy-pasting an app key or secret out of the developer console picks up a
+trailing space or newline more easily than you would expect, and Schwab does not
+handle that consistently -- some endpoints tolerate it and some reject it, so
+the symptom is an authentication failure that comes and goes.
+
+Surrounding whitespace is therefore stripped from ``api_key`` and ``app_secret``
+wherever they are accepted, and a warning is emitted when there was any. The
+warning is worth acting on: the value is being corrected in passing, but the
+copy it came from is still wrong. Whitespace *inside* a value is left alone,
+since that is the caller's value and not a paste artifact.
+
+
 ----------------------
 Advanced Functionality
 ----------------------
