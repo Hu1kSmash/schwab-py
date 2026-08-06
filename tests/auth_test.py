@@ -187,6 +187,50 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
     @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.httpx.get')
+    def test_server_which_never_answers_times_out(
+            self, mock_get, mock_webbrowser_get, async_session, sync_session,
+            client):
+        # A server which comes up but never answers used to spin here forever,
+        # with nothing on screen to say why.
+        import httpx as _httpx
+        mock_get.side_effect = _httpx.ConnectError('never listening')
+
+        with patch('schwab.auth.SERVER_STARTUP_TIMEOUT', 0.3):
+            with self.assertRaisesRegex(
+                    auth.RedirectServerExitedError, 'did not become ready'):
+                auth.client_from_login_flow(
+                        API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                        self.token_path)
+
+
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.httpx.get')
+    def test_refuses_to_continue_when_something_else_holds_the_port(
+            self, mock_get, mock_webbrowser_get, async_session, sync_session,
+            client):
+        # The status response was fetched and discarded, so any listener on the
+        # port counted as our server. Continuing would send the authorization
+        # code -- which is enough to take over the account -- to whatever it is.
+        response = MagicMock()
+        response.status_code = 404
+        mock_get.return_value = response
+
+        with self.assertRaisesRegex(
+                auth.RedirectServerExitedError,
+                'Something other than the schwab-py callback server'):
+            auth.client_from_login_flow(
+                    API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                    self.token_path)
+
+
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
     def test_negative_timeout(
             self, mock_webbrowser_get, async_session, sync_session, client):
