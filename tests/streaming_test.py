@@ -6095,7 +6095,13 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_handle_message_unexpected_response(self, ws_connect):
+    async def test_handle_message_orphaned_response_is_not_fatal(
+            self, ws_connect):
+        # A response with no request outstanding reaches handle_message
+        # whenever a request was abandoned and the server answered afterwards.
+        # It must not end the caller's receive loop, because the answer is
+        # frequently a successful one and everything queued behind it would be
+        # lost with it.
         socket = await self.login_and_get_socket(ws_connect)
 
         socket.recv.side_effect = [
@@ -6104,8 +6110,45 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         await self.client.chart_equity_subs(['GOOG,MSFT'])
 
-        with self.assertRaises(schwab.streaming.UnexpectedResponse):
+        with self.assertLogs(
+                'schwab.streaming', level='INFO') as logged:
             await self.client.handle_message()
+
+        self.assertTrue(
+                any('no request outstanding' in line for line in logged.output),
+                'expected the orphaned response to be logged, got {}'.format(
+                    logged.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_handle_message_delivers_data_after_orphaned_response(
+            self, ws_connect):
+        # And the loop keeps working: a message arriving after the orphan is
+        # still delivered.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        stream_item = {
+            'service': 'CHART_EQUITY',
+            'timestamp': 1590597641293,
+            'command': 'SUBS',
+            'content': [{'key': 'MSFT', '1': 1, '2': 2.0, '3': 3.0,
+                         '4': 4.0, '5': 5.0, '6': 6, '7': 7, '8': 8}],
+        }
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(2, 'CHART_EQUITY', 'SUBS')),
+            json.dumps({'data': [stream_item]})]
+
+        await self.client.chart_equity_subs(['GOOG,MSFT'])
+
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        await self.client.handle_message()      # the orphaned response
+        await self.client.handle_message()      # the message behind it
+
+        handler.assert_called_once()
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
