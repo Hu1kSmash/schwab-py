@@ -70,6 +70,7 @@ class OrderBuilder(EnumEnforcer):
         self._stopType = None
         self._priceLinkBasis = None
         self._priceLinkType = None
+        self._priceOffset = None
         self._price = None
         self._orderLegCollection = None
         self._activationPrice = None
@@ -311,6 +312,30 @@ class OrderBuilder(EnumEnforcer):
         Clear the price link basis.
         '''
         self._priceLinkType = None
+        return self
+
+    # PriceOffset
+    def set_price_offset(self, price_offset):
+        '''
+        Set the price offset. Together with
+        :meth:`set_price_link_basis` and :meth:`set_price_link_type`, this
+        expresses a price relative to something else -- for instance the limit
+        price of a child order in a ``TRIGGER`` strategy, set as an offset from
+        the price its parent filled at.
+
+        Note the sibling trio for stop prices already existed
+        (:meth:`set_stop_price_link_basis`, :meth:`set_stop_price_link_type`
+        and :meth:`set_stop_price_offset`); this completes the price-linked one,
+        which had a basis and a type but no offset.
+        '''
+        self._priceOffset = price_offset
+        return self
+
+    def clear_price_offset(self):
+        '''
+        Clear the price offset.
+        '''
+        self._priceOffset = None
         return self
 
     # Price
