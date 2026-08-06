@@ -1,5 +1,6 @@
 import schwab
 import urllib.parse
+import asyncio
 import json
 import copy
 import warnings
@@ -501,6 +502,106 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 'fields': '0,1,2,3'
             }
         })
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_handler_exception_does_not_stop_other_handlers(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ACCT_ACTIVITY', 'SUBS')),
+            json.dumps(self.streaming_entry('ACCT_ACTIVITY', 'SUBS'))
+        ]
+
+        failing_handler = Mock(side_effect=ValueError('handler failed'))
+        succeeding_handler = Mock()
+        self.client.add_account_activity_handler(failing_handler)
+        self.client.add_account_activity_handler(succeeding_handler)
+
+        await self.client.account_activity_sub()
+
+        # One handler raising must neither propagate to the caller, whose
+        # receive loop cannot tell it apart from the stream failing, nor stop
+        # the remaining handlers from seeing the message.
+        await self.client.handle_message()
+
+        failing_handler.assert_called_once()
+        succeeding_handler.assert_called_once()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_async_handler_exception_is_reported(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ACCT_ACTIVITY', 'SUBS')),
+            json.dumps(self.streaming_entry('ACCT_ACTIVITY', 'SUBS'))
+        ]
+
+        async_handler = AsyncMock(side_effect=ValueError('handler failed'))
+        self.client.add_account_activity_handler(async_handler)
+        self.client.logger = MagicMock()
+
+        await self.client.account_activity_sub()
+        await self.client.handle_message()
+
+        # The handler is scheduled rather than awaited, so drive it to
+        # completion and let its done callback run.
+        tasks = set(self.client._handler_tasks)
+        self.assertEqual(len(tasks), 1)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        # An async handler which raises must not fail silently just because
+        # nothing awaits it.
+        self.client.logger.error.assert_called_once()
+        self.assertIsInstance(
+                self.client.logger.error.call_args[1]['exc_info'], ValueError)
+
+        # The completed task must not be retained.
+        self.assertEqual(len(self.client._handler_tasks), 0)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_unparsable_message_shape_does_not_propagate(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        # 'content' is normally a list. Relabeling reads into it, so a message
+        # whose shape differs fails before the handler is ever called.
+        malformed = self.streaming_entry('ACCT_ACTIVITY', 'SUBS')
+        malformed['data'][0]['content'] = 'not-a-list'
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ACCT_ACTIVITY', 'SUBS')),
+            json.dumps(malformed)
+        ]
+
+        handler = Mock()
+        self.client.add_account_activity_handler(handler)
+
+        await self.client.account_activity_sub()
+        await self.client.handle_message()
+
+        handler.assert_not_called()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_notify_without_service_does_not_propagate(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        socket.recv.side_effect = [json.dumps({'notify': [{'1': 'OrderFill'}]})]
+
+        handler = Mock()
+        self.client.add_account_activity_handler(handler)
+
+        await self.client.handle_message()
+
+        handler.assert_not_called()
+
+        # Nor may looking up an unknown service accrete an entry for it.
+        self.assertNotIn(None, self.client._handlers)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
