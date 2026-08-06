@@ -96,6 +96,16 @@ celerybeat-schedule
 # SageMath parsed files
 *.sage.py
 
+# Credentials
+#
+# The token file grants full access to the account it was issued for: it can
+# read balances and positions and place trades. Anyone who develops against a
+# checkout will create one, and the default name is predictable, so keep git
+# from ever offering to commit it.
+token.json
+*token.json
+*.token.json
+
 # Environments
 .env
 .venv
