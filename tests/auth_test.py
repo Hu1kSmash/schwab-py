@@ -11,6 +11,7 @@ from unittest.mock import ANY as _
 import json
 import os
 import requests
+import stat
 import tempfile
 import unittest
 
@@ -359,6 +360,54 @@ class ClientFromTokenFileTest(unittest.TestCase):
                 'token': updated_token,
                 'creation_timestamp': TOKEN_CREATION_TIMESTAMP
             })
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_is_user_readable_only(
+            self, async_session, sync_session, client):
+        # A token written by an earlier version, or by a user with a permissive
+        # umask, is left group- and world-readable. Updating it must correct
+        # that rather than preserve it.
+        self.write_token()
+        os.chmod(self.token_path, 0o644)
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+        update_token({'updated': 'token'})
+
+        mode = stat.S_IMODE(os.stat(self.token_path).st_mode)
+        self.assertEqual(mode, 0o600)
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_leaves_old_token_intact_on_failure(
+            self, async_session, sync_session, client):
+        # The point of writing to a temporary file and renaming: a write which
+        # dies partway through must not destroy the token which is already
+        # there, because recovering from that needs an interactive login.
+        self.write_token()
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+
+        class Unserializable:
+            pass
+
+        with self.assertRaises(TypeError):
+            update_token({'updated': Unserializable()})
+
+        # The original token survived the failed write ...
+        with open(self.token_path, 'r') as f:
+            self.assertEqual(json.load(f), self.token)
+
+        # ... and no temporary file was left behind.
+        leftovers = [n for n in os.listdir(self.tmp_dir.name)
+                     if n != 'token.json']
+        self.assertEqual(leftovers, [])
 
     @no_duplicates
     @patch('schwab.auth.Client')
