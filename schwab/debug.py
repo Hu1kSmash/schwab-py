@@ -45,11 +45,26 @@ class LogRedactor:
         return msg
 
 
+# Response redaction is only useful when the logs are going to be shared, and it
+# is not free: it parses and walks every successful response, and every value it
+# finds is remembered for the life of the process so it can be scrubbed from
+# future log lines. enable_bug_report_logging turns it on, and says in its own
+# documentation that it carries a performance penalty and does not belong in
+# production.
+_COLLECT_RESPONSE_REDACTIONS = False
+
+
 def register_redactions_from_response(resp):
     '''
     Convenience method that calls ``register_redactions`` if resp represents a
     successful response. Note this method assumes that resp has a JSON contents.
+
+    Does nothing unless :func:`enable_bug_report_logging` has been called, since
+    that is the only context in which the collected values are used.
     '''
+    if not _COLLECT_RESPONSE_REDACTIONS:
+        return
+
     if resp.status_code == httpx.codes.OK:
         try:
             register_redactions(resp.json())
@@ -115,6 +130,9 @@ def _enable_bug_report_logging(output=sys.stderr, loggers=None):
     Module-internal version of :func:`enable_bug_report_logging`, intended for
     use in tests.
     '''
+    global _COLLECT_RESPONSE_REDACTIONS
+    _COLLECT_RESPONSE_REDACTIONS = True
+
     if loggers is None:
         loggers = (
             schwab.auth.get_logger(),
