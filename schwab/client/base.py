@@ -741,8 +741,17 @@ class BaseClient(EnumEnforcer):
         '''Get price history for a symbol.
 
         :param period_type: The type of period to show.
-        :param period: The number of periods to show. Should not be provided if
-                       ``start_datetime`` and ``end_datetime``.
+        :param period: The number of periods to show. Schwab uses this only to
+                       derive a start date when ``start_datetime`` is not given
+                       -- its documentation says "if not specified startDate
+                       will be (endDate - period)". Supplying both is
+                       harmless, since ``start_datetime`` is what takes effect,
+                       but the period is then doing nothing.
+
+                       Valid values depend on ``period_type``: ``DAY`` accepts
+                       1, 2, 3, 4, 5 and 10; ``MONTH`` accepts 1, 2, 3 and 6;
+                       ``YEAR`` accepts 1, 2, 3, 5, 10, 15 and 20; ``YEAR_TO_DATE``
+                       accepts 1.
         :param frequency_type: The type of frequency with which a new candle
                                is formed.
         :param frequency: The number of the frequencyType to be included in each
