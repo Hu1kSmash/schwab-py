@@ -1,5 +1,6 @@
 import schwab
 import urllib.parse
+import asyncio
 import json
 import copy
 from .utils import account_preferences, has_diff, MockResponse, no_duplicates
@@ -399,6 +400,55 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
             await self.client.logout()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_response_timeout(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        self.client._response_timeout = 0.05
+
+        # A stream which accepts the request but never answers it. The
+        # connection stays healthy, so no websockets error is raised.
+        never = asyncio.Event()
+
+        async def never_responds():
+            await never.wait()
+
+        socket.recv.side_effect = never_responds
+
+        with self.assertRaises(schwab.streaming.ResponseTimeoutError) as cm:
+            await self.client.account_activity_sub()
+
+        self.assertEqual(cm.exception.service, 'ACCT_ACTIVITY')
+        self.assertEqual(cm.exception.command, 'SUBS')
+
+        # The point of the timeout: the lock is released, so the client is
+        # still usable rather than wedged forever.
+        self.assertFalse(self.client._lock.locked())
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_response_timeout_disabled(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        self.client._response_timeout = None
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ACCT_ACTIVITY', 'SUBS'))]
+
+        # None means wait forever, which must still work when a response does
+        # arrive.
+        await self.client.account_activity_sub()
+
+        self.assertFalse(self.client._lock.locked())
+
+    @no_duplicates
+    async def test_response_timeout_is_configurable(self):
+        client = StreamClient(self.http_client, response_timeout=12.5)
+        self.assertEqual(client._response_timeout, 12.5)
+
+        default = StreamClient(self.http_client)
+        self.assertEqual(default._response_timeout,
+                         StreamClient.DEFAULT_RESPONSE_TIMEOUT)
 
 
     ##########################################################################
