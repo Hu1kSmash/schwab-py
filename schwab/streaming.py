@@ -119,6 +119,12 @@ class StreamClient(EnumEnforcer):
         self._request_id = 0
         self._handlers = defaultdict(list)
 
+        # Tasks for handlers which turned out to be coroutines. The event loop
+        # only holds a weak reference to a running task, so a task which nothing
+        # else refers to can be garbage collected before it finishes. Hold onto
+        # them until they complete.
+        self._handler_tasks = set()
+
         # When listening for responses, we sometimes encounter non-response
         # messages. Since this happens outside the context of the handler
         # dispatcher, we cannot handle these messages. However, we still need to
@@ -300,6 +306,52 @@ class StreamClient(EnumEnforcer):
             await self._send({'requests': [request]})
             await self._await_response(request_id, service, command)
 
+    def _on_handler_task_done(self, task):
+        self._handler_tasks.discard(task)
+
+        if task.cancelled():
+            return
+
+        exception = task.exception()
+        if exception is not None:
+            self.logger.error(
+                    'Asynchronous stream handler raised an exception. The '
+                    'message it was handling has been dropped.',
+                    exc_info=exception)
+
+    def _dispatch_to_handlers(self, service, msg, *, relabel):
+        '''
+        Delivers ``msg`` to every handler registered for ``service``.
+
+        A handler which raises is logged and skipped: one misbehaving handler,
+        or one message whose shape the library does not expect, must not prevent
+        the other handlers from seeing the message, and must not escape into the
+        caller's receive loop where it is indistinguishable from the stream
+        having failed.
+
+        Handlers may be synchronous or coroutine functions, and errors are
+        reported the same way for both.
+        '''
+        for handler in self._handlers.get(service, ()):
+            try:
+                # Relabeling reads into the message, so a message with an
+                # unexpected shape can fail here rather than in the handler.
+                payload = handler.label_message(msg) if relabel else msg
+                result = handler(payload)
+            except Exception:
+                self.logger.exception(
+                        'Stream handler for service %s raised an exception. '
+                        'The message it was handling has been dropped.',
+                        service)
+                continue
+
+            # Check if the result is an awaitable, if so schedule it. This
+            # allows for both sync and async handlers.
+            if inspect.isawaitable(result):
+                task = asyncio.ensure_future(result)
+                self._handler_tasks.add(task)
+                task.add_done_callback(self._on_handler_task_done)
+
     async def handle_message(self):
         async with self._lock:
             msg = await self._receive()
@@ -314,15 +366,7 @@ class StreamClient(EnumEnforcer):
         # data
         if 'data' in msg:
             for d in msg['data']:
-                if d['service'] in self._handlers:
-                    for handler in self._handlers[d['service']]:
-                        labeled_d = handler.label_message(d)
-                        h = handler(labeled_d)
-
-                        # Check if h is an awaitable, if so schedule it
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+                self._dispatch_to_handlers(d.get('service'), d, relabel=True)
 
         # notify
         if 'notify' in msg:
@@ -330,13 +374,10 @@ class StreamClient(EnumEnforcer):
                 if 'heartbeat' in d:
                     pass
                 else:
-                    for handler in self._handlers[d['service']]:
-                        h = handler(d)
-
-                        # Check if h is an awaitable, if so schedule oit
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+                    # Not every notify message is guaranteed to name a service,
+                    # and one that does not must not raise out of here.
+                    self._dispatch_to_handlers(d.get('service'), d,
+                                               relabel=False)
 
     ##########################################################################
     # LOGIN
