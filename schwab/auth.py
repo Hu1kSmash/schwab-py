@@ -102,6 +102,30 @@ def __make_update_token_func(token_path):
     return update_token
 
 
+
+def __normalize_credential(value, name):
+    '''
+    Strips surrounding whitespace from an app key or secret, warning when there
+    was any.
+
+    Copy-pasting a key out of the developer console picks up a trailing space or
+    newline easily, and Schwab does not treat the result consistently -- some
+    endpoints tolerate it and some reject it, so the symptom is an intermittent
+    authentication failure a long way from its cause.
+    '''
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if stripped != value:
+        warnings.warn(
+                '{} had surrounding whitespace, which has been stripped. This '
+                'is usually a copy-paste artifact. Schwab does not handle it '
+                'consistently, so it is worth correcting at the '
+                'source.'.format(name),
+                stacklevel=3)
+    return stripped
+
 def __token_loader(token_path):
     def load_token():
         get_logger().info('Loading token from file %s', token_path)
@@ -303,6 +327,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                               values
                               `here <https://docs.python.org/3/library/webbrowser.html#webbrowser.register>`__
     '''
+    api_key = __normalize_credential(api_key, 'api_key')
+    app_secret = __normalize_credential(app_secret, 'app_secret')
 
     if callback_timeout is None:
         callback_timeout = 0
@@ -472,6 +498,8 @@ def client_from_token_file(token_path, api_key, app_secret, asyncio=False,
                           need it. For most users, it is advised to use enums
                           to avoid errors.
     '''
+    api_key = __normalize_credential(api_key, 'api_key')
+    app_secret = __normalize_credential(app_secret, 'app_secret')
 
     load = __token_loader(token_path)
 
@@ -512,6 +540,8 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
                           need it. For most users, it is advised to use enums
                           to avoid errors.
     '''
+    api_key = __normalize_credential(api_key, 'api_key')
+    app_secret = __normalize_credential(app_secret, 'app_secret')
     get_logger().info('Creating new token with callback URL \'%s\' ' +
                        'and token path \'%s\'', callback_url, token_path)
 
@@ -601,6 +631,8 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
                           need it. For most users, it is advised to use enums
                           to avoid errors.
     '''
+    api_key = __normalize_credential(api_key, 'api_key')
+    app_secret = __normalize_credential(app_secret, 'app_secret')
     token = token_read_func()
 
     # Extract metadata and unpack the token, if necessary
@@ -642,6 +674,7 @@ AuthContext = collections.namedtuple(
         'AuthContext', ['callback_url', 'authorization_url', 'state'])
 
 def get_auth_context(api_key, callback_url, state=None):
+    api_key = __normalize_credential(api_key, 'api_key')
     oauth = OAuth2Client(api_key, redirect_uri=callback_url)
     authorization_url, state = oauth.create_authorization_url(
         'https://api.schwabapi.com/v1/oauth/authorize',
@@ -777,6 +810,8 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
                               :func:`client_from_login_flow 
                               <client_from_login_flow>`.
     '''
+    api_key = __normalize_credential(api_key, 'api_key')
+    app_secret = __normalize_credential(app_secret, 'app_secret')
     if max_token_age is None:
         max_token_age = 0
     if max_token_age < 0:
