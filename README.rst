@@ -1,6 +1,38 @@
 ``schwab-py``: A Charles Schwab API Wrapper
 ===========================================
 
+.. note::
+
+   **This is a maintained fork of**
+   `alexgolec/schwab-py <https://github.com/alexgolec/schwab-py>`__.
+
+   The original is the work of Alex Golec and remains the upstream project. This fork exists
+   because upstream has not merged a change since August 2025, while several defects affecting
+   correctness under live trading remained open — prices silently a cent low when passed as
+   floats, a token file that a crash during a refresh could destroy, a stream that could wedge
+   permanently on an unanswered request, and a deprecated ``websockets`` import that will stop
+   importing when it is removed. See `CHANGELOG.md
+   <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for the full list.
+
+   **Every change here has also been offered upstream as a pull request.** This is not a
+   competing project and it is not a criticism of the original author, who wrote essentially all
+   of the code below. If upstream merges those changes, the fork's divergence shrinks; if
+   upstream resumes active maintenance, using it again is the better choice.
+
+   The importable package is still ``schwab``, so this is a drop-in replacement. It is not
+   published to PyPI — install it from git, pinned to a tag or commit:
+
+   .. code-block:: shell
+
+     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.6.0"
+
+   Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
+   the ``schwab`` package. Pick one.
+
+   Issues and pull requests specific to this fork belong on `its own tracker
+   <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything not caused by the changes listed
+   in the changelog is better reported upstream, where it will help more people.
+
 .. image:: https://img.shields.io/discord/720378361880248621.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2
   :target: https://discord.gg/BEr6y6Xqyv
 
