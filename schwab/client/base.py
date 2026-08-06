@@ -801,7 +801,12 @@ class BaseClient(EnumEnforcer):
         if start_datetime is None:
             start_datetime = datetime.datetime(year=1971, month=1, day=1)
         if end_datetime is None:
-            end_datetime = (datetime.datetime.utcnow() +
+            # utcnow() is deprecated, and returns a naive datetime holding a UTC
+            # wall time. _format_date_as_millis converts with dt.timestamp(),
+            # which reads a naive datetime as local time, so the result was off
+            # by the host's UTC offset. An aware datetime converts correctly.
+            # _make_order_query already does it this way.
+            end_datetime = (datetime.datetime.now(datetime.timezone.utc) +
                     datetime.timedelta(days=7))
 
         return start_datetime, end_datetime
