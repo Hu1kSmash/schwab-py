@@ -1172,3 +1172,63 @@ class TruncateFloatTest(unittest.TestCase):
 
     def test_negative_less_than_one(self):
         self.assertEqual('-0.1212', truncate_float(-.12121))
+
+
+class NonFinitePriceTest(unittest.TestCase):
+    '''A price names a finite number of currency units. NaN and the infinities
+    do not, and they arrive by computation rather than by typing -- dividing by
+    a size that turned out to be zero, or deriving a limit from a quote that
+    was missing. The builder already refuses a non-positive quantity, so
+    refusing these is the same check applied to the other half of the order.'''
+
+    def setUp(self):
+        self.order_builder = OrderBuilder()
+
+    @no_duplicates
+    def test_nan_price_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            self.order_builder.set_price(float('nan'))
+        self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_infinite_price_rejected(self):
+        for value in (float('inf'), float('-inf')):
+            with self.assertRaises(ValueError) as cm:
+                self.order_builder.set_price(value)
+            self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_nan_stop_price_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            self.order_builder.set_stop_price(float('nan'))
+        self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_non_finite_price_as_string_rejected(self):
+        # str(float('nan')) is 'nan', so passing a computed price through str()
+        # -- the documented way to pass prices -- reaches here just as easily.
+        for value in ('nan', 'NaN', 'inf', '-inf', 'Infinity'):
+            with self.assertRaises(ValueError) as cm:
+                self.order_builder.set_price(value)
+            self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_ordinary_string_prices_still_pass_through_untouched(self):
+        for value in ('0.07', '421.35', '1.0050', '-5.00', '0'):
+            self.order_builder.set_price(value)
+            self.assertEqual(value, self.order_builder.build()['price'])
+
+    @no_duplicates
+    def test_non_numeric_strings_are_still_the_callers_business(self):
+        # This library does not validate that a price is well formed; Schwab
+        # rejects what it does not like. Only values which are definitely not
+        # a number of dollars are refused here.
+        self.order_builder.set_price('abc')
+        self.assertEqual('abc', self.order_builder.build()['price'])
+
+    @no_duplicates
+    def test_copy_price_still_bypasses_validation(self):
+        # copy_price documents itself as skipping the validation, and callers
+        # reconstructing a historical order rely on that.
+        self.order_builder.copy_price(float('nan'))
+        self.assertNotEqual(None, self.order_builder.build()['price'])

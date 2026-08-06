@@ -1,3 +1,4 @@
+import math
 import warnings
 
 from enum import Enum
@@ -32,6 +33,41 @@ def _build_object(obj):
             name = name[1:]
             ret[name] = _build_object(value)
         return ret
+
+
+def _assert_finite_price(name, price):
+    '''Rejects prices which are not a finite number of currency units.
+
+    NaN and the infinities do not name a price, and they arrive by computation
+    rather than by typing: a limit derived from a quote that was missing, or a
+    size that turned out to be zero. Without this they serialize happily and
+    leave as part of a real order --
+
+        {"orderType": "LIMIT", "price": "NaN", ...}
+
+    -- which is the wrong place to discover the problem. The builder already
+    refuses a non-positive quantity; this is the same check on the other half
+    of the order.
+
+    Strings are otherwise passed through untouched, as they always have been.
+    Only the spellings Python reads as non-finite are refused, because
+    ``str()`` of a computed price is the obvious way to reach here.
+    '''
+    if isinstance(price, str):
+        try:
+            value = float(price)
+        except ValueError:
+            # Not a number at all. That is between the caller and Schwab.
+            return
+    else:
+        try:
+            value = float(price)
+        except (TypeError, ValueError):
+            return
+
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(
+                '{} must be a finite number, got {!r}'.format(name, price))
 
 
 def truncate_float(flt):
@@ -188,6 +224,7 @@ class OrderBuilder(EnumEnforcer):
         Set the stop price. Note price can be passed as either a `float` or an
         `str`. See :ref:`number_truncation`.
         '''
+        _assert_finite_price('stop price', stop_price)
         if isinstance(stop_price, str):
             self._stopPrice = stop_price
         else:
@@ -319,6 +356,7 @@ class OrderBuilder(EnumEnforcer):
         Set the order price. Note price can be passed as either a `float` or an
         `str`. See :ref:`number_truncation`.
         '''
+        _assert_finite_price('price', price)
         if isinstance(price, str):
             self._price = price
         else:
