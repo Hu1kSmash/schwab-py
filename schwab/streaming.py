@@ -557,8 +557,14 @@ class StreamClient(EnumEnforcer):
                 await self._await_response(request_id, 'ADMIN', 'LOGOUT')
         finally:
             # The stream is unusable after a logout whether or not the venue
-            # acknowledged it, so the socket is closed either way.
-            await self.close()
+            # acknowledged it, so the socket is closed either way. A failure to
+            # close is logged rather than raised: it must not replace whatever
+            # went wrong with the logout itself, which is the more useful error.
+            try:
+                await self.close()
+            except Exception:
+                self.logger.exception(
+                        'Failed to close the stream connection after logout.')
 
     async def close(self):
         '''
