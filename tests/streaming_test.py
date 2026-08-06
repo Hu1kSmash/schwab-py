@@ -445,6 +445,26 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         socket.close.assert_awaited_once()
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logout_close_failure_does_not_mask_logout_error(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        response = self.success_response(1, 'ADMIN', 'LOGOUT')
+        response['response'][0]['content']['code'] = 9
+        socket.recv.side_effect = [json.dumps(response)]
+        socket.close.side_effect = OSError('close failed')
+
+        self.client.logger = MagicMock()
+
+        # Closing is cleanup. If it fails it must not replace the error which
+        # actually explains what went wrong.
+        with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
+            await self.client.logout()
+
+        self.client.logger.exception.assert_called_once()
+
+    @no_duplicates
     async def test_close_without_login(self):
         # Tearing down a client which never connected must not raise.
         await self.client.close()
