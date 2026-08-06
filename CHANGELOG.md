@@ -8,6 +8,90 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.7.0
+
+### Fixed
+
+**Response redaction never ran.** Both client modules imported
+`register_redactions_from_response` and then defined a no-op of the same name
+over the top of it, so every call after every request went to the stub. The API
+key and the token are registered elsewhere and were genuinely redacted, but
+nothing the redactor was meant to pick out of responses — account numbers,
+account hashes, the other id-ish values it looks for — ever was. Since
+`enable_bug_report_logging()` tells users their logs are scrubbed, someone
+following the documented process for filing a bug could publish those.
+
+Collection is now gated on `enable_bug_report_logging()`, which is the only
+thing that promises redaction and already documents that it carries a
+performance penalty. Clients which do not call it are unaffected, which is what
+they were getting anyway.
+
+**A request could not be made while a consumer was waiting for a message.** One
+lock covered every stream operation and `handle_message` held it across the
+read, so on a quiet stream a subscription, unsubscription or logout waited for
+a message to arrive first — indefinitely, if none did. Measured beforehand: a
+subscribe issued against a parked consumer sat for a full second without a
+single byte reaching the socket.
+
+Reading and requesting are now separated. A read lock keeps a single reader,
+since `websockets` does not allow two coroutines to call `recv()` concurrently,
+and whoever holds it routes what it reads: a response to a request in flight is
+delivered to the coroutine waiting for it. A request sends immediately and then
+waits on whichever comes first — its response arriving via the reader, or the
+socket becoming free so it can read itself. Response validation and every error
+it can raise are unchanged.
+
+**The price history helpers ignored the date range they were given.**
+`get_price_history` documents that `period` "should not be provided if
+`start_datetime` and `end_datetime`", and all seven `get_price_history_every_*`
+helpers provided both. Schwab honours `period` and drops the range, so a request
+bounded to one hour came back with a full day. `period` is now sent only when no
+range was asked for, since the helpers synthesize one spanning decades when the
+caller gives none.
+
+**The asyncio example called a function which does not exist.**
+`asyncio.run_until_complete()` is not a thing; `run_until_complete` is a method
+on an event loop. The example now uses `asyncio.run()`.
+
+**Two format strings did nothing.** A DELETE was logged with
+`'Req %s: DELETE to %s'.format(...)`, which does not substitute `%s`, so every
+DELETE logged its placeholders verbatim. The price history path called
+`.format(symbol)` on a string with no placeholders.
+
+### Added
+
+**`OrderBuilder.set_price_offset`.** The stop-price side already had a basis, a
+type and an offset; the price-linked side had a basis and a type but no offset,
+so a price-linked order could not be expressed at all and had to be assembled as
+a raw order.
+
+### Changed
+
+Removed the original project's Discord invitations, funding links and badges,
+its `tda-api` transition guide, and 44 links to `developer.tdameritrade.com` and
+`tickertape.tdameritrade.com`, whose portals were retired along with the API
+they documented. Several documentation and issue links pointed at repositories
+which do not exist. Documentation now describes this fork's behaviour, and
+issues are directed at this fork's tracker with a note that anything not caused
+by these changes is better reported upstream.
+
+`tox.ini` now covers py313 and py314, which CI already ran.
+
+### Breaking changes
+
+- A request which is never answered raises `ResponseTimeoutError` rather than
+  blocking message handling. This was already true in 1.6.0; what changed here
+  is that it no longer blocks anything except subsequent requests.
+- Messages read while a request is in flight are handed to `handle_message` in
+  arrival order. Previously they were held back until the request completed,
+  which could not interleave because the lock prevented it.
+
+### Verification
+
+Full suite passes on CPython 3.12 and 3.14.
+
+---
+
 ## 1.6.0
 
 First release of the fork, branching from upstream 1.6.0's predecessor, 1.5.1.
