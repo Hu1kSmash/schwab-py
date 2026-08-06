@@ -383,6 +383,33 @@ class OrderBuilderTest(unittest.TestCase):
         }, self.order_builder.build()))
 
     ##########################################################################
+    # PriceOffset
+
+    @no_duplicates
+    def test_price_offset_success(self):
+        self.order_builder.set_price_offset(12.98)
+        self.assertFalse(has_diff({
+            'priceOffset': 12.98
+        }, self.order_builder.build()))
+
+        self.order_builder.clear_price_offset()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_price_offset_completes_the_price_link_trio(self):
+        # The stop-price side already had basis, type and offset. The
+        # price-linked side had a basis and a type but no offset, so a
+        # price-linked order could not actually be expressed.
+        self.order_builder.set_price_link_basis(PriceLinkBasis.BASE)
+        self.order_builder.set_price_link_type(PriceLinkType.VALUE)
+        self.order_builder.set_price_offset(1.5)
+        self.assertFalse(has_diff({
+            'priceLinkBasis': 'BASE',
+            'priceLinkType': 'VALUE',
+            'priceOffset': 1.5,
+        }, self.order_builder.build()))
+
+    ##########################################################################
     # Price
 
     @no_duplicates
