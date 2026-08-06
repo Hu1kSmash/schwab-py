@@ -165,11 +165,13 @@ directory. Here we assume your virtualenv is called ``my-venv``:
   virtualenv -v my-venv
   source my-venv/bin/activate
 
-You are now ready to install ``schwab-py``:
+You are now ready to install ``schwab-py``. This fork is not published to
+PyPI, so install it from git, pinned to a release. Plain
+``pip install schwab-py`` would fetch the original project from PyPI instead:
 
 .. code-block:: shell
 
-  pip install schwab-py
+  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.7.0"
 
 That's it! You're done! You can verify the install succeeded by importing the 
 package:
