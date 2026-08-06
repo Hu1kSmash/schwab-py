@@ -78,10 +78,63 @@ this enum wrapping is provided as a convenient mechanism to avoid consternation
 caused by accidentally passing an unrecognized value.
 
 By default, passing values other than the required enums will raise a
-``ValueError``. If you believe the API accepts a value that isn't supported 
-here, you can use ``set_enforce_enums`` to disable this behavior at your own 
+``ValueError``. If you believe the API accepts a value that isn't supported
+here, you can use ``set_enforce_enums`` to disable this behavior at your own
 risk. If you *do* find a supported value that isn't listed here, please open an
 issue describing it or submit a PR adding the new functionality.
+
+
+++++++++++++++++++++++
+Dates and Times
+++++++++++++++++++++++
+
+**Give datetimes a timezone.** Every parameter below which takes a
+``datetime`` names a moment in time, and a ``datetime`` carrying no ``tzinfo``
+does not name one -- it is a wall clock reading with no indication of whose
+wall it is on.
+
+Passing one anyway is ambiguous, and the two encodings Schwab uses resolve that
+ambiguity differently. The epoch-millisecond parameters, which the price
+history endpoints use, read a naive datetime as the local time of whichever
+machine is running:
+
+.. code-block:: python
+
+  # The same source line, run in two places.
+  c.get_price_history_every_minute(
+          'AAPL',
+          start_datetime=datetime.datetime(2026, 8, 6, 9, 30),
+          end_datetime=datetime.datetime(2026, 8, 6, 16, 0))
+
+  # on a host set to UTC:                startDate=1786008600000
+  # on a host set to America/New_York:   startDate=1786023000000
+
+Four hours apart. Nothing in the request records which was meant, so a
+container and a laptop quietly disagree about what a given window contains.
+The ISO-8601 parameters -- ``from_entered_datetime``, ``to_entered_datetime``
+and the transaction dates -- are ambiguous in their own way, sending the wall
+clock as written and labelling it UTC.
+
+Attaching a timezone removes the question entirely, and any of these will do:
+
+.. code-block:: python
+
+  import datetime
+  import zoneinfo
+
+  # Explicit UTC
+  datetime.datetime(2026, 8, 6, 13, 30, tzinfo=datetime.timezone.utc)
+
+  # Market local time, which is usually what you actually mean
+  datetime.datetime(2026, 8, 6, 9, 30,
+                    tzinfo=zoneinfo.ZoneInfo('America/New_York'))
+
+  # Whatever this machine is set to, but said out loud rather than assumed
+  datetime.datetime(2026, 8, 6, 9, 30).astimezone()
+
+An aware datetime produces the same request everywhere, whichever timezone it
+carries. Passing a naive one emits a warning naming the parameter. Plain
+``date`` objects are unaffected, having no time of day to be ambiguous about.
 
 
 +++++++++++++
