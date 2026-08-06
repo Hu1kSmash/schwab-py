@@ -502,16 +502,45 @@ class StreamClient(EnumEnforcer):
 
     async def logout(self):
         '''
-        Performs a logout operation on the stream. After this method is called,
-        no further stream operations are possible. The client must be
-        re-initialized with :meth:`login` to perform further operations.
+        Performs a logout operation on the stream and closes the underlying
+        connection. After this method is called, no further stream operations
+        are possible. The client must be re-initialized with :meth:`login` to
+        perform further operations.
         '''
         request, request_id = self._make_request(
             service='ADMIN', command='LOGOUT',
             parameters={})
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGOUT')
+        try:
+            async with self._lock:
+                await self._send({'requests': [request]})
+                await self._await_response(request_id, 'ADMIN', 'LOGOUT')
+        finally:
+            # The stream is unusable after a logout whether or not the venue
+            # acknowledged it, so the socket is closed either way.
+            await self.close()
+
+    async def close(self):
+        '''
+        Closes the connection to the streaming server without logging out.
+
+        Safe to call more than once, and safe to call on a client which was
+        never logged in. Prefer :meth:`logout` where the stream is still
+        healthy; this exists for shutting down a client whose connection has
+        already failed, or which is being torn down without ceremony.
+
+        The client must be re-initialized with :meth:`login` to perform further
+        operations.
+        '''
+        socket, self._socket = self._socket, None
+
+        if socket is not None:
+            await socket.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
     ##########################################################################
     # ACCT_ACTIVITY
