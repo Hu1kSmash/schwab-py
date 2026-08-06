@@ -313,10 +313,22 @@ which involves some truncation logic:
  * For all other values, truncate to two decimal places. The above example would 
    become `0.18`. 
 
-This behavior is meant as a sane heuristic, and there are almost certainly 
-situations where it is not the correct thing to do. You can sidestep this entire 
-process by passing your price as a string, although be forewarned that Schwab 
-may reject your order or even interpret it in unexpected ways. 
+This behavior is meant as a sane heuristic, and there are almost certainly
+situations where it is not the correct thing to do. You can sidestep this entire
+process by passing your price as a string, although be forewarned that Schwab
+may reject your order or even interpret it in unexpected ways.
+
+Passing prices as strings is also the supported path: passing floats is
+deprecated and will eventually be removed.
+
+.. note::
+
+   The truncation is done in decimal, so a price already at the target precision
+   survives it unchanged. Earlier versions scaled the float and truncated the
+   result, which truncated the representation error along with the value -- 8.2
+   became ``8.19``, because ``8.2 * 100`` is ``819.9999999999999``. Roughly 4.6%
+   of cent-granular prices were affected, always one tick low and silently. See
+   the changelog for detail.
 
 .. automethod:: schwab.orders.generic.OrderBuilder.set_price
 .. automethod:: schwab.orders.generic.OrderBuilder.copy_price

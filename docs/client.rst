@@ -226,11 +226,20 @@ In the raw API, fetching price history is somewhat complicated: the API offers a
 single endpoint :meth:`Client.get_price_history` that accepts a complex variety 
 of inputs, but fails to document them in any meaningful way.
 
-Thankfully, we've reverse engineered this endpoint and built some helpful 
-utilities for fetching prices by minute, day, week, etc. Each method can be 
-called with or without date bounds. When called without date bounds, it returns 
-all data available. Each method offers a different lookback period, so make sure 
-to read the documentation below to learn how much data is available. 
+Thankfully, we've reverse engineered this endpoint and built some helpful
+utilities for fetching prices by minute, day, week, etc. Each method can be
+called with or without date bounds. When called without date bounds, it returns
+all data available. Each method offers a different lookback period, so make sure
+to read the documentation below to learn how much data is available.
+
+.. note::
+
+   Give any of these a ``start_datetime`` or an ``end_datetime`` and you get
+   that range. Earlier versions sent a period alongside the range, and Schwab
+   honours the period and ignores the range -- so a request bounded to one hour
+   came back with a full day, and the bounds were silently discarded. If you
+   previously worked around that by filtering client-side, you will now get
+   fewer candles than before.
 
 
 .. automethod:: schwab.client.Client.get_price_history_every_minute
