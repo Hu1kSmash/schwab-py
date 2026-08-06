@@ -266,9 +266,8 @@ class BaseClient(EnumEnforcer):
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options.
-        :param statuses: Restrict query to orders with any of these statuses.
-                         See :class:`Order.Status` for options.
+                       :class:`Order.Status` for options. Only one status may
+                       be given; passing a collection raises ``ValueError``.
         '''
         path = '/trader/v1/accounts/{}/orders'.format(account_hash)
         return self._get_request(path, self._make_order_query(
@@ -295,7 +294,8 @@ class BaseClient(EnumEnforcer):
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options.
+                       :class:`Order.Status` for options. Only one status may
+                       be given; passing a collection raises ``ValueError``.
         '''
         path = '/trader/v1/orders'
         return self._get_request(path, self._make_order_query(
