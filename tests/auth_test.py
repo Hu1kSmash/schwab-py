@@ -13,6 +13,7 @@ import os
 import requests
 import stat
 import tempfile
+import time
 import unittest
 
 
@@ -408,6 +409,84 @@ class ClientFromTokenFileTest(unittest.TestCase):
         leftovers = [n for n in os.listdir(self.tmp_dir.name)
                      if n != 'token.json']
         self.assertEqual(leftovers, [])
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_sweeps_temp_files_left_by_a_hard_kill(
+            self, async_session, sync_session, client):
+        # A process killed between the temporary file being written and the
+        # rename cannot clean up after itself, and what it leaves behind is a
+        # complete copy of the token. Nothing else ever removes them, so they
+        # accumulate -- each one a refresh token which stays valid for the rest
+        # of its seven days.
+        self.write_token()
+
+        stale = os.path.join(self.tmp_dir.name, '.schwab-py-tokenXXXX.tmp')
+        with open(stale, 'w') as f:
+            json.dump({'access_token': 'leftover'}, f)
+        old = time.time() - 3600
+        os.utime(stale, (old, old))
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+        update_token({'updated': 'token'})
+
+        self.assertFalse(
+                os.path.exists(stale),
+                'a stale token temp file survived a subsequent write')
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_leaves_a_concurrent_write_alone(
+            self, async_session, sync_session, client):
+        # Another process may be partway through its own write right now. Its
+        # temporary file is not litter, and deleting it would break that write.
+        self.write_token()
+
+        fresh = os.path.join(self.tmp_dir.name, '.schwab-py-tokenYYYY.tmp')
+        with open(fresh, 'w') as f:
+            json.dump({'access_token': 'in flight'}, f)
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+        update_token({'updated': 'token'})
+
+        self.assertTrue(
+                os.path.exists(fresh),
+                'a temp file which may belong to a live write was deleted')
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_does_not_sweep_unrelated_files(
+            self, async_session, sync_session, client):
+        # The token directory is frequently the user's own, and may be their
+        # home directory. Only this library's own temporary files are ours to
+        # delete.
+        self.write_token()
+
+        bystanders = []
+        for name in ('.bashrc', 'notes.tmp', '.schwab-py-token-notes',
+                     'schwab-py-token.tmp'):
+            path = os.path.join(self.tmp_dir.name, name)
+            with open(path, 'w') as f:
+                f.write('not ours')
+            old = time.time() - 86400
+            os.utime(path, (old, old))
+            bystanders.append(path)
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+        update_token({'updated': 'token'})
+
+        for path in bystanders:
+            self.assertTrue(os.path.exists(path),
+                            '{} was deleted'.format(os.path.basename(path)))
 
     @no_duplicates
     @patch('schwab.auth.Client')
