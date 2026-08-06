@@ -1172,3 +1172,32 @@ class TruncateFloatTest(unittest.TestCase):
 
     def test_negative_less_than_one(self):
         self.assertEqual('-0.1212', truncate_float(-.12121))
+
+    # A price which is already at the target precision must survive truncation
+    # unchanged. Scaling a binary float and taking int() does not manage this:
+    # 8.2 * 100 is 819.9999999999999, so int() yields 819 and the price comes
+    # back a cent low.
+
+    def test_already_two_decimal_places_is_unchanged(self):
+        self.assertEqual('8.20', truncate_float(8.20))
+        self.assertEqual('78.60', truncate_float(78.60))
+        self.assertEqual('2.30', truncate_float(2.30))
+        self.assertEqual('1.13', truncate_float(1.13))
+
+    def test_already_four_decimal_places_is_unchanged(self):
+        self.assertEqual('0.1150', truncate_float(0.115))
+        self.assertEqual('0.8230', truncate_float(0.823))
+
+    def test_every_cent_survives_truncation(self):
+        # Exhaustive over a range wide enough to catch the representation
+        # error, which is not evenly distributed.
+        for cents in range(100, 20001):
+            price = cents / 100.0
+            expected = '{}.{:02d}'.format(cents // 100, cents % 100)
+            self.assertEqual(
+                    expected, truncate_float(price),
+                    'truncating {!r} lost precision'.format(price))
+
+    def test_documented_truncation_example(self):
+        # The example given in the docs' note on truncation.
+        self.assertEqual('0.1869', truncate_float(0.186992))

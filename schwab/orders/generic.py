@@ -1,3 +1,4 @@
+import decimal
 import warnings
 
 from enum import Enum
@@ -38,10 +39,21 @@ def truncate_float(flt):
     warnings.warn('passing floats to set_price and set_stop_price is '+
                   'deprecated and will be removed soon. Please update your '+
                   'code to pass prices as strings instead.')
-    if abs(flt) < 1 and flt != 0.0:
-        return '{:.4f}'.format(float(int(flt * 10000)) / 10000.0)
-    else:
-        return '{:.2f}'.format(float(int(flt * 100)) / 100.0)
+
+    # Truncation is deliberate -- see the note on truncation in the docs -- but
+    # it has to be done in decimal rather than binary. Scaling a binary float
+    # and taking int() truncates the representation error along with the value:
+    # 8.2 * 100 is 819.9999999999999, so int() yields 819 and a price which was
+    # already at two decimal places comes back a cent lower. Decimal(str(flt))
+    # reads the value as written, so truncating it is exact.
+    #
+    # ROUND_DOWN rounds toward zero, which is what int() did, so negative
+    # prices truncate as they did before.
+    places = (decimal.Decimal('0.0001') if abs(flt) < 1 and flt != 0.0
+              else decimal.Decimal('0.01'))
+
+    return str(decimal.Decimal(str(flt)).quantize(
+        places, rounding=decimal.ROUND_DOWN))
 
 
 class OrderBuilder(EnumEnforcer):
