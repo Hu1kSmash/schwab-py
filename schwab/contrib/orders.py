@@ -10,6 +10,18 @@ from schwab.orders.common import (
 from collections import defaultdict
 
 
+class UnrepeatableOrderError(ValueError):
+    '''
+    Raised when a historical order cannot be turned back into an order which
+    could be placed, because one of its fields holds a value the API reports but
+    will not accept.
+    '''
+    def __init__(self, historical_field, value, message):
+        super().__init__(message)
+        self.historical_field = historical_field
+        self.value = value
+
+
 def _call_setters_with_values(order, builder):
     '''
     For each field in fields_and_setters, if it exists as a key in the order
@@ -22,7 +34,21 @@ def _call_setters_with_values(order, builder):
             continue
 
         if enum_class:
-            value = enum_class[value]
+            try:
+                value = enum_class[value]
+            except KeyError:
+                # Schwab documents UNKNOWN as a value some of these fields can
+                # come back as -- and says explicitly that it is not accepted as
+                # an input, so there is no way to build an order which repeats
+                # it. Say so, rather than raising a bare KeyError from inside
+                # the enum lookup.
+                raise UnrepeatableOrderError(
+                        historical_field=field_name,
+                        value=value,
+                        message=(
+                            'cannot repeat this order: its {!r} is {!r}, which '
+                            'Schwab returns on orders but does not accept when '
+                            'placing one'.format(field_name, value)))
 
         setter = getattr(builder, setter_name)
         setter(value)
