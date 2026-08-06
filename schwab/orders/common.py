@@ -29,6 +29,16 @@ class InvalidOrderException(Exception):
 class Duration(Enum):
     '''
     Length of time over which the trade will be active.
+
+    .. note::
+        Not every value in this enum is accepted for every asset type. As of
+        2026-08-06, Schwab accepts only ``DAY``, ``GOOD_TILL_CANCEL`` and
+        ``FILL_OR_KILL`` for equity orders. The remaining values are rejected
+        at order placement with ``HTTP 400``, and a message of the form
+        ``Invalid value 'IMMEDIATE_OR_CANCEL'``. Individual values are marked
+        below. Note this validation happens when the order is placed, not when
+        it is built, so an unsupported value will not be caught by
+        :class:`~schwab.orders.generic.OrderBuilder`.
     '''
     #: Cancel the trade at the end of the trading day. Note if the order cannot
     #: be filled all at once, you may see partial executions throughout the day.
@@ -45,10 +55,29 @@ class Duration(Enum):
     #: immediately.
     FILL_OR_KILL = 'FILL_OR_KILL'
 
-    # TODO: Document these
+    #: Immediately execute whatever portion of the order it can at the specified
+    #: price, and cancel whatever portion remains unfilled.
+    #:
+    #: **Not supported for equity orders**, which are rejected with ``HTTP 400``
+    #: at placement.
     IMMEDIATE_OR_CANCEL = 'IMMEDIATE_OR_CANCEL'
+
+    #: Keep the trade open until the end of the current trading week.
+    #:
+    #: **Not supported for equity orders**, which are rejected with ``HTTP 400``
+    #: at placement.
     END_OF_WEEK = 'END_OF_WEEK'
+
+    #: Keep the trade open until the end of the current calendar month.
+    #:
+    #: **Not supported for equity orders**, which are rejected with ``HTTP 400``
+    #: at placement.
     END_OF_MONTH = 'END_OF_MONTH'
+
+    #: Keep the trade open until the end of the next calendar month.
+    #:
+    #: **Not supported for equity orders**, which are rejected with ``HTTP 400``
+    #: at placement.
     NEXT_END_OF_MONTH = 'NEXT_END_OF_MONTH'
 
 
