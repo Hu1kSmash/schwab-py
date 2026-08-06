@@ -82,6 +82,35 @@ class AccountHashMismatchException(ValueError):
     '''
 
 
+class TokenRefreshError(Exception):
+    '''
+    Raised when Schwab rejects an attempt to refresh the OAuth token.
+
+    Every request refreshes the token first if it is close to expiring, so this
+    surfaces from an ordinary call rather than from anything token-shaped. It
+    exists so that an unattended application can catch a failure to refresh
+    without importing ``authlib`` and catching an exception type this library
+    never mentions. The original error is preserved as ``__cause__``.
+
+    ``token_age`` is the number of seconds since the token was originally
+    authorized, or ``None`` if this client was built without token metadata.
+    Schwab documents a refresh token as valid for seven days after creation,
+    and refreshing does not extend that, so a ``token_age`` past 604800 means
+    the window has closed and no amount of retrying will help -- someone has to
+    complete the login flow again.
+
+    Note this library cannot tell you that from the error itself. Schwab
+    documents the seven day term but not what it returns when the term expires,
+    so the age is the signal to reason about, not the error code.
+    '''
+
+    def __init__(self, message, *, token_age=None):
+        super().__init__(message)
+
+        #: Seconds since the token was originally authorized, or ``None``.
+        self.token_age = token_age
+
+
 class LazyLog:
     'Helper to defer evaluation of expensive variables in log messages'
     def __init__(self, func):
