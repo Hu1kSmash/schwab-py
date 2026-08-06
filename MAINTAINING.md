@@ -41,6 +41,17 @@ Every change goes upstream as a PR **first**, then into `main`. Not the other wa
 only into `main`. Two reasons: it is the honest thing to do given essentially all of this code is
 Alex Golec's, and every merged PR shrinks the divergence this fork has to carry.
 
+## Keeping CI current
+
+`.github/dependabot.yml` watches the GitHub Actions used by the workflow and opens a
+pull request when one goes stale. They had drifted five major versions behind before
+anyone noticed, and the only symptom was a deprecation warning inside a job annotation
+that nobody reads.
+
+It deliberately does not watch the Python dependencies. Those are floors rather than
+pins, this library places trades, and upgrading one is a decision that wants the
+verification described below -- not a bot's pull request merged on a quiet afternoon.
+
 ## Rules that have earned their place
 
 **Write a test that fails before the fix.** Every defect found so far sat in code with 100% line
