@@ -110,10 +110,11 @@ def enable_bug_report_logging():
     _enable_bug_report_logging()
 
 
-def _enable_bug_report_logging(output=sys.stderr, loggers=None):
+def _enable_bug_report_logging(output=None, loggers=None):
     '''
     Module-internal version of :func:`enable_bug_report_logging`, intended for
-    use in tests.
+    use in tests. ``output`` defaults to ``sys.stderr`` as it is at program
+    exit, when the logs are actually written.
     '''
     if loggers is None:
         loggers = (
@@ -139,13 +140,25 @@ def _enable_bug_report_logging(output=sys.stderr, loggers=None):
         logger.addHandler(handler)
 
     def write_logs():
-        print(file=output)
-        print(' ### BEGIN REDACTED LOGS ###', file=output)
-        print(file=output)
+        # sys.stderr is looked up here rather than captured as a default
+        # argument, which would bind whatever it was when this module was
+        # imported. These logs are written at program exit, so the stream that
+        # matters is the one the program is using then.
+        out = sys.stderr if output is None else output
 
-        for msg in handler.messages:
-            msg = schwab.LOG_REDACTOR.redact(msg)
-            print(msg, file=output)
+        try:
+            print(file=out)
+            print(' ### BEGIN REDACTED LOGS ###', file=out)
+            print(file=out)
+
+            for msg in handler.messages:
+                msg = schwab.LOG_REDACTOR.redact(msg)
+                print(msg, file=out)
+        except ValueError:
+            # The stream was closed before the interpreter shut down. There is
+            # nowhere left to write the report, and a traceback out of an
+            # atexit handler is a worse last word than nothing.
+            pass
     atexit.register(write_logs)
 
     get_logger().debug('schwab-api version %s', schwab.__version__)

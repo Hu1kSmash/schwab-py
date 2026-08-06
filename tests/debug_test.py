@@ -151,9 +151,39 @@ class RegisterRedactionsTest(unittest.TestCase):
 
 class EnableDebugLoggingTest(unittest.TestCase):
 
+    @patch('atexit.register')
     @patch('logging.Logger.addHandler')
-    def test_enable_doesnt_throw_exceptions(self, _):
+    def test_enable_doesnt_throw_exceptions(self, _, __):
         try:
             schwab.debug.enable_bug_report_logging()
         except AttributeError:
             self.fail("debug.enable_bug_report_logging() raised AttributeError unexpectedly")
+
+    @no_duplicates
+    def test_writes_to_stderr_as_it_is_at_exit(self):
+        # The logs are written at program exit, so the stream to write them to
+        # is whatever sys.stderr is then -- not whatever it happened to be when
+        # this module was imported.
+        replacement = io.StringIO()
+        dump_logs = schwab.debug._enable_bug_report_logging(
+                loggers=[logging.getLogger('test-late-binding')])
+        self.addCleanup(atexit.unregister, dump_logs)
+        logging.getLogger('test-late-binding').info('a line worth reporting')
+
+        with patch('sys.stderr', replacement):
+            dump_logs()
+
+        self.assertIn('a line worth reporting', replacement.getvalue())
+
+    @no_duplicates
+    def test_does_not_write_to_a_stream_closed_before_exit(self):
+        # An application which replaced sys.stderr and then closed it should
+        # not have a traceback out of an atexit handler as its last output.
+        closed = io.StringIO()
+        dump_logs = schwab.debug._enable_bug_report_logging(
+                loggers=[logging.getLogger('test-closed-stream')])
+        self.addCleanup(atexit.unregister, dump_logs)
+        closed.close()
+
+        with patch('sys.stderr', closed):
+            dump_logs()
