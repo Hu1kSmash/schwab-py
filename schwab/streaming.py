@@ -98,14 +98,34 @@ class _Handler:
             return msg
 
 
+class ResponseTimeoutError(Exception):
+    '''
+    Raised when the streaming server accepts a request but does not send a
+    response to it within the configured timeout. Distinct from the connection
+    failing, which surfaces as a ``websockets`` exception.
+    '''
+    def __init__(self, service, command, timeout, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = service
+        self.command = command
+        self.timeout = timeout
+
+
 class StreamClient(EnumEnforcer):
 
+    #: Seconds to wait for the streaming server to respond to a request before
+    #: giving up. Requests are made while holding a lock which serializes all
+    #: stream operations, so waiting forever wedges the whole client.
+    DEFAULT_RESPONSE_TIMEOUT = 60.0
+
     def __init__(self, client, *, account_id=None,
-                 enforce_enums=True, ssl_context=None):
+                 enforce_enums=True, ssl_context=None,
+                 response_timeout=DEFAULT_RESPONSE_TIMEOUT):
         super().__init__(enforce_enums)
 
         self._ssl_context = ssl_context
         self._client = client
+        self._response_timeout = response_timeout
 
         # Set by the login() function
         self._account = None
@@ -239,9 +259,30 @@ class StreamClient(EnumEnforcer):
             def __exit__(self, exc_type, exc_val, exc_tb):
                 self.this_client._overflow_items.extendleft(deferred_messages)
 
+        # The lock which serializes stream operations is held for the whole of
+        # this wait, so a response which never arrives would block every other
+        # operation on the client, including message handling, indefinitely.
+        # The websockets keepalive does not help: a connection which is alive
+        # but simply not answering keeps responding to pings.
+        deadline = (None if self._response_timeout is None
+                    else asyncio.get_running_loop().time()
+                    + self._response_timeout)
+
         with WriteDeferredMessages(self):
             while True:
-                resp = await self._receive()
+                if deadline is None:
+                    resp = await self._receive()
+                else:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    try:
+                        resp = await asyncio.wait_for(
+                                self._receive(), timeout=max(remaining, 0))
+                    except asyncio.TimeoutError:
+                        raise ResponseTimeoutError(
+                                service, command, self._response_timeout,
+                                'timed out after {}s waiting for a response to '
+                                '{}/{}'.format(
+                                    self._response_timeout, service, command))
 
                 if 'response' not in resp:
                     deferred_messages.append(resp)
