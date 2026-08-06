@@ -798,6 +798,20 @@ class BaseClient(EnumEnforcer):
     # Price history utilities
 
     def __normalize_start_and_end_datetimes(self, start_datetime, end_datetime):
+        '''
+        Fills in whichever end of the range the caller left out, and reports
+        whether they asked for a range at all.
+
+        The third return value decides whether ``period`` is sent. Schwab
+        honours ``period`` and ignores the date range when both are present, so
+        a caller who gives a range and still gets a period's worth of data has
+        been quietly ignored. When no range is asked for, the synthesized one
+        spans decades and is not something to request, so ``period`` is what
+        should describe the request instead.
+        '''
+        requested_range = (start_datetime is not None
+                           or end_datetime is not None)
+
         if start_datetime is None:
             start_datetime = datetime.datetime(year=1971, month=1, day=1)
         if end_datetime is None:
@@ -809,7 +823,7 @@ class BaseClient(EnumEnforcer):
             end_datetime = (datetime.datetime.now(datetime.timezone.utc) +
                     datetime.timedelta(days=7))
 
-        return start_datetime, end_datetime
+        return start_datetime, end_datetime, requested_range
 
 
     def get_price_history_every_minute(
@@ -821,13 +835,15 @@ class BaseClient(EnumEnforcer):
         data.
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.ONE_DAY),
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
                 start_datetime=start_datetime,
@@ -845,13 +861,15 @@ class BaseClient(EnumEnforcer):
         nine months of data.
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.ONE_DAY),
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_FIVE_MINUTES,
                 start_datetime=start_datetime,
@@ -869,13 +887,15 @@ class BaseClient(EnumEnforcer):
         nine months of data.
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.ONE_DAY),
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_TEN_MINUTES,
                 start_datetime=start_datetime,
@@ -893,13 +913,15 @@ class BaseClient(EnumEnforcer):
         nine months of data.
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.ONE_DAY),
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_FIFTEEN_MINUTES,
                 start_datetime=start_datetime,
@@ -917,13 +939,15 @@ class BaseClient(EnumEnforcer):
         nine months of data.
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.ONE_DAY),
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
                 start_datetime=start_datetime,
@@ -942,13 +966,15 @@ class BaseClient(EnumEnforcer):
         1985 (for ``AAPL``).
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.YEAR,
-                period=self.PriceHistory.Period.TWENTY_YEARS,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.TWENTY_YEARS),
                 frequency_type=self.PriceHistory.FrequencyType.DAILY,
                 frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
                 start_datetime=start_datetime,
@@ -967,13 +993,15 @@ class BaseClient(EnumEnforcer):
         1985 (for ``AAPL``).
         '''
 
-        start_datetime, end_datetime = self.__normalize_start_and_end_datetimes(
-                start_datetime, end_datetime)
+        start_datetime, end_datetime, requested_range = \
+                self.__normalize_start_and_end_datetimes(
+                        start_datetime, end_datetime)
 
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.YEAR,
-                period=self.PriceHistory.Period.TWENTY_YEARS,
+                period=(None if requested_range
+                        else self.PriceHistory.Period.TWENTY_YEARS),
                 frequency_type=self.PriceHistory.FrequencyType.WEEKLY,
                 frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
                 start_datetime=start_datetime,
