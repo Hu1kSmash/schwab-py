@@ -76,14 +76,49 @@ exception.
 
 .. automethod:: schwab.streaming.StreamClient.login
 
+Requests to the streaming server -- logging in, subscribing, logging out -- give
+up after ``response_timeout`` seconds if the server accepts the request but
+never answers it, raising
+:class:`~schwab.streaming.ResponseTimeoutError`. It defaults to 60 seconds and
+can be set per client:
 
------------
-Logging Out
------------
+.. code-block:: python
+
+  stream_client = StreamClient(client, response_timeout=30.0)
+
+Pass ``None`` to wait indefinitely. Note that the websockets keepalive does not
+cover this case: a connection which is alive but simply not answering keeps
+replying to pings, so without a timeout such a request would wait forever.
+
+
+-----------------------
+Logging Out and Closing
+-----------------------
 
 For a clean exit, it's recommended to log out of the stream when you're done.
+This sends a logout request and then closes the connection.
 
 .. automethod:: schwab.streaming.StreamClient.logout
+
+If the connection has already failed, or you are tearing a client down without
+ceremony, :meth:`close` skips the logout and just closes the socket. It is safe
+to call more than once, and safe on a client which was never logged in.
+
+.. automethod:: schwab.streaming.StreamClient.close
+
+The client is also an async context manager, which closes it on the way out:
+
+.. code-block:: python
+
+  async with StreamClient(client) as stream_client:
+      await stream_client.login()
+      ...
+
+Closing matters more than it might appear. A client which is never closed leaves
+its socket and keepalive task alive until the object is collected, which for a
+long-running process means until it exits -- typically leaving the connection to
+be finalized during interpreter shutdown, when the event loop may already be
+gone.
 
 
 ----------------------
@@ -149,8 +184,19 @@ handlers registered, we can start handling messages. This is done simply by
 awaiting on the ``handle_message()`` function. This function reads a single 
 message and dispatches it to the appropriate handler or handlers.
 
-If a message is received for which no handler is registered, that message is 
+If a message is received for which no handler is registered, that message is
 ignored.
+
+A handler which raises does not stop the others from seeing the message, and
+does not propagate out of ``handle_message()`` into your receive loop, where it
+would be indistinguishable from the connection failing. The failure is reported
+on the ``schwab.streaming`` logger instead, with the service name attached. This
+applies equally to synchronous and coroutine handlers.
+
+That is worth knowing when debugging: **a handler which is quietly failing shows
+up in the logs and nowhere else.** If you are relying on a handler to do
+something important, watch that logger. See :ref:`enable_logging <help>` for how
+to turn logging on.
 
 Handlers should take a single argument representing the stream message received:
 
