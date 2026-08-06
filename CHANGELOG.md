@@ -8,6 +8,103 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.9.0
+
+From a production-readiness audit which mostly ran the library rather than
+reading it. Four defects, three of them silent.
+
+Two change behaviour in ways worth reading before upgrading: aware datetimes
+now produce different (correct) requests on three endpoints, and a NaN price is
+now refused rather than sent.
+
+### Fixed
+
+**A timezone-aware datetime was formatted, not converted, before being labelled
+UTC.** Schwab documents `fromEnteredTime`, `toEnteredTime` and the transaction
+dates as `yyyy-MM-dd'T'HH:mm:ss.SSSZ`, where the trailing `Z` asserts UTC.
+`_format_date_as_iso` applied `strftime` to whatever it was given, so a
+datetime carrying any other timezone had its local wall clock stamped as UTC:
+
+```python
+eastern.localize(datetime.datetime(2024, 6, 5, 0, 3, 2))   # == 04:03:02 UTC
+# sent as fromEnteredTime=2024-06-05T00:03:02Z             -- four hours early
+```
+
+Passing a correctly-zoned datetime is what triggered it. Naive datetimes were
+unaffected, as were the price history endpoints, which use a different encoding
+that was already correct. Affects `get_orders_for_account`,
+`get_orders_for_all_linked_accounts` and `get_transactions`. Offered upstream
+as #258.
+
+**A response nobody was waiting for ended the caller's receive loop.**
+`handle_message` raised `UnexpectedResponse` on any response frame. One reaches
+it whenever a request was abandoned -- timed out, or cancelled -- and the
+server answered afterwards, and that answer is frequently a *successful* one.
+So a subscribe which timed out client-side and in fact worked killed the
+session the moment Schwab acknowledged it, taking every message queued behind
+it. That is most likely exactly when the venue is slow, which is when a stream
+is least worth dropping. Now logged and skipped. `UnexpectedResponse` still
+covers a response whose service, command or request id does not match the
+request being waited on. Offered upstream as #261.
+
+**Prices which are not a finite number built sendable orders.**
+
+```python
+equity_buy_limit('AAPL', 10, float('nan')).build()
+# {'orderType': 'LIMIT', 'price': 'NaN', ...}
+```
+
+NaN is not typed, it is computed -- a limit derived from a quote that was
+missing. The builder already refused a non-positive quantity, so this is the
+same check on the other half of the order. The string spellings are refused
+too, since `str()` of a computed price is the documented way to pass one.
+Strings which are not numbers at all still pass through, and `copy_price` still
+bypasses everything as documented. Offered upstream as #262.
+
+**Bug report logs did not redact Schwab's account identifiers.** The default
+patterns matched an earlier API's field names -- `accountId`, `displayName`.
+Schwab returns `accountNumber` and `hashValue` and neither matched anything, so
+the two identifiers a user is least likely to want in a public issue were the
+two that survived. Named in full rather than adding `account` as a substring:
+redaction is a whole-log string replacement, and `account` also matches
+`accountValue` and `accountColor`, which would take every balance and the word
+"Green" with it. Offered upstream as #260.
+
+### Added
+
+**A warning when a date parameter is given a datetime with no timezone.** These
+parameters name an instant; a naive datetime does not. The epoch-millisecond
+encoding reads one as the host's local time, so the same source line sends
+different requests on different machines:
+
+```
+host set to UTC:                startDate=1786008600000
+host set to America/New_York:   startDate=1786023000000
+```
+
+Four hours apart, with nothing in the request recording which was meant.
+Warning rather than reinterpreting: silently treating them as UTC would change
+behaviour for anyone relying on local time without telling them. Aware
+datetimes and plain `date` objects are unaffected. Offered upstream as #259.
+
+### Documentation
+
+A **Dates and Times** section in the client documentation, which previously
+said nothing about timezones anywhere. Covers both encodings, the measured
+numbers above, and the three spellings that remove the ambiguity.
+
+### Notes
+
+Nothing here changes how a request is built for a caller already passing aware
+datetimes to the price history endpoints, or already passing prices as strings.
+
+The audit also confirmed, by measurement rather than reading: 80 `SIGKILL`s
+inside the token write window corrupted nothing; 400 streaming cancellation
+storms left no orphaned lock and every client usable, where v1.7.1 fails 40 out
+of 40; price truncation agrees exactly with an independent oracle across 40,009
+values; and all 48 order templates round-trip byte-identically through
+`contrib.orders`.
+
 ## 1.8.1
 
 ### Fixed
