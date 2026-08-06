@@ -5,7 +5,7 @@
   :target: https://discord.gg/BEr6y6Xqyv
 
 .. image:: 
-   https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%schwabpy%26type%3Dpatrons&style=flat
+   https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%3Dschwabpy%26type%3Dpatrons&style=flat
   :target: https://patreon.com/schwabpy
 
 .. image:: https://readthedocs.org/projects/schwab-py/badge/?version=latest
@@ -61,7 +61,7 @@ several days).  You can find more detailed instructions `here
 
 Next, install ``schwab-py``:
 
-.. code-block:: python
+.. code-block:: shell
 
   pip install schwab-py
 
