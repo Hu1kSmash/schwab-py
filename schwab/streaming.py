@@ -306,10 +306,22 @@ class StreamClient(EnumEnforcer):
 
         # response
         if 'response' in msg:
-            raise UnexpectedResponse(msg,
-                                     'unexpected response code during message handling: {}, msg is \'{}\''.format(
-                                         msg['response'][0]['content']['code'],
-                                         msg['response'][0]['content']['msg']))
+            # A response with nothing waiting for it is not a reason to end the
+            # caller's receive loop. It happens whenever a request was
+            # abandoned -- cancelled, or given up on -- and the server answered
+            # afterwards, and the answer is frequently a successful one. Ending
+            # the session over a late acknowledgement of something that worked
+            # loses every message queued behind it, and does so precisely when
+            # the server is slow, which is when a stream is least worth
+            # dropping. Log it and carry on.
+            for response in msg['response']:
+                content = response.get('content', {})
+                self.logger.info(
+                        'Received a response to %s/%s with no request '
+                        'outstanding: code %s, msg \'%s\'. Ignoring it.',
+                        response.get('service'), response.get('command'),
+                        content.get('code'), content.get('msg'))
+            return
 
         # data
         if 'data' in msg:
