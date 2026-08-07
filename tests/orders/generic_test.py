@@ -1227,6 +1227,63 @@ class NonFinitePriceTest(unittest.TestCase):
         self.assertEqual('abc', self.order_builder.build()['price'])
 
     @no_duplicates
+    def test_every_numeric_setter_refuses_non_finite(self):
+        # A price is not the only number in an order which can arrive by
+        # computation. A trailing stop offset derived from a quote that came
+        # back empty reaches set_stop_price_offset the same way.
+        setters = ('set_price', 'set_stop_price', 'set_activation_price',
+                   'set_stop_price_offset', 'set_quantity')
+
+        for name in setters:
+            for value in (float('nan'), float('inf'), float('-inf')):
+                builder = OrderBuilder()
+                with self.assertRaises(ValueError, msg='{}({!r})'.format(
+                        name, value)) as cm:
+                    getattr(builder, name)(value)
+                self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_nan_defeats_the_positivity_guards(self):
+        # NaN compares False against everything, so `quantity <= 0` and
+        # `activation_price <= 0.0` do not fire for it. The finite check has to
+        # run first or those guards are simply bypassed.
+        self.assertFalse(float('nan') <= 0)
+
+        for name in ('set_quantity', 'set_activation_price'):
+            builder = OrderBuilder()
+            with self.assertRaises(ValueError):
+                getattr(builder, name)(float('nan'))
+
+    @no_duplicates
+    def test_a_built_order_is_always_serializable(self):
+        # json.dumps emits a bare NaN, which is not valid JSON, so an order
+        # carrying one is not merely wrong -- it cannot be transmitted as JSON
+        # at all without a parser willing to accept a non-standard token.
+        import json
+
+        builder = OrderBuilder()
+        for name in ('set_quantity', 'set_activation_price',
+                     'set_stop_price_offset'):
+            try:
+                getattr(builder, name)(float('nan'))
+            except ValueError:
+                pass
+
+        encoded = json.dumps(builder.build(), allow_nan=False)
+        self.assertNotIn('NaN', encoded)
+
+    @no_duplicates
+    def test_ordinary_values_still_pass_through(self):
+        builder = OrderBuilder()
+        builder.set_quantity(10)
+        builder.set_activation_price(42.35)
+        builder.set_stop_price_offset(1.5)
+        built = builder.build()
+        self.assertEqual(10, built['quantity'])
+        self.assertEqual(42.35, built['activationPrice'])
+        self.assertEqual(1.5, built['stopPriceOffset'])
+
+    @no_duplicates
     def test_copy_price_still_bypasses_validation(self):
         # copy_price documents itself as skipping the validation, and callers
         # reconstructing a historical order rely on that.
