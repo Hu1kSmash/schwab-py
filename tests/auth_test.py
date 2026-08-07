@@ -188,6 +188,50 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.httpx.get')
+    @patch('schwab.auth.input', MagicMock(return_value=''))
+    def test_a_connect_timeout_is_treated_as_not_listening_yet(
+            self, mock_get, mock_webbrowser_get, async_session, sync_session,
+            client):
+        # Whether a port nothing is bound to refuses the connection or drops
+        # it decides which exception httpx raises, and that is a property of
+        # the host rather than of this library. ConnectTimeout is a sibling of
+        # ConnectError, not a subclass, so catching only the latter let the
+        # timeout case escape and end the login flow while the server was
+        # still coming up. macOS runners hit this on every login-flow test.
+        import httpx as _httpx
+
+        ok = MagicMock()
+        ok.status_code = _httpx.codes.OK
+        mock_get.side_effect = [
+            _httpx.ConnectTimeout('timed out'),
+            _httpx.ConnectTimeout('timed out'),
+            ok,
+        ]
+
+        callback_url = 'https://127.0.0.1:6969/callback'
+        controller = MagicMock()
+        mock_webbrowser_get.return_value = controller
+        controller.open.side_effect = \
+                lambda auth_url: requests.get(
+                        'https://127.0.0.1:6969/callback', verify=False)
+
+        sync_session.return_value = sync_session
+        sync_session.create_authorization_url.return_value = 'https://x', None
+        sync_session.fetch_token.return_value = self.raw_token
+
+        # Reaching the browser step at all means the wait survived the
+        # timeouts; before this it raised out of the loop.
+        auth.client_from_login_flow(
+                API_KEY, APP_SECRET, callback_url, self.token_path)
+
+        self.assertEqual(3, mock_get.call_count)
+
+
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.httpx.get')
     def test_server_which_never_answers_times_out(
             self, mock_get, mock_webbrowser_get, async_session, sync_session,
             client):
