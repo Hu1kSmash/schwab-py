@@ -14,10 +14,12 @@
    importing when it is removed. See `CHANGELOG.md
    <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for the full list.
 
-   **Every change here has also been offered upstream as a pull request.** This is not a
-   competing project and it is not a criticism of the original author, who wrote essentially all
-   of the code below. If upstream merges those changes, the fork's divergence shrinks; if
-   upstream resumes active maintenance, using it again is the better choice.
+   **Every change here is offered upstream as a pull request**, with one exception: the
+   streaming client's response-routing model, which is entangled with this fork's own identity
+   and has not yet been separated out cleanly enough to send. Everything else has been sent.
+   This is not a competing project and it is not a criticism of the original author, who wrote
+   essentially all of the code below. If upstream merges those changes, the fork's divergence
+   shrinks; if upstream resumes active maintenance, using it again is the better choice.
 
    The importable package is still ``schwab``, so this is a drop-in replacement. It is not
    published to PyPI — install it from git, pinned to a tag or commit:
