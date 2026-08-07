@@ -100,8 +100,16 @@ class BaseClient(EnumEnforcer):
         inside this library tells the caller nothing they can act on, so the
         depth is counted rather than guessed.
 
-        Falls back to 1 -- this function's own caller -- if every frame turns
-        out to be ours, which should not happen but must not raise if it does.
+        Never returns 0. ``warnings.warn`` reads that as "blame the frame which
+        called warn", which is this library -- the exact failure this exists to
+        avoid. It would otherwise happen the first time a frame's
+        ``co_filename`` cannot be resolved under the package root, which a
+        zipimport or a frozen build can manage.
+
+        The separator matters in the prefix test: without it a sibling package
+        whose path merely starts the same way, ``.../schwabtools`` against a
+        root of ``.../schwab``, is mistaken for one of ours and skipped, and
+        the blame lands on whoever called *that*.
 
         The count starts at 0 because ``warnings.warn`` is called one frame up,
         by ``_warn_if_naive``, and interprets ``stacklevel`` relative to
@@ -113,8 +121,8 @@ class BaseClient(EnumEnforcer):
             level = 0
             while frame is not None:
                 filename = os.path.abspath(frame.f_code.co_filename)
-                if not filename.startswith(cls._PACKAGE_ROOT):
-                    return level
+                if not filename.startswith(cls._PACKAGE_ROOT + os.sep):
+                    return max(level, 1)
                 frame = frame.f_back
                 level += 1
             return 1

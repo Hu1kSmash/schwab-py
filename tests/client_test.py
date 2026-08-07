@@ -2356,6 +2356,28 @@ class _TestClient:
             self.client.get_transactions(ACCOUNT_HASH, start_date=naive)
         self._assert_blamed(caught, line)
 
+    @no_duplicates
+    def test_stacklevel_never_blames_the_library_itself(self):
+        # warnings.warn treats stacklevel=0 as "blame the frame that called
+        # warn", which is base.py -- the failure this machinery exists to
+        # avoid. Reachable whenever a frame's co_filename does not resolve
+        # under the package root, as a zipimport or a frozen build can manage.
+        with patch.object(type(self.client), '_PACKAGE_ROOT',
+                          '/nowhere/that/exists'):
+            self.assertGreaterEqual(self.client._caller_stacklevel(), 1)
+
+    # There is deliberately no test for the os.sep in the prefix comparison.
+    # Reaching that case needs a real module in a directory which is a sibling
+    # of the installed package and shares its name as a prefix -- a
+    # 'schwabtools' next to 'schwab'. It cannot be faked by patching
+    # _PACKAGE_ROOT, because _caller_stacklevel starts at this library's own
+    # frame: any root which does not cover base.py makes that frame foreign and
+    # the walk stops immediately, whichever way the comparison is written.
+    #
+    # Every test written for it passed with the separator removed, which makes
+    # it worse than nothing. The separator is there on the argument in
+    # _caller_stacklevel's docstring, not on the strength of a test.
+
     def _assert_blamed(self, caught, expected_line):
         naive_warnings = [w for w in caught if 'no timezone' in str(w.message)]
         self.assertTrue(naive_warnings, 'expected a naive-datetime warning')
