@@ -395,6 +395,26 @@ class StreamClient(EnumEnforcer):
             return frame
 
         request_id, service, command, future = pending
+
+        # A response carrying an id we issued *earlier* is the late answer to a
+        # request which was abandoned -- timed out, or cancelled. It is not
+        # this request's answer and says nothing about it.
+        #
+        # Failing the pending request with it would be wrong twice over. The
+        # innocent request dies, and the abandoned request's answer is consumed
+        # in the process, so the next request reads the *next* stale answer and
+        # dies the same way. One timeout would wedge every subsequent request
+        # for the life of the stream. Hand it back instead, and let
+        # handle_message log it as the orphan it is.
+        #
+        # An id we have never issued is a different matter. That is not
+        # lateness, it is the server and this client disagreeing about what was
+        # asked, and the request being waited on has no better prospect than
+        # the one which just arrived. Let that fail below, as it always has.
+        response_id = int(frame['response'][0]['requestid'])
+        if response_id != request_id and response_id < self._request_id:
+            return frame
+
         if not future.done():
             error = self._validate_response(frame, request_id, service, command)
             if error is None:

@@ -6121,6 +6121,48 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_stale_response_does_not_poison_the_next_request(
+            self, ws_connect):
+        # A request which timed out is answered late. That answer must not be
+        # handed to whichever request happens to be in flight when it arrives:
+        # doing so fails an unrelated request, and then *its* real answer is
+        # still queued, so the next request eats that one and fails too. One
+        # timeout would wedge every subsequent request for the life of the
+        # stream.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        self.client._response_timeout = 0.05
+        socket.recv.side_effect = asyncio.TimeoutError
+        with self.assertRaises(schwab.streaming.ResponseTimeoutError):
+            await self.client.chart_equity_subs(['GOOG'])
+
+        # The venue answers the abandoned request, then answers the next two
+        # requests correctly.
+        self.client._response_timeout = 5
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(2, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(3, 'CHART_EQUITY', 'SUBS'))]
+
+        await self.client.chart_equity_subs(['MSFT'])
+        await self.client.chart_equity_subs(['AAPL'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_mismatched_service_still_fails_the_request(
+            self, ws_connect):
+        # A response carrying the right request id but the wrong service is
+        # genuine protocol confusion, not lateness, and must still be raised.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        wrong = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        socket.recv.side_effect = [json.dumps(wrong)]
+
+        with self.assertRaises(schwab.streaming.UnexpectedResponse):
+            await self.client.chart_equity_subs(['GOOG'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_handle_message_orphaned_failure_is_a_warning(
             self, ws_connect):
         # A late acknowledgement of something that worked is routine. A late
