@@ -2559,6 +2559,46 @@ class _TestClient:
 
 
     @no_duplicates
+    def test_locally_unusable_tokens_are_not_reported_as_retryable(self):
+        # MissingTokenError and InvalidTokenError are OAuthError subclasses
+        # raised by authlib itself, before any HTTP call, when the stored token
+        # has no refresh_token or is otherwise unusable. Nothing about them
+        # improves with time, so an unattended application told to retry would
+        # retry forever on a permanent, purely local condition.
+        from authlib.integrations.base_client.errors import (
+                MissingTokenError, InvalidTokenError)
+
+        for error in (MissingTokenError(), InvalidTokenError()):
+            self.setUp()
+            self.mock_session.get.side_effect = error
+
+            with self.assertRaises(TokenRefreshError) as cm:
+                self.client.get_quote(SYMBOL)
+
+            self.assertTrue(
+                    cm.exception.refresh_token_invalid,
+                    '{} is permanent and must not be reported as '
+                    'retryable'.format(type(error).__name__))
+            self.assertIn('cannot be used', str(cm.exception))
+
+
+    @no_duplicates
+    def test_a_locally_raised_unsupported_token_type_is_not_confused(self):
+        # authlib raises UnsupportedTokenTypeError locally with the same error
+        # code Schwab uses as its outer wrapper. Without the nested body it is
+        # not evidence the refresh token is dead, and must not be read as such.
+        from authlib.integrations.base_client.errors import (
+                UnsupportedTokenTypeError)
+
+        self.mock_session.get.side_effect = UnsupportedTokenTypeError()
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertFalse(cm.exception.refresh_token_invalid)
+
+
+    @no_duplicates
     def test_other_oauth_failures_are_not_called_terminal(self):
         # Claiming a recoverable failure is terminal stops an application which
         # only needed to try again, so anything unrecognized has to come back

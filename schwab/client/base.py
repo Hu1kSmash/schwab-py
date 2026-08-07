@@ -2,7 +2,8 @@
 completely unopinionated, and provides an easy-to-use wrapper around the Schwab
 HTTP API.'''
 
-from authlib.integrations.base_client.errors import OAuthError
+from authlib.integrations.base_client.errors import (
+        InvalidTokenError, MissingTokenError, OAuthError)
 from enum import Enum
 
 import contextlib
@@ -70,7 +71,12 @@ class BaseClient(EnumEnforcer):
 
     @staticmethod
     def _refresh_token_is_invalid(error):
-        '''Whether ``error`` says the refresh token itself is no longer usable.
+        '''Whether ``error`` means no amount of retrying will get a new token.
+
+        Two ways that happens. The stored token may be unusable before anything
+        is sent -- authlib raises MissingTokenError or InvalidTokenError
+        locally, and those are handled first below. Otherwise Schwab may have
+        rejected the grant, which is the rest of this.
 
         RFC 6749 section 5.2 defines ``invalid_grant`` as the token endpoint's
         answer when the grant presented -- here, the refresh token -- is
@@ -96,6 +102,13 @@ class BaseClient(EnumEnforcer):
         stops an application which only needed to retry, which is worse than
         one wrongly called transient.
         '''
+        # Raised locally by authlib, before anything is sent: the stored
+        # token has no refresh token, or cannot be used as it stands. Schwab
+        # has said nothing, but the remedy is the same one and retrying is
+        # equally futile.
+        if isinstance(error, (MissingTokenError, InvalidTokenError)):
+            return True
+
         code = getattr(error, 'error', None)
         if code == 'invalid_grant':
             return True
@@ -128,12 +141,17 @@ class BaseClient(EnumEnforcer):
         directly still has to catch it -- and to catch it, has to import
         authlib and know a type this library does not document anywhere.
 
-        Only OAuthError is translated. It can only come from the token
-        endpoint: a data request which fails does not raise at all, since httpx
-        reports status through the response. Network errors are left as the
-        httpx exceptions they are, because a connection failure while
-        refreshing and one while fetching a quote are the same problem and are
-        not distinguishable from here.
+        Only OAuthError is translated. It never comes from a data request: one
+        which fails does not raise at all, since httpx reports status through
+        the response. Network errors are left as the httpx exceptions they are,
+        because a connection failure while refreshing and one while fetching a
+        quote are the same problem and are not distinguishable from here.
+
+        Not every OAuthError comes from Schwab, though. MissingTokenError and
+        InvalidTokenError are subclasses of it which authlib raises locally,
+        before any HTTP call, when the stored token has no refresh token or is
+        otherwise unusable. Nothing about those improves with time, so they are
+        reported as needing a new login rather than as something to retry.
         '''
         try:
             yield
@@ -150,7 +168,12 @@ class BaseClient(EnumEnforcer):
                     'token\'s age is unknown.')
 
             invalid = self._refresh_token_is_invalid(e)
-            if invalid:
+            if isinstance(e, (MissingTokenError, InvalidTokenError)):
+                advice = ('The stored token cannot be used to refresh -- it '
+                          'has no refresh token, or is not in a usable state. '
+                          'Nothing was sent to Schwab, and retrying will not '
+                          'help: the login flow has to be completed again.')
+            elif invalid:
                 advice = ('Schwab says the refresh token is invalid, expired '
                           'or revoked, so retrying will not help: the login '
                           'flow has to be completed again.')
