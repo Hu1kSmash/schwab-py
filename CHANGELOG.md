@@ -14,6 +14,24 @@ called out here rather than left to be inferred from the pull request list.
 
 ---
 
+## 1.11.4
+
+### Fixed
+
+**A test added in 1.11.3 raced a server it never started.** The new coverage
+for the connect-timeout case mocked the readiness check to report success, then
+let the flow open a browser whose stub makes a real request to the callback
+port -- where nothing was listening, because the readiness check was a mock.
+Local timing hid it; one CI runner did not:
+
+```
+ConnectionRefusedError: [Errno 111] Connection refused
+FAILED test (ubuntu-latest, 3.12, py312)
+```
+
+No library change. The test now delivers no callback and asserts on the timeout
+plus the attempt count, which is what it was actually for.
+
 ## 1.11.3
 
 Cross-platform. This fork's CI runs Linux on every push and all three platforms
