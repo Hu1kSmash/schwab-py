@@ -483,9 +483,9 @@ class OrderBuilder(EnumEnforcer):
     def add_child_order_strategy(self, child_order_strategy):
         if isinstance(child_order_strategy, httpx.Response):
             raise ValueError(
-                    'Child order cannot be a response. See here for ' +
-                    'details: https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst' +
-                    'order-templates.html#utility-methods')
+                    'Child order cannot be a response. See here for '
+                    'details: https://github.com/Hu1kSmash/schwab-py/blob/'
+                    'main/docs/order-templates.rst')
 
         if (not isinstance(child_order_strategy, OrderBuilder)
                 and not isinstance(child_order_strategy, dict)):
