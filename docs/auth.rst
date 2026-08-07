@@ -146,25 +146,51 @@ token-shaped:
   try:
       r = c.get_quote('AAPL')
   except TokenRefreshError as e:
-      # e.token_age is seconds since the token was first authorized, or None
-      # if this client was built without token metadata.
-      if e.token_age is not None and e.token_age > 7 * 24 * 60 * 60:
-          alert('token past its seven day window, log in again')
+      if e.refresh_token_invalid:
+          # Only a new login flow fixes this. Retrying cannot.
+          alert('refresh token is dead, log in again')
       else:
           retry_later()
 
 .. autoclass:: schwab.utils.TokenRefreshError
 
-**The age is the signal, not the error.** Schwab documents the seven day term
-but not what it returns when that term expires, so this library will not tell
-you from the error itself whether a retry can succeed. What it can tell you is
-how old the token is, and a token past seven days is not coming back without
-someone completing the login flow again.
+**Retrying a dead refresh token cannot work, and the retries are not free.**
+A refresh token is good for seven days and is replaced only by the full
+authorization_code flow, which needs a human at a browser. An unattended
+application which treats that failure like a dropped connection will keep
+asking, and the endpoint it is hammering is the same one the recovery needs.
+``refresh_token_invalid`` is there so the two cases can be told apart.
+
+It is deliberately conservative. Anything this library does not recognize
+comes back ``False``, because an application stopped by a failure it could
+have retried through is worse off than one which retried a little too long.
+
+.. note::
+
+   Schwab does not report this the way the standard describes, which is worth
+   knowing if you are reading the raw error yourself. RFC 6749 section 5.2
+   defines ``invalid_grant`` for a grant which is invalid, expired or revoked.
+   Schwab answers with an outer code of ``unsupported_token_type`` -- which
+   RFC 7009 defines for the *revocation* endpoint, and which describes nothing
+   that happened -- and nests the real response as a JSON string inside the
+   description::
+
+     unsupported_token_type: 400 Bad Request: {"error_description":"Refresh
+     token is invalid, expired or revoked","error":"invalid_grant"}
+
+   Observed on a live account on 2026-08-02 by letting a refresh token reach
+   its expiry deliberately. Schwab documents neither the response nor the
+   nesting, so this is one account on one day rather than a specification.
+   Both placements are accepted, in case it is ever corrected.
 
 Only a refusal by the token endpoint is reported this way. A connection failure
 while refreshing raises the ``httpx`` exception it always did, because a
 connection failure while refreshing and one while fetching a quote are the same
 problem and cannot be told apart from inside the library.
+
+Note also that ``token_age`` remains available and remains worth watching.
+Knowing a token is on its sixth day is how an application avoids the failure
+altogether, rather than reacting to it.
 
 
 ----------------------

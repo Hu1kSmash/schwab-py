@@ -104,16 +104,25 @@ class TokenRefreshError(Exception):
     the window has closed and no amount of retrying will help -- someone has to
     complete the login flow again.
 
-    Note this library cannot tell you that from the error itself. Schwab
-    documents the seven day term but not what it returns when the term expires,
-    so the age is the signal to reason about, not the error code.
+    ``refresh_token_invalid`` is ``True`` when Schwab said the refresh token
+    itself is invalid, expired or revoked. That is the one failure here which
+    retrying cannot fix: a new refresh token only comes from the full
+    authorization_code flow, which needs a human at a browser. It is ``False``
+    for everything else, *including* failures this library did not recognize --
+    the conservative direction, since treating a recoverable failure as
+    terminal would stop an application which only needed to try again.
     '''
 
-    def __init__(self, message, *, token_age=None):
+    def __init__(self, message, *, token_age=None, refresh_token_invalid=False):
         super().__init__(message)
 
         #: Seconds since the token was originally authorized, or ``None``.
         self.token_age = token_age
+
+        #: ``True`` when the refresh token is invalid, expired or revoked, and
+        #: only a new login flow will help. ``False`` when the failure may be
+        #: transient, or was not recognized.
+        self.refresh_token_invalid = refresh_token_invalid
 
 
 class LazyLog:
