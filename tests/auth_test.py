@@ -210,21 +210,20 @@ class ClientFromLoginFlowTest(unittest.TestCase):
             ok,
         ]
 
-        callback_url = 'https://127.0.0.1:6969/callback'
-        controller = MagicMock()
-        mock_webbrowser_get.return_value = controller
-        controller.open.side_effect = \
-                lambda auth_url: requests.get(
-                        'https://127.0.0.1:6969/callback', verify=False)
-
         sync_session.return_value = sync_session
         sync_session.create_authorization_url.return_value = 'https://x', None
-        sync_session.fetch_token.return_value = self.raw_token
 
-        # Reaching the browser step at all means the wait survived the
-        # timeouts; before this it raised out of the loop.
-        auth.client_from_login_flow(
-                API_KEY, APP_SECRET, callback_url, self.token_path)
+        # Deliberately no callback is delivered, so the flow gets past the wait
+        # and then times out waiting for the redirect. That is enough: what is
+        # under test is whether the wait survived the two ConnectTimeouts, and
+        # the call count says so. Driving the whole flow to success would need
+        # a real server on a real port, and the readiness check is mocked here
+        # -- the code would believe a server was up which was not, and the test
+        # would race against it. It did exactly that on one CI runner.
+        with self.assertRaises(auth.RedirectTimeoutError):
+            auth.client_from_login_flow(
+                    API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                    self.token_path, callback_timeout=0.1)
 
         self.assertEqual(3, mock_get.call_count)
 
