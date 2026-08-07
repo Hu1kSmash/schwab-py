@@ -476,8 +476,15 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                     resp = httpx.get(
                             'https://127.0.0.1:{}/schwab-py-internal/status'.format(
                                 callback_port), verify=False)
-            except httpx.ConnectError:
-                # Not listening yet.
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                # Not listening yet. Which of the two you get depends on the
+                # host: a port nothing is bound to is normally refused, giving
+                # ConnectError, but where the attempt is dropped rather than
+                # rejected -- a firewall, or macOS's behaviour on some
+                # configurations -- it times out instead. ConnectTimeout is a
+                # sibling of ConnectError, not a subclass, so catching only the
+                # latter let that case escape and take down the whole login
+                # flow while the server was still starting.
                 pass
             else:
                 # It answered. Anything other than success means the port is
