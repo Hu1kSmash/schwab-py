@@ -882,7 +882,13 @@ class BaseClient(EnumEnforcer):
 
     def __normalize_start_and_end_datetimes(self, start_datetime, end_datetime):
         if start_datetime is None:
-            start_datetime = datetime.datetime(year=1971, month=1, day=1)
+            # Explicitly UTC. A naive default would warn the caller about a
+            # datetime they never passed -- every call which omits the dates,
+            # which is most of them -- and would put the epoch millis this
+            # turns into at the mercy of the host's offset, which is the same
+            # defect the end_datetime default was changed to avoid.
+            start_datetime = datetime.datetime(
+                    year=1971, month=1, day=1, tzinfo=datetime.timezone.utc)
         if end_datetime is None:
             end_datetime = (datetime.datetime.utcnow() +
                     datetime.timedelta(days=7))
