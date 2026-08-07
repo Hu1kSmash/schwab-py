@@ -266,8 +266,11 @@ class BaseClient(EnumEnforcer):
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options. Only one status may
-                       be given; passing a collection raises ``ValueError``.
+                       :class:`Order.Status` for options. Schwab accepts only
+                       one, so passing a collection raises ``ValueError`` --
+                       unless the client was built with ``enforce_enums=False``,
+                       which turns off that check along with every other one
+                       and forwards whatever it is given.
         '''
         path = '/trader/v1/accounts/{}/orders'.format(account_hash)
         return self._get_request(path, self._make_order_query(
@@ -294,8 +297,11 @@ class BaseClient(EnumEnforcer):
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options. Only one status may
-                       be given; passing a collection raises ``ValueError``.
+                       :class:`Order.Status` for options. Schwab accepts only
+                       one, so passing a collection raises ``ValueError`` --
+                       unless the client was built with ``enforce_enums=False``,
+                       which turns off that check along with every other one
+                       and forwards whatever it is given.
         '''
         path = '/trader/v1/orders'
         return self._get_request(path, self._make_order_query(
