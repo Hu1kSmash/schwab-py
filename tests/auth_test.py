@@ -488,12 +488,20 @@ class ClientFromTokenFileTest(unittest.TestCase):
     def test_update_token_leaves_a_concurrent_write_alone(
             self, async_session, sync_session, client):
         # Another process may be partway through its own write right now. Its
-        # temporary file is not litter, and deleting it would break that write.
+        # temporary file is not litter, and deleting it would break that write
+        # -- os.replace then fails with FileNotFoundError and that process
+        # loses its token update.
+        #
+        # Aged to just inside the threshold rather than left at zero: a file
+        # created this instant survives whatever the threshold is, so testing
+        # with one would pass even if the age check were removed entirely.
         self.write_token()
 
         fresh = os.path.join(self.tmp_dir.name, '.schwab-py-tokenYYYY.tmp')
         with open(fresh, 'w') as f:
             json.dump({'access_token': 'in flight'}, f)
+        nearly = time.time() - auth.TOKEN_TEMP_FILE_MAX_AGE * 0.9
+        os.utime(fresh, (nearly, nearly))
 
         auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
         update_token = sync_session.mock_calls[0][2]['update_token']

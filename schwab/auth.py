@@ -97,9 +97,21 @@ def __write_token_file(token_path, token):
 
 
 #: How long a temporary token file must go untouched before a later write will
-#: remove it. A write takes about a millisecond, so anything this old is not a
-#: write in progress.
-TOKEN_TEMP_FILE_MAX_AGE = 60.0
+#: remove it.
+#:
+#: A write takes about a millisecond, so this is roughly a 300,000x margin. The
+#: margin is the whole safety mechanism: if a write ever did stall for longer
+#: than this, a *different* process sweeping the directory would delete the
+#: file out from under it, and that write would fail with FileNotFoundError
+#: from os.replace. Demonstrated by stalling a write deliberately -- the token
+#: file is left valid and holding the other process's version, so the cost is a
+#: lost token update rather than a damaged file, but it is a real edge and the
+#: margin is what keeps it closed.
+#:
+#: Reaching it needs two processes writing the same token file, which this
+#: library already tells you not to do, *and* a write stalled for five minutes,
+#: at which point the filesystem has bigger problems.
+TOKEN_TEMP_FILE_MAX_AGE = 300.0
 
 
 def __sweep_stale_token_temp_files(directory):
@@ -115,8 +127,14 @@ def __sweep_stale_token_temp_files(directory):
     Only files matching the name this module gives its own temporaries are
     considered, and only once they are old enough that they cannot be a write
     in progress -- another process may be partway through one right now, and
-    deleting its temporary file would break it. The token directory is often
-    the user's own, so anything else found there is none of our business.
+    deleting its temporary file would break it, which is measurable and not
+    hypothetical. See ``TOKEN_TEMP_FILE_MAX_AGE`` for what that margin costs
+    and why it is set where it is. The token directory is often the user's own,
+    so anything else found there is none of our business.
+
+    This runs after the rename rather than before it, so a write never sweeps
+    its own temporary file: by the time this is reached, that file has already
+    become the token.
 
     Failures are ignored throughout. This is tidying, and it must never be the
     reason a token write appears to fail.
