@@ -36,23 +36,30 @@ def _build_object(obj):
         return ret
 
 
-def _assert_finite_price(name, price):
-    '''Rejects prices which are not a finite number of currency units.
+def _assert_finite(name, price):
+    '''Rejects order fields which are not a finite number.
 
-    NaN and the infinities do not name a price, and they arrive by computation
-    rather than by typing: a limit derived from a quote that was missing, or a
-    size that turned out to be zero. Without this they serialize happily and
-    leave as part of a real order --
+    NaN and the infinities do not name a price, a size or an offset, and they
+    arrive by computation rather than by typing: a limit derived from a quote
+    that was missing, a trailing stop offset divided by a size that turned out
+    to be zero. Without this they serialize happily and leave as part of a real
+    order --
 
-        {"orderType": "LIMIT", "price": "NaN", ...}
+        {"orderType": "LIMIT", "price": "NaN", "quantity": NaN, ...}
 
-    -- which is the wrong place to discover the problem. The builder already
-    refuses a non-positive quantity; this is the same check on the other half
-    of the order.
+    -- which is the wrong place to discover the problem. Note the bare ``NaN``:
+    ``json.dumps`` emits that by default and it is not valid JSON, so such an
+    order is not merely wrong, it is untransmittable without a parser willing
+    to accept a non-standard token.
+
+    This has to run *before* the positivity checks rather than alongside them,
+    because NaN compares False against everything: ``quantity <= 0`` and
+    ``activation_price <= 0.0`` are both False for NaN, so those guards do not
+    fire and the value passes straight through them.
 
     Strings are otherwise passed through untouched, as they always have been.
     Only the spellings Python reads as non-finite are refused, because
-    ``str()`` of a computed price is the obvious way to reach here.
+    ``str()`` of a computed value is the obvious way to reach here.
     '''
     if isinstance(price, str):
         try:
@@ -201,6 +208,7 @@ class OrderBuilder(EnumEnforcer):
         Exact semantics unknown. See :ref:`undocumented_quantity` for a
         discussion.
         '''
+        _assert_finite('quantity', quantity)
         if quantity <= 0:
             raise ValueError('quantity must be positive')
         self._quantity = quantity
@@ -237,7 +245,7 @@ class OrderBuilder(EnumEnforcer):
         Set the stop price. Note price can be passed as either a `float` or an
         `str`. See :ref:`number_truncation`.
         '''
-        _assert_finite_price('stop price', stop_price)
+        _assert_finite('stop price', stop_price)
         if isinstance(stop_price, str):
             self._stopPrice = stop_price
         else:
@@ -300,6 +308,7 @@ class OrderBuilder(EnumEnforcer):
         '''
         Set the stop price offset.
         '''
+        _assert_finite('stop price offset', stop_price_offset)
         self._stopPriceOffset = stop_price_offset
         return self
 
@@ -393,7 +402,7 @@ class OrderBuilder(EnumEnforcer):
         Set the order price. Note price can be passed as either a `float` or an
         `str`. See :ref:`number_truncation`.
         '''
-        _assert_finite_price('price', price)
+        _assert_finite('price', price)
         if isinstance(price, str):
             self._price = price
         else:
@@ -420,6 +429,7 @@ class OrderBuilder(EnumEnforcer):
         '''
         Set the activation price.
         '''
+        _assert_finite('activation price', activation_price)
         if activation_price <= 0.0:
             raise ValueError('activation price must be positive')
         self._activationPrice = activation_price
@@ -494,6 +504,7 @@ class OrderBuilder(EnumEnforcer):
     def __add_order_leg(self, instruction, instrument, quantity):
         # instruction is assumed to have been verified
 
+        _assert_finite('quantity', quantity)
         if quantity <= 0:
             raise ValueError('quantity must be positive')
 
