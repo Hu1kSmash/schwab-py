@@ -371,6 +371,15 @@ class ClientFromTokenFileTest(unittest.TestCase):
         # A token written by an earlier version, or by a user with a permissive
         # umask, is left group- and world-readable. Updating it must correct
         # that rather than preserve it.
+        #
+        # POSIX only. Windows has no such mode: os.chmod there toggles a
+        # read-only bit and nothing else, so the file comes back 0o666 and the
+        # guarantee this asserts does not exist. Skipped rather than weakened,
+        # so that the check stays exact where it means something. See the note
+        # in docs/auth.rst.
+        if os.name != 'posix':
+            self.skipTest('file modes are POSIX-only; see docs/auth.rst')
+
         self.write_token()
         os.chmod(self.token_path, 0o644)
 
