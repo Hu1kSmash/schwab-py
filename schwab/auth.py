@@ -111,6 +111,13 @@ def __write_token_file(token_path, token):
 #: Reaching it needs two processes writing the same token file, which this
 #: library already tells you not to do, *and* a write stalled for five minutes,
 #: at which point the filesystem has bigger problems.
+#:
+#: One way to reach it without a stall: the age is the file's mtime measured
+#: against this machine's clock. On a network-mounted token directory the mtime
+#: comes from the server and the comparison does not, so a clock skew larger
+#: than this makes every temporary file there look ancient, including one
+#: another process is writing right now. Keeping the token file on local disk
+#: avoids the question entirely, and is a good idea for a credential anyway.
 TOKEN_TEMP_FILE_MAX_AGE = 300.0
 
 
