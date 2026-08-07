@@ -171,7 +171,7 @@ PyPI, so install it from git, pinned to a release. Plain
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.11.2"
+  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v1.11.3"
 
 That's it! You're done! You can verify the install succeeded by importing the 
 package:

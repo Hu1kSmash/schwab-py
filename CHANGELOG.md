@@ -14,6 +14,52 @@ called out here rather than left to be inferred from the pull request list.
 
 ---
 
+## 1.11.3
+
+Cross-platform. This fork's CI runs Linux on every push and all three platforms
+on tags, and the tag builds had been red on macOS and Windows for as long as
+that matrix has existed -- while the badge, which tracks the default branch,
+stayed green on Linux. Nobody looked.
+
+### Fixed
+
+**A connect timeout ended the login flow instead of being waited through.**
+`client_from_login_flow` starts a local server and polls it until it answers,
+catching `httpx.ConnectError` for "not listening yet". Whether an unbound port
+refuses a connection or silently drops it is a property of the host: a firewall
+drops, and so do the macOS runners. A dropped attempt raises
+`httpx.ConnectTimeout`, which is a *sibling* of `ConnectError` rather than a
+subclass --
+
+    ConnectError    -> NetworkError     -> TransportError
+    ConnectTimeout  -> TimeoutException -> TransportError
+
+-- so it escaped and took the login flow down while the server was still
+starting. Every login-flow test fails on macOS for this reason. It is not a
+test-only problem: on a machine that drops rather than refuses, the login flow
+could not complete at all. Offered upstream as #264.
+
+### Documentation
+
+**The token file is not protected on Windows, and the docs said it was.**
+Windows has no POSIX file mode -- `os.chmod` toggles a read-only bit and
+ignores the rest -- so the token is left readable by any account on the
+machine. The docs stated flatly that it is written mode `0600`. For a file that
+grants full access to a funded account, claiming a protection that does not
+exist is worse than claiming nothing. Now a warning saying what a Windows user
+should do instead, and noting that the atomic-write and durability properties
+*do* hold there; only the permission narrowing does not.
+
+The test asserting mode `0600` is now skipped off POSIX rather than relaxed to
+something both platforms satisfy, which would have stopped it meaning anything
+where it matters.
+
+### Notes
+
+Every "tests passing" figure reported during the 1.9.0-1.11.2 work was Linux
+only, and said so nowhere. The macOS and Windows columns existed the whole
+time.
+
 ## 1.11.2
 
 A second review, over the whole divergence from 1.5.0 rather than the last
