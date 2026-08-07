@@ -386,6 +386,7 @@ class OrderBuilder(EnumEnforcer):
         and :meth:`set_stop_price_offset`); this completes the price-linked one,
         which had a basis and a type but no offset.
         '''
+        _assert_finite('price offset', price_offset)
         self._priceOffset = price_offset
         return self
 
