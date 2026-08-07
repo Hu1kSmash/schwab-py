@@ -6,11 +6,13 @@ import logging
 import os
 import pytest
 import pytz
+import sys
 import unittest
 import warnings
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from authlib.integrations.base_client.errors import OAuthError
+import schwab.client.base
 from schwab.client import AsyncClient, Client
 from schwab.orders.generic import OrderBuilder
 from schwab.utils import TokenRefreshError
@@ -31,7 +33,13 @@ SYMBOL = 'AAPL'
 TRANSACTION_ID = 400000
 WATCHLIST_ID = 5000000
 
-MIN_DATETIME = datetime.datetime(year=1971, month=1, day=1)
+# The library's default start date, which is UTC. This was previously naive,
+# and so was the library -- both read it as local time and agreed, which made
+# the expected value here depend on the timezone of whatever machine ran the
+# suite. Pinning it to UTC on both sides makes the assertion mean the same
+# thing everywhere.
+MIN_DATETIME = datetime.datetime(year=1971, month=1, day=1,
+                                 tzinfo=datetime.timezone.utc)
 MIN_ISO = '1971-01-01T00:00:00+0000'
 MIN_TIMESTAMP_MILLIS = int(MIN_DATETIME.timestamp()) * 1000
 
@@ -2383,17 +2391,69 @@ class _TestClient:
                           '/nowhere/that/exists'):
             self.assertGreaterEqual(self.client._caller_stacklevel(), 1)
 
-    # There is deliberately no test for the os.sep in the prefix comparison.
-    # Reaching that case needs a real module in a directory which is a sibling
-    # of the installed package and shares its name as a prefix -- a
-    # 'schwabtools' next to 'schwab'. It cannot be faked by patching
-    # _PACKAGE_ROOT, because _caller_stacklevel starts at this library's own
-    # frame: any root which does not cover base.py makes that frame foreign and
-    # the walk stops immediately, whichever way the comparison is written.
-    #
-    # Every test written for it passed with the separator removed, which makes
-    # it worse than nothing. The separator is there on the argument in
-    # _caller_stacklevel's docstring, not on the strength of a test.
+    @no_duplicates
+    def test_a_sibling_package_is_not_mistaken_for_ours(self):
+        """A bare prefix test matches '.../schwabtools' against a root of
+        '.../schwab', so frames from an unrelated package are skipped as if
+        they were ours and the blame lands a frame too far out.
+
+        This needs a real module in a real sibling directory. Patching
+        _PACKAGE_ROOT cannot stand it up, because the walk starts at this
+        library's own frame -- any root not covering base.py makes that frame
+        foreign and the walk stops at once, whichever way the comparison is
+        written. So build the layout on disk: symlink the package in as
+        'schwab', put 'schwabtools' beside it, and call from inside that.
+        """
+        import os
+        import subprocess
+        import tempfile
+
+        package = os.path.dirname(os.path.dirname(os.path.abspath(
+                schwab.client.base.__file__)))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.symlink(package, os.path.join(tmp, 'schwab'))
+            sibling = os.path.join(tmp, 'schwabtools')
+            os.mkdir(sibling)
+
+            with open(os.path.join(sibling, '__init__.py'), 'w') as f:
+                f.write('')
+            with open(os.path.join(sibling, 'caller.py'), 'w') as f:
+                f.write(
+                    'import datetime\n'
+                    'def go(client):\n'
+                    '    client.get_price_history(\n'
+                    '            "AAPL",\n'
+                    '            start_datetime=datetime.datetime(2024, 6, 5))\n')
+
+            script = (
+                'import sys, warnings\n'
+                'sys.path.insert(0, {tmp!r})\n'
+                'from schwab.client import Client\n'
+                'import schwabtools.caller as caller\n'
+                'class S:\n'
+                '    timeout = None\n'
+                '    def get(self, *a, **k):\n'
+                '        class R:\n'
+                '            status_code = 200\n'
+                '            text = "{{}}"\n'
+                '        return R()\n'
+                'with warnings.catch_warnings(record=True) as w:\n'
+                '    warnings.simplefilter("always")\n'
+                '    caller.go(Client("k", S()))\n'
+                'for x in w:\n'
+                '    if "no timezone" in str(x.message):\n'
+                '        print(x.filename)\n'
+            ).format(tmp=tmp)
+
+            blamed = subprocess.run(
+                    [sys.executable, '-c', script],
+                    capture_output=True, text=True, cwd=tmp).stdout.strip()
+
+        self.assertTrue(
+                blamed.endswith(os.path.join('schwabtools', 'caller.py')),
+                'the warning should name the sibling package that made the '
+                'call, but named {!r}'.format(blamed))
 
     def _assert_blamed(self, caught, expected_line):
         naive_warnings = [w for w in caught if 'no timezone' in str(w.message)]
@@ -2403,6 +2463,43 @@ class _TestClient:
                     (__file__, expected_line), (w.filename, w.lineno),
                     'warning blamed {}:{} rather than the calling line'.format(
                         w.filename, w.lineno))
+
+
+    @no_duplicates
+    def test_the_librarys_own_start_default_does_not_warn(self):
+        # Omitting the dates is the common case. Warning there tells the caller
+        # to attach a timezone to a datetime they never wrote, and points at
+        # their line to do it.
+        #
+        # Scoped to start_datetime: the end_datetime default is still
+        # utcnow(), which is naive for the same reason and is being replaced
+        # separately. Once that lands, neither of these warns.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_price_history_every_day(SYMBOL)
+            self.client.get_price_history(SYMBOL)
+            self.client.get_orders_for_account(ACCOUNT_HASH)
+            self.client.get_transactions(ACCOUNT_HASH)
+
+        blamed = [str(w.message) for w in caught
+                  if 'no timezone' in str(w.message)
+                  and 'start_datetime' in str(w.message)]
+        self.assertEqual([], blamed)
+
+
+    @no_duplicates
+    def test_the_default_start_date_does_not_depend_on_the_host(self):
+        # It becomes epoch milliseconds, so a naive default would shift with
+        # whatever timezone the machine happens to be set to. Only the
+        # per-frequency helpers fill the dates in; raw get_price_history sends
+        # what it is given.
+        self.client.get_price_history_every_day(SYMBOL)
+        params = self.mock_session.get.call_args[1]['params']
+        self.assertEqual(
+                int(datetime.datetime(
+                        1971, 1, 1,
+                        tzinfo=datetime.timezone.utc).timestamp() * 1000),
+                params['startDate'])
 
 
     @no_duplicates
