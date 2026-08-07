@@ -316,11 +316,19 @@ class StreamClient(EnumEnforcer):
             # dropping. Log it and carry on.
             for response in msg['response']:
                 content = response.get('content', {})
-                self.logger.info(
-                        'Received a response to %s/%s with no request '
-                        'outstanding: code %s, msg \'%s\'. Ignoring it.',
-                        response.get('service'), response.get('command'),
-                        content.get('code'), content.get('msg'))
+                code = content.get('code')
+
+                # A late acknowledgement of something that worked is routine.
+                # A late *rejection* is not: the request was abandoned, so
+                # nothing else will ever report that Schwab refused it, and at
+                # INFO it would not be seen at all. Losing the raise is right;
+                # losing the news is not.
+                log = self.logger.info if code == 0 else self.logger.warning
+
+                log('Received a response to %s/%s with no request '
+                    'outstanding: code %s, msg \'%s\'. Ignoring it.',
+                    response.get('service'), response.get('command'),
+                    code, content.get('msg'))
             return
 
         # data
