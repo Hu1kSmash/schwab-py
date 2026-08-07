@@ -82,6 +82,11 @@ _FIELDS_AND_SETTERS = (
         schwab.orders.common.PriceLinkBasis),
     ('priceLinkType', 'set_price_link_type',
         schwab.orders.common.PriceLinkType),
+    # Completes the price-linked trio, mirroring stopPriceOffset above. Without
+    # it a repeated order keeps its basis and type and loses the number they
+    # apply to, which is a different order at a different price rather than an
+    # incomplete one.
+    ('priceOffset', 'set_price_offset', None),
     ('price', 'copy_price', None),
     ('activationPrice', 'set_activation_price', None),
     ('specialInstruction', 'set_special_instruction',
