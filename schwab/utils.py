@@ -104,13 +104,17 @@ class TokenRefreshError(Exception):
     the window has closed and no amount of retrying will help -- someone has to
     complete the login flow again.
 
-    ``refresh_token_invalid`` is ``True`` when Schwab said the refresh token
-    itself is invalid, expired or revoked. That is the one failure here which
-    retrying cannot fix: a new refresh token only comes from the full
-    authorization_code flow, which needs a human at a browser. It is ``False``
-    for everything else, *including* failures this library did not recognize --
-    the conservative direction, since treating a recoverable failure as
-    terminal would stop an application which only needed to try again.
+    ``refresh_token_invalid`` is ``True`` when no amount of retrying will
+    produce a working token, and only the full authorization_code flow -- which
+    needs a human at a browser -- will help. That covers two cases: Schwab
+    saying the refresh token is invalid, expired or revoked, and the stored
+    token being unusable before anything is even sent, which the underlying
+    OAuth library reports without contacting Schwab at all.
+
+    It is ``False`` for everything else, *including* failures this library did
+    not recognize -- the conservative direction, since treating a recoverable
+    failure as terminal would stop an application which only needed to try
+    again.
     '''
 
     def __init__(self, message, *, token_age=None, refresh_token_invalid=False):
