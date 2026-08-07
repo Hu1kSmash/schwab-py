@@ -1288,7 +1288,8 @@ class NonFinitePriceTest(unittest.TestCase):
         # computation. A trailing stop offset derived from a quote that came
         # back empty reaches set_stop_price_offset the same way.
         setters = ('set_price', 'set_stop_price', 'set_activation_price',
-                   'set_stop_price_offset', 'set_quantity')
+                   'set_stop_price_offset', 'set_price_offset',
+                   'set_quantity')
 
         for name in setters:
             for value in (float('nan'), float('inf'), float('-inf')):
