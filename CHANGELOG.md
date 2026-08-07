@@ -8,6 +8,73 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.11.2
+
+A second review, over the whole divergence from 1.5.0 rather than the last
+release. One serious defect and four small ones.
+
+### Fixed
+
+**A late stream response wedged every request that followed it.**
+`_read_and_route` checked each response frame against whichever request was
+pending and, on a mismatch, failed that request with it. So the late answer to
+an abandoned request killed an unrelated one -- and was consumed doing it,
+leaving the next stale answer for the next request:
+
+```
+request 1: ResponseTimeoutError (timed out)
+request 2: UnexpectedResponse: unexpected requestid: 0
+request 3: UnexpectedResponse: unexpected requestid: 1
+request 4: UnexpectedResponse: unexpected requestid: 2
+```
+
+One client-side timeout and the stream never completed another request. 1.9.0
+taught `handle_message` to tolerate an orphaned response; this is the same
+tolerance one level down, where the routing happens. Since this fork added
+`DEFAULT_RESPONSE_TIMEOUT`, it supplied the trigger as well as the fault.
+
+The rule is bounded on both sides: an id issued *earlier* is lateness and the
+frame is handed back as an orphan, while an id never issued is genuine
+protocol confusion and still fails, as it always has.
+
+**The library warned about a datetime it invented itself.**
+`get_price_history_every_day('AAPL')`, with no dates at all, warned about
+`start_datetime` and blamed the caller's line -- the loudest possible false
+alarm from 1.9.0's warning, on the most common way these endpoints are called.
+The substituted default was naive, so the check could not tell it from
+something a caller wrote. It also made the `startDate` for an unparameterized
+call depend on the host's offset. Now explicitly UTC, and the suite passes
+identically under four timezones, which it did not before.
+
+**`priceOffset` was dropped when repeating an order.** `contrib.orders` knew
+`priceLinkBasis` and `priceLinkType` but not the offset those apply to, so
+`construct_repeat_order` returned a price-linked order with no offset -- a
+different order at a different price, silently. `set_price_offset` is this
+fork's own addition, which is why the table never grew an entry for it.
+
+**A mangled link.** The fork's URL rewrite broke a string concatenation in
+`add_child_order_strategy`, leaving `.../docs/index.rstorder-templates.html`,
+a 404.
+
+**A docstring promised a guard one configuration does not have.** Passing a
+collection of order statuses raises `ValueError` with the enum check on, and
+does not with `enforce_enums=False` -- which `client_from_login_flow` defaults
+to. Now qualified.
+
+### Notes
+
+The `priceOffset` gap survived the audit's own round-trip probe, which
+reported 48 of 48 templates identical. None of those templates uses a
+price-linked order, so the number said nothing about the field. A probe that
+passes because it never exercised the case is the same failure as a test that
+passes either way.
+
+1.11.1 shipped a comment claiming the path separator in the frame walk could
+not be tested without a real sibling package on disk, and concluded it was
+untestable. The first half was right; the conclusion was not. Building that
+layout on disk is about ten lines, and there is now a test which fails when
+the separator is removed.
+
 ## 1.11.1
 
 A final audit of the audit. Everything here is a defect in something 1.9.0
