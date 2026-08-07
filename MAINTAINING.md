@@ -69,6 +69,23 @@ supported path and the float path is deprecated upstream.
 **Do not bundle.** A PR that fixes one thing and tidies another does not get reviewed. This applies
 even though upstream is currently quiet; the PRs are a queue for whenever it is not.
 
+**Check a branch really went upstream before calling it done.** `stream-reader-routing` was
+branched from `main` instead of `upstream-main`, so it could never be opened as a pull request —
+its diff carries the version bump and the fork notice along with the actual change — and it was
+merged here anyway. Nothing noticed for months: the branch existed, the code worked, the tests
+passed, and the README went on claiming everything had been offered upstream. To audit it:
+
+```shell
+gh pr list -R alexgolec/schwab-py --author Hu1kSmash --state all --limit 60 \
+    --json headRefName --jq '.[].headRefName' | sort -u > /tmp/prs
+git branch --merged main --format='%(refname:short)' | sort > /tmp/merged
+comm -23 /tmp/merged /tmp/prs
+```
+
+What comes out should be only fork-identity branches, fork-only features, and changes vendored
+from someone else's upstream PR. Anything else is a claim the README is making and the repository
+is not keeping.
+
 **Run the suite after every merge into `main`, not just on the topic branch.** This fork removed
 imports upstream still carries, so a branch which passes against `upstream-main` can fail here on
 names that exist there and not here. It has happened three times — `warnings`, `json` and the `abc`

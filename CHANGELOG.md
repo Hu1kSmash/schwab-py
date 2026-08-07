@@ -3,8 +3,14 @@
 This is a maintained fork of [`alexgolec/schwab-py`](https://github.com/alexgolec/schwab-py).
 Versions below 1.6.0 are upstream releases; see the upstream repository for their notes.
 
-Every change in this fork has also been offered upstream as a pull request. Where upstream merges
+Every change in this fork is offered upstream as a pull request, so that where upstream merges
 one, the fork's divergence shrinks accordingly.
+
+One change is currently an exception: the streaming client's response-routing model, introduced
+in 1.7.0. It was branched from this fork's `main` rather than from a mirror of upstream, so its
+diff carries the version bump, the changed URLs and this notice along with the actual change,
+which makes it unreviewable as a pull request. Separating it out is outstanding work. It is
+called out here rather than left to be inferred from the pull request list.
 
 ---
 
