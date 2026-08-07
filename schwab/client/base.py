@@ -1023,7 +1023,13 @@ class BaseClient(EnumEnforcer):
                            or end_datetime is not None)
 
         if start_datetime is None:
-            start_datetime = datetime.datetime(year=1971, month=1, day=1)
+            # Explicitly UTC. A naive default would warn the caller about a
+            # datetime they never passed -- every call which omits the dates,
+            # which is most of them -- and would put the epoch millis this
+            # turns into at the mercy of the host's offset, which is the same
+            # defect the end_datetime default was changed to avoid.
+            start_datetime = datetime.datetime(
+                    year=1971, month=1, day=1, tzinfo=datetime.timezone.utc)
         if end_datetime is None:
             # utcnow() is deprecated, and returns a naive datetime holding a UTC
             # wall time. _format_date_as_millis converts with dt.timestamp(),
