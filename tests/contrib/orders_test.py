@@ -843,3 +843,52 @@ class UnrepeatableOrderTest(unittest.TestCase):
     def test_an_ordinary_order_still_reconstructs(self):
         builder = construct_repeat_order(self.order())
         self.assertEqual('LIMIT', builder.build()['orderType'])
+
+
+class PriceLinkedOrderRoundTripTest(unittest.TestCase):
+    '''A price-linked order expresses its price as an offset from something
+    else, so the offset is the number that decides what it costs. Dropping it
+    while keeping the basis and the type does not produce a partial order -- it
+    produces a different one, and quietly.'''
+
+    def order(self, **overrides):
+        o = {
+            'session': 'NORMAL',
+            'duration': 'DAY',
+            'orderType': 'LIMIT',
+            'orderStrategyType': 'SINGLE',
+            'priceLinkBasis': 'MARK',
+            'priceLinkType': 'PERCENT',
+            'priceOffset': 2.5,
+            'orderLegCollection': [{
+                'orderLegType': 'EQUITY',
+                'instruction': 'BUY',
+                'quantity': 1.0,
+                'instrument': {'assetType': 'EQUITY', 'symbol': 'AAPL'},
+            }],
+        }
+        o.update(overrides)
+        return o
+
+    def test_price_offset_survives_the_round_trip(self):
+        rebuilt = construct_repeat_order(self.order()).build()
+        self.assertEqual(2.5, rebuilt.get('priceOffset'))
+
+    def test_the_whole_price_link_trio_survives_together(self):
+        # The offset going missing while its basis and type remain is the
+        # shape that matters: the order still looks price-linked and is priced
+        # differently.
+        rebuilt = construct_repeat_order(self.order()).build()
+        for field in ('priceLinkBasis', 'priceLinkType', 'priceOffset'):
+            self.assertIn(field, rebuilt)
+
+    def test_the_generated_code_sets_the_offset(self):
+        code = code_for_builder(construct_repeat_order(self.order()))
+        self.assertIn('set_price_offset', code)
+
+    def test_the_stop_price_trio_is_unaffected(self):
+        rebuilt = construct_repeat_order(self.order(
+                stopPriceLinkBasis='MARK',
+                stopPriceLinkType='PERCENT',
+                stopPriceOffset=1.25)).build()
+        self.assertEqual(1.25, rebuilt.get('stopPriceOffset'))
