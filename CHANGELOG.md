@@ -8,6 +8,80 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.11.1
+
+A final audit of the audit. Everything here is a defect in something 1.9.0
+through 1.11.0 introduced -- three of them in guards which did not guard as
+much as they claimed.
+
+### Fixed
+
+**The finite-number check covered only prices.** It missed the other numbers
+in an order, and it missed the worse case: the existing positivity guards do
+not catch NaN, because NaN compares False against everything. `quantity <= 0`
+and `activation_price <= 0.0` are both False for it.
+
+```python
+OrderBuilder().set_activation_price(nan).set_stop_price_offset(nan)
+              .set_quantity(nan).build()
+# {'quantity': nan, 'stopPriceOffset': nan, 'activationPrice': nan}
+# json.dumps → {"quantity": NaN, ...}   which is not valid JSON
+```
+
+Those are the fields a trailing stop and a conditional order use.
+`set_quantity`, the order legs, `set_activation_price`, `set_stop_price_offset`
+and `set_price_offset` now check before the positivity comparison. Offered
+upstream as #262.
+
+**A locally-unusable token was reported as retryable.** `MissingTokenError`
+and `InvalidTokenError` are `OAuthError` subclasses which authlib raises
+*before any HTTP call*, when the stored token has no refresh token or cannot
+be used. They arrived with `refresh_token_invalid=False` and a message saying
+the failure "may be transient", so an application following the documented
+pattern retried forever on a permanent, purely local condition -- the exact
+failure the attribute exists to prevent, reached through the attribute.
+Offered upstream as #266.
+
+**The naive-datetime warning blamed the library, not the caller.** A fixed
+`stacklevel` cannot be right when the endpoints sit at different depths --
+`get_price_history_every_day` wraps `get_price_history`, and
+`get_orders_for_account` goes through `_make_order_query`. Two of the four
+entry points pointed at `base.py`, which tells a caller nothing they can act
+on. The frames are now counted. Offered upstream as #259.
+
+**The bug-report log guard missed a broken pipe.** It caught `ValueError` but
+not `BrokenPipeError`, which is an `OSError`, so `python bot.py 2>&1 | head`
+still produced the "Exception ignored in atexit callback" traceback the guard
+was added to remove. Offered upstream as #257.
+
+**A rejected subscription became invisible.** 1.9.0 stopped an orphaned stream
+response from ending the receive loop, which was right, but logged every one
+at INFO -- including failures. The request was abandoned, so nothing else ever
+reports that Schwab refused it. Non-zero codes now log at WARNING. Offered
+upstream as #261.
+
+### Changed
+
+**The token temp-file sweep waits five minutes rather than one.** The
+threshold is not a tidiness knob, it is the entire mechanism keeping the sweep
+from deleting a file a *different* process is still writing -- which was
+demonstrated, and costs that process its token update. Widened, with the
+reasoning moved into the constant, and the assumption that mtime and the local
+clock agree written down for anyone on a network mount.
+
+### Notes
+
+Two of these were found because a test passed when it should not have. The
+warning-attribution fix shipped with an off-by-one that a filename-only
+assertion could not see, and the sweep's concurrency test used a file created
+that instant, which survives any threshold. Both tests now fail against the
+code they are meant to catch.
+
+One thing is deliberately untested and says so in the source: the path
+separator in the frame walk's prefix comparison. Reaching it needs a real
+sibling package on disk, and every test written for it passed with the
+separator removed.
+
 ## 1.11.0
 
 ### Added
