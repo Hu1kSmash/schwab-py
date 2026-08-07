@@ -154,10 +154,13 @@ def _enable_bug_report_logging(output=None, loggers=None):
             for msg in handler.messages:
                 msg = schwab.LOG_REDACTOR.redact(msg)
                 print(msg, file=out)
-        except ValueError:
-            # The stream was closed before the interpreter shut down. There is
-            # nowhere left to write the report, and a traceback out of an
-            # atexit handler is a worse last word than nothing.
+        except (ValueError, OSError):
+            # The stream is gone. Closed before the interpreter shut down
+            # (ValueError), or the far end of a pipe went away (OSError, and
+            # in practice BrokenPipeError -- `python bot.py 2>&1 | head` is
+            # enough). There is nowhere left to write the report, and a
+            # traceback out of an atexit handler is a worse last word than
+            # nothing.
             pass
     atexit.register(write_logs)
 

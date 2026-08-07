@@ -176,6 +176,23 @@ class EnableDebugLoggingTest(unittest.TestCase):
         self.assertIn('a line worth reporting', replacement.getvalue())
 
     @no_duplicates
+    def test_does_not_write_to_a_stream_whose_reader_has_gone(self):
+        # `python bot.py 2>&1 | head -20` is enough: head exits, the pipe
+        # breaks, and at interpreter shutdown this handler would produce
+        # exactly the traceback it exists to avoid. BrokenPipeError is an
+        # OSError, not a ValueError.
+        class BrokenPipe(io.StringIO):
+            def write(self, s):
+                raise BrokenPipeError(32, 'Broken pipe')
+
+        dump_logs = schwab.debug._enable_bug_report_logging(
+                output=BrokenPipe(),
+                loggers=[logging.getLogger('test-broken-pipe')])
+        self.addCleanup(atexit.unregister, dump_logs)
+
+        dump_logs()
+
+    @no_duplicates
     def test_does_not_write_to_a_stream_closed_before_exit(self):
         # An application which replaced sys.stderr and then closed it should
         # not have a traceback out of an atexit handler as its last output.
