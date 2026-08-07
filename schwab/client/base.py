@@ -65,6 +65,56 @@ class BaseClient(EnumEnforcer):
         self.request_number += 1
         return self.request_number
 
+    @staticmethod
+    def _refresh_token_is_invalid(error):
+        '''Whether ``error`` says the refresh token itself is no longer usable.
+
+        RFC 6749 section 5.2 defines ``invalid_grant`` as the token endpoint's
+        answer when the grant presented -- here, the refresh token -- is
+        invalid, expired or revoked. It is the one failure on this path which
+        retrying cannot fix, because a new refresh token only comes from the
+        full authorization_code flow.
+
+        Schwab does not put that code where the standard says it goes. It
+        answers with an outer error of ``unsupported_token_type``, which RFC
+        7009 defines for the *revocation* endpoint and which describes nothing
+        that happened here, and nests the real response as a JSON string inside
+        the description::
+
+            unsupported_token_type: 400 Bad Request: {"error_description":
+            "Refresh token is invalid, expired or revoked","error":"invalid_grant"}
+
+        Observed on a live account on 2026-08-02, by letting a refresh token
+        reach its seven day expiry deliberately. Schwab does not document this
+        response, so both spellings are accepted: the standard placement, in
+        case it is ever corrected, and the nested one it actually uses.
+
+        Anything unrecognized returns False. A failure wrongly called terminal
+        stops an application which only needed to retry, which is worse than
+        one wrongly called transient.
+        '''
+        code = getattr(error, 'error', None)
+        if code == 'invalid_grant':
+            return True
+
+        description = getattr(error, 'description', None)
+        if not isinstance(description, str):
+            return False
+
+        # The nested body is embedded in a larger string, so find the object
+        # rather than trying to parse the whole description.
+        start = description.find('{')
+        end = description.rfind('}')
+        if start < 0 or end < start:
+            return False
+
+        try:
+            nested = json.loads(description[start:end + 1])
+        except ValueError:
+            return False
+
+        return isinstance(nested, dict) and nested.get('error') == 'invalid_grant'
+
     @contextlib.contextmanager
     def _translate_token_errors(self):
         '''Presents a failed token refresh as a schwab-py exception.
@@ -96,11 +146,20 @@ class BaseClient(EnumEnforcer):
                     'This client was built without token metadata, so the '
                     'token\'s age is unknown.')
 
+            invalid = self._refresh_token_is_invalid(e)
+            if invalid:
+                advice = ('Schwab says the refresh token is invalid, expired '
+                          'or revoked, so retrying will not help: the login '
+                          'flow has to be completed again.')
+            else:
+                advice = ('Schwab did not say the refresh token itself is '
+                          'invalid, so this may be transient.')
+
             raise TokenRefreshError(
-                    'Failed to refresh the Schwab token: {}. {} If the window '
-                    'has closed, the login flow has to be completed again; '
-                    'retrying will not help.'.format(e, detail),
-                    token_age=age) from e
+                    'Failed to refresh the Schwab token: {}. {} {}'.format(
+                        e, detail, advice),
+                    token_age=age,
+                    refresh_token_invalid=invalid) from e
 
     def _assert_type(self, name, value, exp_types):
         value_type = type(value)
