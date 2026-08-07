@@ -69,6 +69,12 @@ supported path and the float path is deprecated upstream.
 **Do not bundle.** A PR that fixes one thing and tidies another does not get reviewed. This applies
 even though upstream is currently quiet; the PRs are a queue for whenever it is not.
 
+**Run the suite after every merge into `main`, not just on the topic branch.** This fork removed
+imports upstream still carries, so a branch which passes against `upstream-main` can fail here on
+names that exist there and not here. It has happened three times — `warnings`, `json` and the `abc`
+line in `client/base.py` — and the failure is a `NameError` at runtime, not a merge conflict, so
+nothing warns you. The fix is always to put the import back; the point is to notice.
+
 ## Cutting a release
 
 1. `CHANGELOG.md` — a new section, written for someone who has to decide whether to upgrade.
