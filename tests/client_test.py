@@ -28,7 +28,13 @@ SYMBOL = 'AAPL'
 TRANSACTION_ID = 400000
 WATCHLIST_ID = 5000000
 
-MIN_DATETIME = datetime.datetime(year=1971, month=1, day=1)
+# The library's default start date, which is UTC. This was previously naive,
+# and so was the library -- both read it as local time and agreed, which made
+# the expected value here depend on the timezone of whatever machine ran the
+# suite. Pinning it to UTC on both sides makes the assertion mean the same
+# thing everywhere.
+MIN_DATETIME = datetime.datetime(year=1971, month=1, day=1,
+                                 tzinfo=datetime.timezone.utc)
 MIN_ISO = '1971-01-01T00:00:00+0000'
 MIN_TIMESTAMP_MILLIS = int(MIN_DATETIME.timestamp()) * 1000
 
@@ -2386,6 +2392,43 @@ class _TestClient:
                     (__file__, expected_line), (w.filename, w.lineno),
                     'warning blamed {}:{} rather than the calling line'.format(
                         w.filename, w.lineno))
+
+
+    @no_duplicates
+    def test_the_librarys_own_start_default_does_not_warn(self):
+        # Omitting the dates is the common case. Warning there tells the caller
+        # to attach a timezone to a datetime they never wrote, and points at
+        # their line to do it.
+        #
+        # Scoped to start_datetime: the end_datetime default is still
+        # utcnow(), which is naive for the same reason and is being replaced
+        # separately. Once that lands, neither of these warns.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.client.get_price_history_every_day(SYMBOL)
+            self.client.get_price_history(SYMBOL)
+            self.client.get_orders_for_account(ACCOUNT_HASH)
+            self.client.get_transactions(ACCOUNT_HASH)
+
+        blamed = [str(w.message) for w in caught
+                  if 'no timezone' in str(w.message)
+                  and 'start_datetime' in str(w.message)]
+        self.assertEqual([], blamed)
+
+
+    @no_duplicates
+    def test_the_default_start_date_does_not_depend_on_the_host(self):
+        # It becomes epoch milliseconds, so a naive default would shift with
+        # whatever timezone the machine happens to be set to. Only the
+        # per-frequency helpers fill the dates in; raw get_price_history sends
+        # what it is given.
+        self.client.get_price_history_every_day(SYMBOL)
+        params = self.mock_session.get.call_args[1]['params']
+        self.assertEqual(
+                int(datetime.datetime(
+                        1971, 1, 1,
+                        tzinfo=datetime.timezone.utc).timestamp() * 1000),
+                params['startDate'])
 
 
     @no_duplicates
