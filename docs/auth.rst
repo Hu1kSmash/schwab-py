@@ -139,11 +139,26 @@ The token file is a credential in its own right. Anyone holding it can read your
 balances and positions and place trades with them, so it deserves the same care
 as a password.
 
-``schwab-py`` writes it readable only by you (mode ``0600``). A file written by
-an older version, or copied around with a permissive umask, is corrected the
-first time the token is refreshed. It is worth checking anyway::
+On Linux and macOS, ``schwab-py`` writes it readable only by you (mode
+``0600``). A file written by an older version, or copied around with a
+permissive umask, is corrected the first time the token is refreshed. It is
+worth checking anyway::
 
   ls -l /path/to/token.json
+
+.. warning::
+
+   **On Windows there is no such protection.** Windows has no POSIX file mode:
+   ``os.chmod`` toggles a read-only bit and ignores the rest, so the token file
+   is left readable by any account on the machine. This library cannot narrow
+   that, and does not pretend to -- setting Windows ACLs needs ``pywin32``,
+   which is not a dependency here.
+
+   The file is still written atomically and durably on Windows; it is only the
+   permission narrowing that does not apply. If you are on Windows and the
+   machine has other users, put the token somewhere covered by an ACL you
+   control, and treat its location as part of your security posture rather than
+   assuming the library has handled it.
 
 The write is atomic: the new token goes to a temporary file in the same
 directory, which is flushed and then renamed over the destination. So a process
