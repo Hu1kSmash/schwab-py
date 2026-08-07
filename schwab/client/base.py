@@ -7,8 +7,10 @@ from enum import Enum
 
 import contextlib
 import datetime
+import inspect
 import json
 import logging
+import os
 import schwab
 import warnings
 
@@ -177,6 +179,45 @@ class BaseClient(EnumEnforcer):
                     ', '.join(exp_type_names), name, value_type_name)
             raise ValueError(error_str)
 
+    #: Directory containing this package, used to find the first stack frame
+    #: which is not ours when attributing a warning.
+    _PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    @classmethod
+    def _caller_stacklevel(cls):
+        '''How many frames up the caller's own code is.
+
+        A fixed ``stacklevel`` cannot be right here, because the endpoints do
+        not all sit at the same depth: ``get_price_history_every_day`` calls
+        ``get_price_history``, and ``get_orders_for_account`` goes through
+        ``_make_order_query``, so those are one frame deeper than the methods
+        which format their dates directly. A warning attributed to a line
+        inside this library tells the caller nothing they can act on, so the
+        depth is counted rather than guessed.
+
+        Falls back to 1 -- this function's own caller -- if every frame turns
+        out to be ours, which should not happen but must not raise if it does.
+
+        The count starts at 0 because ``warnings.warn`` is called one frame up,
+        by ``_warn_if_naive``, and interprets ``stacklevel`` relative to
+        itself. Counting from this frame instead would land one frame beyond
+        the caller, on whatever called *them*.
+        '''
+        frame = inspect.currentframe()
+        try:
+            level = 0
+            while frame is not None:
+                filename = os.path.abspath(frame.f_code.co_filename)
+                if not filename.startswith(cls._PACKAGE_ROOT):
+                    return level
+                frame = frame.f_back
+                level += 1
+            return 1
+        finally:
+            # Frames hold references to their own locals, which includes this
+            # one. Drop it rather than leaving a cycle for the collector.
+            del frame
+
     def _warn_if_naive(self, var_name, dt):
         '''Warns that a datetime carrying no timezone is ambiguous.
 
@@ -197,7 +238,7 @@ class BaseClient(EnumEnforcer):
                      'datetime.datetime(..., tzinfo=datetime.timezone.utc) or '
                      'zoneinfo.ZoneInfo(\'America/New_York\'), to get the same '
                      'request everywhere.').format(var_name),
-                    stacklevel=4)
+                    stacklevel=self._caller_stacklevel())
 
     def _format_date_as_iso(self, var_name, dt):
         '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ssZ'''

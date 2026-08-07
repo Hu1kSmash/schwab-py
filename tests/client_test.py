@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import httpx
+import inspect
 import logging
 import os
 import pytest
@@ -2332,6 +2333,54 @@ class _TestClient:
         self.assertTrue(
                 any('start_datetime' in m for m in messages),
                 'the warning should name the parameter, got {}'.format(messages))
+
+
+    @no_duplicates
+    def test_naive_datetime_warning_points_at_the_caller(self):
+        # A warning which names a line inside this library tells the caller
+        # nothing they can act on -- they cannot find their own offending call.
+        # The number of frames to skip is not constant: get_price_history_every_day
+        # calls get_price_history, and get_orders_for_account goes through
+        # _make_order_query, so the wrappers sit one frame deeper than the
+        # endpoints they wrap.
+        # The exact line matters, not just the file: an off-by-one lands on
+        # whatever called this test, which is still this file and would pass a
+        # filename-only assertion while being wrong.
+        naive = datetime.datetime(year=2024, month=6, day=5, hour=4)
+        here = inspect.currentframe()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            line = here.f_lineno + 1
+            self.client.get_price_history(SYMBOL, start_datetime=naive)
+        self._assert_blamed(caught, line)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            line = here.f_lineno + 1
+            self.client.get_price_history_every_day(SYMBOL, start_datetime=naive)
+        self._assert_blamed(caught, line)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            line = here.f_lineno + 1
+            self.client.get_orders_for_account(ACCOUNT_HASH, from_entered_datetime=naive)
+        self._assert_blamed(caught, line)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            line = here.f_lineno + 1
+            self.client.get_transactions(ACCOUNT_HASH, start_date=naive)
+        self._assert_blamed(caught, line)
+
+    def _assert_blamed(self, caught, expected_line):
+        naive_warnings = [w for w in caught if 'no timezone' in str(w.message)]
+        self.assertTrue(naive_warnings, 'expected a naive-datetime warning')
+        for w in naive_warnings:
+            self.assertEqual(
+                    (__file__, expected_line), (w.filename, w.lineno),
+                    'warning blamed {}:{} rather than the calling line'.format(
+                        w.filename, w.lineno))
 
 
     @no_duplicates
