@@ -6121,6 +6121,33 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_handle_message_orphaned_failure_is_a_warning(
+            self, ws_connect):
+        # A late acknowledgement of something that worked is routine. A late
+        # rejection is not -- the request was abandoned, so nothing else will
+        # ever report that Schwab refused it, and at INFO nobody would see it.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        rejected = self.success_response(2, 'CHART_EQUITY', 'SUBS')
+        rejected['response'][0]['content']['code'] = 21
+        rejected['response'][0]['content']['msg'] = 'Bad command formatting'
+
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(rejected)]
+
+        await self.client.chart_equity_subs(['GOOG,MSFT'])
+
+        with self.assertLogs('schwab.streaming', level='WARNING') as logged:
+            await self.client.handle_message()
+
+        self.assertTrue(
+                any('no request outstanding' in line for line in logged.output),
+                'a rejected orphan should be visible at WARNING, got {}'.format(
+                    logged.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_handle_message_delivers_data_after_orphaned_response(
             self, ws_connect):
         # And the loop keeps working: a message arriving after the orphan is
