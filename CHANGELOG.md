@@ -8,6 +8,59 @@ one, the fork's divergence shrinks accordingly.
 
 ---
 
+## 1.11.0
+
+### Added
+
+**`TokenRefreshError.refresh_token_invalid`, saying whether a retry can work
+at all.** 1.10.0 reported the token's age and left the caller to infer the
+rest. This makes the inference directly.
+
+A refresh token Schwab has rejected as invalid cannot be retried back to life:
+a new one comes only from the authorization_code flow, which needs a human at
+a browser. An unattended application which treats that like a dropped
+connection keeps asking, and the endpoint it hammers is the one its own
+recovery depends on.
+
+```python
+try:
+    r = c.get_quote('AAPL')
+except TokenRefreshError as e:
+    if e.refresh_token_invalid:
+        alert('refresh token is dead, log in again')
+    else:
+        retry_later()
+```
+
+RFC 6749 §5.2 defines `invalid_grant` for exactly this case, so the signal is
+a standard one. Schwab does not put it where the standard says. It answers
+with an outer code of `unsupported_token_type` -- which RFC 7009 defines for
+the *revocation* endpoint and which describes nothing that happened -- and
+nests the real response as a JSON string inside the description:
+
+```
+unsupported_token_type: 400 Bad Request: {"error_description":"Refresh token
+is invalid, expired or revoked","error":"invalid_grant"}
+```
+
+Observed on a live account on 2026-08-02, by letting a refresh token reach its
+seven day expiry deliberately. Schwab documents neither the response nor the
+nesting, so that is one account on one day rather than a specification. Both
+placements are accepted, in case the outer code is ever corrected.
+
+Anything unrecognized returns `False`. An application stopped by a failure it
+could have retried through is worse off than one which retried a little too
+long, so the unrecognized case falls on the transient side.
+
+Offered upstream as #266.
+
+### Notes
+
+1.10.0's documentation said this library would not tell you whether a retry
+could succeed, because Schwab documents the seven day term but not the
+response. That was true of the documentation and remains true; it was not true
+that nobody had seen the response. This corrects it.
+
 ## 1.10.0
 
 The rest of the production audit -- the findings which were real but not
