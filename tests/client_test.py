@@ -2449,6 +2449,82 @@ class _TestClient:
         self.mock_session.get.assert_called_once()
 
 
+    # Is the refresh token dead, or was this just a bad day?
+
+
+    #: Exactly what Schwab returned on 2026-08-02, from a live account whose
+    #: refresh token was allowed to reach its seven day expiry. Note the outer
+    #: code is unsupported_token_type, which RFC 7009 defines for the
+    #: revocation endpoint and which describes nothing that happened, and that
+    #: the real answer is a JSON string nested in the description.
+    OBSERVED_DEAD_REFRESH_TOKEN = OAuthError(
+            error='unsupported_token_type',
+            description='400 Bad Request: {"error_description":"Refresh token '
+                        'is invalid, expired or revoked","error":'
+                        '"invalid_grant"}')
+
+    @no_duplicates
+    def test_observed_dead_refresh_token_is_recognized(self):
+        self.mock_session.get.side_effect = self.OBSERVED_DEAD_REFRESH_TOKEN
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertTrue(cm.exception.refresh_token_invalid)
+        self.assertIn('retrying will not help', str(cm.exception))
+
+
+    @no_duplicates
+    def test_standard_placement_is_also_recognized(self):
+        # If Schwab ever puts the code where RFC 6749 says it goes.
+        self.mock_session.get.side_effect = OAuthError(
+                error='invalid_grant',
+                description='Refresh token is invalid, expired or revoked')
+
+        with self.assertRaises(TokenRefreshError) as cm:
+            self.client.get_quote(SYMBOL)
+
+        self.assertTrue(cm.exception.refresh_token_invalid)
+
+
+    @no_duplicates
+    def test_other_oauth_failures_are_not_called_terminal(self):
+        # Claiming a recoverable failure is terminal stops an application which
+        # only needed to try again, so anything unrecognized has to come back
+        # False. These are the shapes most likely to be mistaken for the above.
+        not_terminal = [
+            OAuthError(error='server_error',
+                       description='500 Internal Server Error'),
+            OAuthError(error='temporarily_unavailable', description=''),
+            OAuthError(error='invalid_client',
+                       description='400 Bad Request: bad app key'),
+            # Right words, wrong place: a description mentioning the phrase but
+            # carrying no nested error code.
+            OAuthError(error='unsupported_token_type',
+                       description='400 Bad Request: refresh token trouble'),
+            # Nested body, but a different code.
+            OAuthError(error='unsupported_token_type',
+                       description='400 Bad Request: {"error":"invalid_client"}'),
+            # Nested body which is not JSON at all.
+            OAuthError(error='unsupported_token_type',
+                       description='400 Bad Request: {not json}'),
+            OAuthError(error=None, description=None),
+        ]
+
+        for error in not_terminal:
+            self.setUp()
+            self.mock_session.get.side_effect = error
+
+            with self.assertRaises(TokenRefreshError) as cm:
+                self.client.get_quote(SYMBOL)
+
+            self.assertFalse(
+                    cm.exception.refresh_token_invalid,
+                    '{!r} must not be reported as a dead refresh '
+                    'token'.format(str(error)))
+            self.assertIn('may be transient', str(cm.exception))
+
+
 class ClientTest(_TestClient, unittest.TestCase):
     """
     Subclass set to use Client and MagicMock
