@@ -6799,6 +6799,33 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             await task
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_slow_error_handler_holds_up_handle_message(
+            self, ws_connect):
+        # The cost of awaiting the report rather than scheduling it, asserted
+        # rather than documented. A downstream that awaits inside an error
+        # handler now gets a stream stall where it previously got a scheduled
+        # task -- and a stall presents as a dead feed, not as a slow handler,
+        # so someone will eventually debug it from the wrong end. If this ever
+        # stops being true it should be a decision, not a surprise.
+        delay = 0.2
+
+        async def slow(service, exc, msg):
+            await asyncio.sleep(delay)
+
+        self.client.add_error_handler(slow)
+
+        start = asyncio.get_event_loop().time()
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+        elapsed = asyncio.get_event_loop().time() - start
+
+        self.assertGreaterEqual(
+                elapsed, delay,
+                'handle_message returned before the error handler finished, so '
+                'the report is no longer awaited inline')
+
+    @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):
         # Every other add_*_handler on this class takes a one-argument
         # callback, so passing one here is the natural mistake. Discovered at
