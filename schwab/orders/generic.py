@@ -1,6 +1,4 @@
-import decimal
 import math
-import warnings
 
 from enum import Enum
 
@@ -78,25 +76,26 @@ def _assert_finite(name, price):
                 '{} must be a finite number, got {!r}'.format(name, price))
 
 
-def truncate_float(flt):
-    warnings.warn('passing floats to set_price and set_stop_price is '+
-                  'deprecated and will be removed soon. Please update your '+
-                  'code to pass prices as strings instead.')
+def _require_price_string(name, price):
+    '''
+    Prices are strings. See :ref:`price_strings`.
 
-    # Truncation is deliberate -- see the note on truncation in the docs -- but
-    # it has to be done in decimal rather than binary. Scaling a binary float
-    # and taking int() truncates the representation error along with the value:
-    # 8.2 * 100 is 819.9999999999999, so int() yields 819 and a price which was
-    # already at two decimal places comes back a cent lower. Decimal(str(flt))
-    # reads the value as written, so truncating it is exact.
-    #
-    # ROUND_DOWN rounds toward zero, which is what int() did, so negative
-    # prices truncate as they did before.
-    places = (decimal.Decimal('0.0001') if abs(flt) < 1 and flt != 0.0
-              else decimal.Decimal('0.01'))
+    A float used to be accepted and converted here. That conversion is gone. It
+    was lossy in the direction that costs money -- truncating the binary value
+    sent a price a tick below the one asked for -- and even done correctly, the
+    choice of how to round a price belongs to the caller, who knows what the
+    order is for. There is no rounding this can pick which is right for
+    everyone.
+    '''
+    if not isinstance(price, str):
+        raise ValueError(
+                '{} must be a string, got {!r}. Format it to the precision you '
+                'want, for example \'{{:.2f}}\'.format(value), or use '
+                'copy_{} to set the field with no validation at all.'.format(
+                    name, price, name.replace(' ', '_')))
 
-    return str(decimal.Decimal(str(flt)).quantize(
-        places, rounding=decimal.ROUND_DOWN))
+    _assert_finite(name, price)
+    return price
 
 
 class OrderBuilder(EnumEnforcer):
@@ -242,14 +241,9 @@ class OrderBuilder(EnumEnforcer):
     # StopPrice
     def set_stop_price(self, stop_price):
         '''
-        Set the stop price. Note price can be passed as either a `float` or an
-        `str`. See :ref:`number_truncation`.
+        Set the stop price, as a string. See :ref:`price_strings`.
         '''
-        _assert_finite('stop price', stop_price)
-        if isinstance(stop_price, str):
-            self._stopPrice = stop_price
-        else:
-            self._stopPrice = truncate_float(stop_price)
+        self._stopPrice = _require_price_string('stop price', stop_price)
         return self
 
     def copy_stop_price(self, stop_price):
@@ -400,14 +394,9 @@ class OrderBuilder(EnumEnforcer):
     # Price
     def set_price(self, price):
         '''
-        Set the order price. Note price can be passed as either a `float` or an
-        `str`. See :ref:`number_truncation`.
+        Set the order price, as a string. See :ref:`price_strings`.
         '''
-        _assert_finite('price', price)
-        if isinstance(price, str):
-            self._price = price
-        else:
-            self._price = truncate_float(price)
+        self._price = _require_price_string('price', price)
         return self
 
     def copy_price(self, price):

@@ -21,6 +21,46 @@ inferred from the pull request list.
 
 ---
 
+## Unreleased
+
+### Removed
+
+Three APIs which had been deprecated with warnings. All three are breaking for
+code still using them, and all three fail loudly at the point of use rather
+than changing what an order or a subscription means.
+
+**Prices must be strings.** `set_price` and `set_stop_price` used to accept a
+float and truncate it -- two decimal places, or four below one. Passing a float
+now raises `ValueError` naming the fix.
+
+The conversion was removed rather than kept because the library was choosing a
+rounding, for a value denominated in money, on behalf of a caller who knows
+what the order is for. Whether a limit should round up, down or to the nearest
+tick is a trading decision. `'{:.2f}'.format(value)` reproduces the old
+behaviour for values at or above one. `copy_price` and `copy_stop_price` still
+set the field with no validation, which is what `contrib.orders` uses to
+reconstruct a historical order.
+
+**`websocket_connect_args['extra_headers']` is no longer translated.**
+websockets 14.0 renamed it to `additional_headers`; this library had been
+rewriting it silently and warning. Passing it now raises `ValueError` naming
+the replacement, as `create_protocol` and `read_limit` already did.
+
+The argument is documented as a passthrough to `websockets.connect()`. Quietly
+substituting one name for another on the way through is not a passthrough, and
+it meant the name a caller wrote was not the name the library called.
+
+**`LevelOneOptionFields.STRIKE_TYPE` is gone.** It was an alias of
+`STRIKE_PRICE`, kept when field 20 was renamed to what Schwab actually
+documents it as. Code naming it now raises `AttributeError` instead of reading
+a field whose messages are labelled something else.
+
+### Note
+
+Nothing here changes what a correct call does. Every removal converts a silent
+accommodation into an error, so code which already passed strings, used
+`additional_headers` and named `STRIKE_PRICE` is unaffected.
+
 ## 2.0.1
 
 ### Documented

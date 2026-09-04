@@ -306,22 +306,24 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_login_websocket_connect_args_extra_headers_translated(
+    async def test_login_websocket_connect_args_extra_headers_refused(
             self, ws_connect):
+        # This used to be translated to additional_headers with a
+        # DeprecationWarning. websocket_connect_args is documented as a
+        # passthrough, and quietly rewriting a name on the way through is not
+        # one; the caller is told to change it instead.
         self.http_client.get_user_preferences.return_value = MockResponse(
             account_preferences(), 200)
         socket = AsyncMock()
         ws_connect.return_value = socket
 
-        socket.recv.side_effect = [json.dumps(self.success_response(
-            0, 'ADMIN', 'LOGIN'))]
+        with self.assertRaises(ValueError) as cm:
+            await self.client.login(websocket_connect_args={
+                'extra_headers': {'X-Custom-Header': 'value'}})
 
-        headers = {'X-Custom-Header': 'value'}
-        with self.assertWarns(DeprecationWarning):
-            await self.client.login(
-                websocket_connect_args={'extra_headers': headers})
-
-        ws_connect.assert_awaited_once_with(ANY, additional_headers=headers)
+        # The message has to name the replacement, or it is just a refusal.
+        self.assertIn('additional_headers', str(cm.exception))
+        ws_connect.assert_not_awaited()
 
 
     @no_duplicates
@@ -6529,11 +6531,13 @@ class LevelOneOptionStrikeFieldTest(IsolatedAsyncioTestCase):
         self.assertEqual('STRIKE_PRICE', fields.key_mapping()['20'])
 
     @no_duplicates
-    def test_old_spelling_still_resolves(self):
-        # Existing code naming the field keeps working, and resolves to the
-        # same field rather than a second one.
+    def test_the_old_spelling_is_gone(self):
+        # STRIKE_TYPE was kept as an alias through the rename. Code still
+        # naming it now fails at the point of use rather than silently reading
+        # a field whose label no longer matches what it asked for.
         fields = streaming.StreamClient.LevelOneOptionFields
-        self.assertIs(fields.STRIKE_PRICE, fields.STRIKE_TYPE)
+        with self.assertRaises(AttributeError):
+            fields.STRIKE_TYPE
         self.assertEqual(
                 1, [m.name for m in fields].count('STRIKE_PRICE'))
 

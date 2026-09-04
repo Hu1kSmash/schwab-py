@@ -298,38 +298,43 @@ position reaches certain levels. In those cases, the price of an order can drop
 below the specified price as a result of movements in multiple legs of the 
 trade. 
 
-.. _number_truncation:
+.. _price_strings:
 
-~~~~~~~~~~~~~~~~~~
-Note on Truncation
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+Note on Prices
+~~~~~~~~~~~~~~~~
 
-**Important Note:** Under the hood, the Schwab API expects price as a string, 
-whereas ``schwab-py`` allows setting prices as a floating point number for 
-convenience.  The passed value is then converted to a string under the hood, 
-which involves some truncation logic:
+The Schwab API expects prices as strings, and so does ``schwab-py``. Whatever
+you pass is what Schwab is asked for:
 
- * If the price has absolute value less than one, truncate  (not round!) to 
-   four decimal places. For example, `0.186992` will become `0.1869`.
- * For all other values, truncate to two decimal places. The above example would 
-   become `0.18`. 
+.. code-block:: python
 
-This behavior is meant as a sane heuristic, and there are almost certainly
-situations where it is not the correct thing to do. You can sidestep this entire
-process by passing your price as a string, although be forewarned that Schwab
-may reject your order or even interpret it in unexpected ways.
+   order.set_price('199.99')
+   order.set_price('0.1869')
 
-Passing prices as strings is also the supported path: passing floats is
-deprecated and will eventually be removed.
+Passing a float raises ``ValueError``. Earlier versions accepted one and
+converted it here, truncating to two decimal places, or to four for values
+below one. That conversion has been removed.
+
+It was removed rather than repaired because the library was picking a rounding,
+for a value denominated in money, on behalf of a caller who knows better what
+the order is for. Whether a limit price should round up, down or to the nearest
+tick is a trading decision, not a formatting one. Format the price yourself --
+``'{:.2f}'.format(value)`` reproduces the old behaviour for values at or above
+one -- and you keep the decision.
+
+:meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field with
+no validation of any kind, which is what :ref:`order_templates` uses to rebuild
+an order exactly as Schwab reported it.
 
 .. note::
 
-   The truncation is done in decimal, so a price already at the target precision
-   survives it unchanged. Earlier versions scaled the float and truncated the
-   result, which truncated the representation error along with the value -- 8.2
-   became ``8.19``, because ``8.2 * 100`` is ``819.9999999999999``. Roughly 4.6%
-   of cent-granular prices were affected, always one tick low and silently. See
-   the changelog for detail.
+   The conversion was also wrong for a time, in a way worth knowing about if you
+   have orders in your history from before it was fixed. It scaled the float and
+   truncated the result, which truncated the representation error along with the
+   value: ``8.2 * 100`` is ``819.9999999999999``, so ``8.2`` became ``8.19``.
+   Roughly 4.6% of cent-granular prices were affected, always one tick low and
+   silently. See the changelog for detail.
 
 .. automethod:: schwab.orders.generic.OrderBuilder.set_price
 .. automethod:: schwab.orders.generic.OrderBuilder.copy_price
