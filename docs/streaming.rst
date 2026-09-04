@@ -272,8 +272,13 @@ on the way down is not lost when the loop stops. Two consequences worth knowing:
   stream down is a reasonable reaction to a failure, and it will not deadlock,
   however many handlers do it at once.
 * The wait is bounded. A handler that blocks — posting an alert to something
-  slow, with no timeout of its own — will not hang shutdown; the drain gives up
-  after ten seconds and logs that reports may have been lost.
+  slow, with no timeout of its own — will not hang shutdown; the drain stops
+  waiting after ten seconds and logs it. It stops *waiting*: the handler is left
+  running rather than cancelled, since killing it mid-publish would destroy the
+  report the wait exists to preserve.
+* Registering no error handler leaves ``close()`` exactly as it was. The wait
+  happens because there is something to deliver, so with nothing registered
+  there is nothing to wait for — a reconnect loop does not start stalling.
 
 .. automethod:: schwab.streaming.StreamClient.add_error_handler
 

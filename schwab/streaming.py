@@ -7,6 +7,7 @@ import copy
 import httpx2
 import functools
 import inspect
+import time
 import json
 import logging
 import schwab
@@ -66,7 +67,8 @@ class _BaseFieldEnum(Enum):
 _MAX_ERROR_DRAIN_PASSES = 8
 
 # How long close() will wait for that work in total. Handler code belongs to the
-# caller and a shutdown path cannot wait on it forever.
+# caller and a shutdown path cannot wait on it forever. Waiting stops at this
+# point; the work itself is left running rather than cancelled.
 _ERROR_DRAIN_TIMEOUT = 10.0
 
 
@@ -1014,55 +1016,68 @@ class StreamClient(EnumEnforcer):
         cancellation recurses through the mutually-gathering children until it
         hits the recursion limit. A drain already in progress simply returns.
         '''
+        # Nothing registered means nothing to preserve, and draining anyway
+        # would make close() wait on unrelated in-flight stream handlers --
+        # breaking the promise that registering no error handler leaves
+        # behaviour exactly as it was. A reconnect loop calling close() would
+        # start stalling for no reason.
+        if not self._error_handlers:
+            return
+
         if self._draining_error_handlers:
             return
 
+        # Captured here, in the caller's own task. It cannot be read inside a
+        # coroutine wrapped by asyncio.wait_for: below 3.12 wait_for runs the
+        # coroutine in a task of its own, so current_task() there is that inner
+        # task, which is in neither set -- the exclusion silently stops working
+        # and a handler calling close() waits on itself again. setup.py
+        # supports 3.10 and CI runs it, so that is a shipped configuration.
+        current = asyncio.current_task()
+
         self._draining_error_handlers = True
         try:
-            await asyncio.wait_for(self._drain_once(),
-                                   timeout=_ERROR_DRAIN_TIMEOUT)
-        except asyncio.TimeoutError:
-            # Handler code is the caller's, and a shutdown path cannot wait on
-            # it indefinitely: an error handler posting an alert over HTTP with
-            # no timeout of its own would hang close(), __aexit__ and logout's
-            # finally for as long as the far end took.
-            self.logger.warning(
-                    'Timed out after %ss waiting for handlers to finish. '
-                    'Some error reports may not have been delivered.',
-                    _ERROR_DRAIN_TIMEOUT)
+            await self._drain_until(current,
+                                    time.monotonic() + _ERROR_DRAIN_TIMEOUT)
         finally:
             self._draining_error_handlers = False
 
-    async def _drain_once(self):
-        current = asyncio.current_task()
-
-        # Bounded rather than a single pass: work drained in one pass can
+    async def _drain_until(self, current, deadline):
+        # Bounded by passes as well as by time: work drained in one pass can
         # schedule more -- a stream handler failing produces a report, and a
-        # report can produce another. The bound stops an error handler which
-        # reports on every call from spinning here forever.
+        # report can produce another.
         for _ in range(_MAX_ERROR_DRAIN_PASSES):
             pending = tuple(
                     task
                     for task in tuple(self._handler_tasks)
                     + tuple(self._error_handler_tasks)
-                    if task is not current)
+                    if task is not current and not task.done())
 
             if not pending:
                 return
 
-            await asyncio.gather(*pending, return_exceptions=True)
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                # asyncio.wait rather than gather: on timeout it returns what
+                # is still pending and leaves it running. gather inside a
+                # wait_for would cancel the lot, destroying the very report
+                # this exists to preserve -- an alert half-published is worse
+                # than one merely not waited for.
+                _, still_pending = await asyncio.wait(
+                        pending, timeout=remaining)
+                if not still_pending:
+                    continue
 
-        # Checked again rather than warning on the way out of the loop: a chain
-        # which finished on the last pass has drained everything, and saying
-        # reports were dropped when none were is a false alarm on a line whose
-        # only purpose is to report drops.
-        if any(task is not current
-               for task in tuple(self._handler_tasks)
-               + tuple(self._error_handler_tasks)):
             self.logger.warning(
-                    'Handlers were still scheduling more work after %d drain '
-                    'passes. Giving up on the rest.',
-                    _MAX_ERROR_DRAIN_PASSES)
+                    'Gave up waiting for %d handler task(s) after %ss. They '
+                    'are still running; any error reports they had not '
+                    'finished delivering may not arrive.',
+                    len(pending), _ERROR_DRAIN_TIMEOUT)
+            return
+
+        self.logger.warning(
+                'Handlers were still scheduling more work after %d drain '
+                'passes. Giving up on the rest.', _MAX_ERROR_DRAIN_PASSES)
 
     async def __aenter__(self):
         return self

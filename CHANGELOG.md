@@ -68,7 +68,13 @@ draining only the error handlers returned immediately and then lost exactly that
 report, which is the commonest configuration. It is re-entrant, so any number of
 handlers may respond to a failure by calling `close()` without deadlocking. And
 it is bounded in time: handler code belongs to the caller, and one that blocks
-must not hang every shutdown path.
+must not hang every shutdown path. Bounded means it stops waiting, not that it
+cancels -- killing a handler mid-publish destroys the report the wait exists to
+preserve.
+
+The wait only happens when an error handler is registered. Draining regardless
+made `close()` block on unrelated in-flight stream handlers, so a reconnect loop
+stalled for a report nobody had asked to receive.
 
 A handler of the wrong shape is refused at registration rather than discovered
 at report time. Every other `add_*_handler` here takes a one-argument callback,

@@ -6787,6 +6787,58 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_the_drain_timeout_does_not_cancel_the_handler(
+            self, ws_connect):
+        # Giving up on waiting is not the same as killing the work. Cancelling
+        # a handler mid-publish destroys the very report the drain exists to
+        # preserve -- an alert half-sent is worse than one merely not waited
+        # for -- so the timeout leaves it running.
+        observed = {}
+
+        async def slow(service, exc, msg):
+            try:
+                await asyncio.sleep(0.4)
+                observed['finished'] = True
+            except asyncio.CancelledError:
+                observed['cancelled'] = True
+                raise
+
+        self.client.add_error_handler(slow)
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 0.05):
+            await self.client.close()
+
+        await asyncio.sleep(0.6)
+        self.assertNotIn('cancelled', observed)
+        self.assertTrue(observed.get('finished'))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_does_not_wait_on_handlers_with_no_error_handler(
+            self, ws_connect):
+        # "Registering none keeps the current behaviour exactly" has to hold
+        # for close() too. Draining unconditionally made every reconnect --
+        # close() then login() again -- stall on unrelated in-flight stream
+        # handlers, for a report nobody had asked to receive.
+        started = asyncio.Event()
+
+        async def slow_handler(msg):
+            started.set()
+            await asyncio.sleep(30)
+
+        await self.subscribe_and_deliver(ws_connect, slow_handler)
+        await started.wait()
+
+        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 30):
+            await asyncio.wait_for(self.client.close(), timeout=2.0)
+
+        for task in tuple(self.client._handler_tasks):
+            task.cancel()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_close_waits_for_an_async_stream_handler_to_fail(
             self, ws_connect):
         # The commonest configuration, and the one the drain originally
