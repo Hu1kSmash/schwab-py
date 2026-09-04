@@ -458,7 +458,27 @@ class StreamClient(EnumEnforcer):
         # lateness, it is the server and this client disagreeing about what was
         # asked, and the request being waited on has no better prospect than
         # the one which just arrived. Let that fail below, as it always has.
-        response_id = int(frame['response'][0]['requestid'])
+        # Read defensively. Everything downstream of here parses through
+        # _iter_responses, which logs a malformed element and skips it -- but
+        # that guard is unreachable if reading the id raises first. A frame
+        # whose `response` is not a list, or whose element 0 has no usable
+        # requestid, would take out the in-flight request through
+        # _fail_pending_request and end the caller's receive loop, while the
+        # identical frame arriving with nothing pending was logged and
+        # harmless. That is the framing dependence this whole change exists to
+        # remove, one level below where it was fixed.
+        #
+        # Handed back rather than raised: handle_message logs and skips it,
+        # which is what it does with the same frame today when no request is
+        # outstanding.
+        try:
+            response_id = int(frame['response'][0]['requestid'])
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            self.logger.warning(
+                    'Received a response frame with no usable request id. '
+                    'Leaving it for handle_message: %r', frame.get('response'))
+            return frame
+
         if response_id != request_id and response_id < self._request_id:
             return frame
 

@@ -7650,6 +7650,34 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_malformed_frame_does_not_fail_an_in_flight_request(
+            self, ws_connect):
+        # The version of the above that matters, and the one the first attempt
+        # missed. _read_and_route reads element 0's requestid before anything
+        # reaches the parser, so with a request outstanding a malformed frame
+        # raised there instead -- taking out the in-flight request through
+        # _fail_pending_request and ending the receive loop, while the same
+        # frame with nothing pending was logged and harmless.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        for broken in ({'not': 'a list'}, [], [{'no': 'requestid'}],
+                       ['not a dict'], [{'requestid': 'not a number'}]):
+            with self.subTest(broken=broken):
+                socket.recv.side_effect = [
+                        json.dumps({'response': broken}),
+                        json.dumps(self.success_response(
+                            self.client._request_id, 'LEVELONE_EQUITIES',
+                            'SUBS')),
+                ]
+
+                # The malformed frame is set aside, the real answer arrives,
+                # and the subscribe succeeds.
+                await asyncio.wait_for(
+                        self.client.level_one_equity_subs(['GOOG']),
+                        timeout=5)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_a_frame_read_during_the_socket_swap_is_discarded(
             self, ws_connect):
         # The clears run after the new socket is in place. Clearing first left
