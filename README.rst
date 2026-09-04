@@ -80,6 +80,13 @@ project from PyPI instead:
 
   pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
 
+That installs the three packages the library always needs. The interactive
+login flow and the order-code generator each need an extra ---
+``schwab-py[login]`` and ``schwab-py[codegen]`` --- because neither is used by a
+program that loads its token from a file, and a bare install is twelve fewer
+packages on a machine that places trades. Calling either without its extra says
+so, and says what to install.
+
 You're good to go! To demonstrate, here's how you can authenticate and fetch
 daily historical price data for the past twenty years:
 

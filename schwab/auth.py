@@ -3,11 +3,10 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 import collections
 import contextlib
 import httpx2
+import importlib
 import json
 import logging
-import multiprocess
 import os
-import psutil
 import queue
 import sys
 import tempfile
@@ -21,6 +20,27 @@ from schwab.debug import register_redactions
 
 
 TOKEN_ENDPOINT = 'https://api.schwabapi.com/v1/oauth/token'
+
+
+def _import_optional(module_name, extra, needed_for):
+    '''Imports a module that only one entry point needs, or explains itself.
+
+    These are declared as extras rather than hard dependencies because the
+    common case -- a long-running process loading a token from a file -- never
+    touches them, and a bare install should not pull a web framework onto a
+    machine that places trades. The failure has to name the extra, though: an
+    ImportError for "flask" tells a caller nothing about what to install.
+    '''
+    try:
+        return importlib.import_module(module_name)
+    except ImportError as exc:
+        raise ImportError(
+                '{} requires the {!r} extra, which is not installed. Install '
+                'it with:\n\n'
+                '    pip install "schwab-py[{}] @ '
+                'git+https://github.com/Hu1kSmash/schwab-py@<tag>"\n\n'
+                '(missing module: {})'.format(
+                    needed_for, extra, extra, module_name)) from exc
 
 
 def get_logger():
@@ -295,7 +315,8 @@ def __run_client_from_login_flow_server(
     '''Helper server for intercepting redirects to the callback URL. See
     client_from_login_flow for details.'''
 
-    import flask
+    flask = _import_optional(
+            'flask', 'login', 'The interactive login flow')
 
     app = flask.Flask(__name__)
 
@@ -430,6 +451,15 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 
     callback_port = parsed.port if parsed.port else 443
     callback_path = parsed.path if parsed.path else '/'
+
+    # Imported here rather than at module scope: this is the only entry point
+    # that runs a local callback server, and a process which loads its token
+    # from a file should not pay for a web framework and a process manager it
+    # will never call.
+    multiprocess = _import_optional(
+            'multiprocess', 'login', 'The interactive login flow')
+    psutil = _import_optional(
+            'psutil', 'login', 'The interactive login flow')
 
     output_queue = multiprocess.Queue()
 

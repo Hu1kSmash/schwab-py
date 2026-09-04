@@ -15,6 +15,43 @@ current model.
 
 ---
 
+## Unreleased
+
+### Changed
+
+**The login flow and the code generator are now optional extras.** A plain
+install requires three packages -- `authlib`, `httpx2`, `websockets` -- and
+nothing else. `flask`, `multiprocess` and `psutil` move to `schwab-py[login]`;
+`autopep8` moves to `schwab-py[codegen]`.
+
+**This is breaking if you use `client_from_login_flow` or `easy_client` without
+an existing token.** Add `[login]` to your install. Calling either without it
+raises an `ImportError` that names the extra and gives the command, rather than
+a bare "No module named 'flask'".
+
+Measured on a clean 3.14 install: 27 packages before, 15 after. The twelve that
+go are `flask` and its tree (`blinker`, `click`, `itsdangerous`, `jinja2`,
+`markupsafe`, `werkzeug`), `multiprocess` and `dill`, `psutil`, and `autopep8`
+with `pycodestyle`.
+
+None of them were ever used outside the interactive login flow and the code
+generator, and two -- `multiprocess` and `psutil` -- were imported at module
+scope, so every `import schwab.auth` paid for them. A process that loads a token
+from a file and streams quotes has no use for a web framework, and on a machine
+that places trades each package is something to patch, audit and break on
+upgrade.
+
+### Fixed
+
+**A rejection riding along in a matched response frame was reported by
+nothing.** `_validate_response` reads `response[0]`, which is the answer to the
+outstanding request; a frame carrying a second response handed it to the waiter
+unexamined. If that one was a rejection, nothing mentioned it -- the same gap
+the late-rejection reporting closed in 2.2.0, one element along. Additional
+responses are now checked, and a non-zero code is logged and passed to
+`add_error_handler`. A success alongside the answer stays quiet, as on the
+orphan path.
+
 ## 2.2.0
 
 ### Added

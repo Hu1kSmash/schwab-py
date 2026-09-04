@@ -429,7 +429,41 @@ class StreamClient(EnumEnforcer):
             else:
                 future.set_exception(error)
 
+        # Everything past the first response is checked but not routed. The
+        # protocol treats element 0 as the answer to the outstanding request,
+        # and _validate_response reads only that one -- so a frame carrying a
+        # second response has always handed it to the waiter unexamined, and a
+        # rejection sitting there was reported by nothing. This is the same
+        # reasoning as the orphan path below: a late success is routine, a late
+        # rejection is the one thing nothing else will mention.
+        await self._report_extra_responses(frame)
+
         return None
+
+    async def _report_extra_responses(self, frame):
+        for response in frame.get('response', [])[1:]:
+            content = response.get('content', {})
+            code = content.get('code')
+
+            if code is None or code == 0:
+                continue
+
+            self.logger.warning(
+                    'Response frame carried an additional %s/%s response which '
+                    'was a rejection: code %s, msg %r. It answers no request '
+                    'this client is waiting on.',
+                    response.get('service'), response.get('command'),
+                    code, content.get('msg'))
+
+            await self._report_error(
+                    UnexpectedResponseCode(
+                        frame,
+                        'Schwab rejected {}/{} in a frame answering another '
+                        'request: code {}, msg {!r}'.format(
+                            response.get('service'), response.get('command'),
+                            code, content.get('msg'))),
+                    service=response.get('service'),
+                    message=response)
 
     def _fail_pending_request(self, exception):
         '''Hands an exception to the operation waiting on a response, if any.

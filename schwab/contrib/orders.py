@@ -1,4 +1,3 @@
-import autopep8
 import schwab
 
 from schwab.orders.common import (
@@ -168,6 +167,12 @@ def code_for_builder(builder, var_name=None):
         var_prefix = f'{var_name} = '
     else:
         var_prefix = ''
+
+    # Only the code generator needs a formatter; see auth._import_optional for
+    # why these are extras.
+    from schwab.auth import _import_optional
+    autopep8 = _import_optional(
+            'autopep8', 'codegen', 'Generating order-builder code')
 
     return autopep8.fix_code(
             '\n'.join(import_lines) + 

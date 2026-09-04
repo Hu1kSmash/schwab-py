@@ -34,16 +34,28 @@ setuptools.setup(
     ],
     python_requires='>=3.10',
     install_requires=[
-        'autopep8',
         'authlib>=1.8',
-        'flask',
         'httpx2>=2.12.0',
-        'multiprocess',
-        'psutil',
         'websockets>=14.0'
     ],
     extras_require={
+        # The interactive login flow runs a local HTTPS callback server in a
+        # separate process. Nothing else here needs any of this, and a process
+        # that loads its token from a file should not carry a web framework.
+        'login': [
+            'flask',
+            'multiprocess',
+            'psutil',
+        ],
+        # contrib.orders formats the code it generates.
+        'codegen': [
+            'autopep8',
+        ],
         'dev': [
+            'autopep8',
+            'flask',
+            'multiprocess',
+            'psutil',
             'callee',
             'colorama',
             'coverage',

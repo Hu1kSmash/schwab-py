@@ -6826,6 +6826,62 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 'the report is no longer awaited inline')
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_extra_rejection_in_a_matched_frame_is_reported(
+            self, ws_connect):
+        # _validate_response reads element 0 only, because that is the answer
+        # to the outstanding request. A frame carrying a second response handed
+        # it to the waiter unexamined, so a rejection sitting there was
+        # reported by nothing -- the same gap the orphan path exists to close,
+        # one element along.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc, msg)))
+
+        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        ok['response'].append({
+            'service': 'ACCT_ACTIVITY',
+            'command': 'SUBS',
+            'requestid': '77',
+            'content': {'code': 21, 'msg': 'SUBS command failed'},
+        })
+        socket.recv.side_effect = [json.dumps(ok)]
+
+        await self.client.level_one_equity_subs(['GOOG'])
+
+        self.assertEqual(1, len(errors), 'the extra rejection was dropped')
+        service, exc, msg = errors[0]
+        self.assertEqual('ACCT_ACTIVITY', service)
+        self.assertEqual(21, msg['content']['code'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_extra_success_in_a_matched_frame_is_not_reported(
+            self, ws_connect):
+        # The other half, as on the orphan path: a success alongside the answer
+        # is routine and must not wake anyone up.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        ok['response'].append({
+            'service': 'ACCT_ACTIVITY',
+            'command': 'SUBS',
+            'requestid': '77',
+            'content': {'code': 0, 'msg': 'SUBS command succeeded'},
+        })
+        socket.recv.side_effect = [json.dumps(ok)]
+
+        await self.client.level_one_equity_subs(['GOOG'])
+
+        self.assertEqual([], errors)
+
+    @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):
         # Every other add_*_handler on this class takes a one-argument
         # callback, so passing one here is the natural mistake. Discovered at

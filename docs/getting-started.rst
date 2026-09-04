@@ -171,7 +171,43 @@ PyPI, so install it from git, pinned to a release. Plain
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+
+The ``[login]`` part matters for this guide: the interactive login flow below
+runs a local HTTPS callback server, and the packages for that are an optional
+extra rather than a hard dependency. A program that loads an existing token
+from a file never uses them, so a plain install leaves them out --- it is
+twelve fewer packages on a machine that places trades. See
+:ref:`optional_extras` if you would rather install the smaller set.
+
+.. _optional_extras:
+
+~~~~~~~~~~~~~~~
+Optional Extras
+~~~~~~~~~~~~~~~
+
+Only three packages are always required: ``authlib``, ``httpx2`` and
+``websockets``. Everything else is grouped by what needs it:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Extra
+     - Install when you
+     - Pulls in
+   * - ``login``
+     - use :func:`~schwab.auth.client_from_login_flow` or
+       :func:`~schwab.auth.easy_client` without an existing token
+     - ``flask``, ``multiprocess``, ``psutil``
+   * - ``codegen``
+     - use :func:`schwab.contrib.orders.code_for_builder`
+     - ``autopep8``
+
+Combine them with a comma --- ``schwab-py[login,codegen]``. Calling one of
+those entry points without its extra raises an ``ImportError`` naming the extra
+and the command to install it, rather than a bare "No module named 'flask'".
+
+A daemon that authenticates from a stored token and streams needs neither.
 
 That's it! You're done! You can verify the install succeeded by importing the 
 package:
