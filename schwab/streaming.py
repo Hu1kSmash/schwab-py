@@ -130,11 +130,22 @@ def _prepare_connect_args(websocket_connect_args):
     dict belongs to the caller.
     '''
     for old_name, new_name in _RENAMED_CONNECT_ARGS.items():
-        if old_name in websocket_connect_args:
+        if old_name not in websocket_connect_args:
+            continue
+
+        # Both names is the likelier half-migration: the new key was added and
+        # the old one left behind. Telling that caller to "pass
+        # additional_headers instead" names what they are already passing.
+        if new_name in websocket_connect_args:
             raise ValueError(
-                'websocket_connect_args[{!r}] was renamed to {!r} in '
-                'websockets 14.0. Please pass {!r} instead.'.format(
-                    old_name, new_name, new_name))
+                'websocket_connect_args contains both {!r} and {!r}. {!r} is '
+                'the name websockets has used since 14.0; please drop '
+                '{!r}.'.format(old_name, new_name, new_name, old_name))
+
+        raise ValueError(
+            'websocket_connect_args[{!r}] was renamed to {!r} in '
+            'websockets 14.0. Please pass {!r} instead.'.format(
+                old_name, new_name, new_name))
 
     for removed in _REMOVED_CONNECT_ARGS:
         if removed in websocket_connect_args:

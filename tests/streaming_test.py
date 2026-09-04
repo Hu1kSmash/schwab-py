@@ -374,7 +374,14 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 'extra_headers': {'X-Custom-Header': 'value'},
                 'additional_headers': {'X-Custom-Header': 'value'}})
 
-        self.assertIn('extra_headers', str(cm.exception))
+        # Not the rename message: telling a caller who already passes
+        # additional_headers to "pass additional_headers instead" names what
+        # they are doing. Assert on the distinguishing word rather than just
+        # the field name, or both messages satisfy the test.
+        message = str(cm.exception)
+        self.assertIn('extra_headers', message)
+        self.assertIn('both', message)
+        self.assertNotIn('instead', message)
         ws_connect.assert_not_awaited()
 
 

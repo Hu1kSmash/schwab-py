@@ -94,8 +94,11 @@ enforce, and rounding a computed price stays your decision:
 `copy_price` and `copy_stop_price` still skip the type check, which is what
 `contrib.orders` uses to reconstruct a historical order. They do refuse a
 non-finite `Decimal`, since rendering one produces the transmittable string
-`"NaN"`; `float('nan')` is still accepted there because `json.dumps` refuses to
-serialize it.
+`"NaN"`; `float('nan')` is still accepted there because it does not survive
+serialization -- `httpx2` builds request bodies with `allow_nan=False`, so the
+request raises before it is sent. Note that a bare `json.dumps` of the built
+order does *not* raise: it emits the invalid-JSON token `NaN`. If you serialize
+a spec yourself for logging or a diff, that is what you will see.
 
 **`websocket_connect_args['extra_headers']` is no longer translated.**
 websockets 14.0 renamed it to `additional_headers`; this library had been
