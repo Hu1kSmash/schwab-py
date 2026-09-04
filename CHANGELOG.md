@@ -3,23 +3,88 @@
 This is a maintained fork of [`alexgolec/schwab-py`](https://github.com/alexgolec/schwab-py).
 Versions below 1.6.0 are upstream releases; see the upstream repository for their notes.
 
-Every change in this fork is offered upstream as a pull request, so that where upstream merges
-one, the fork's divergence shrinks accordingly.
+Through 2.1.0, changes here were offered upstream as pull requests first, so that anything
+upstream merged would shrink the divergence this fork carries. Upstream merged none of them, and
+its maintainer confirmed in September 2026 that he does not intend to update the project. As of
+2.2.0 this fork no longer tracks upstream and no longer maintains compatibility with it; see
+`MAINTAINING.md` for what that changed and what it did not.
 
-Two changes are currently exceptions. Both were branched from this fork's `main` rather than
-from a mirror of upstream, so their diffs carry the version bump, the changed URLs and this
-notice along with the actual change, which makes them unreviewable as pull requests:
-
-- the streaming client's response-routing model, introduced in 1.7.0;
-- the move to `httpx2` and Authlib 1.8, released in 2.0.0. This one was branched from `main`
-  deliberately, because upstream's `auth.py` still carries only the bare `except
-  httpx.ConnectError` and the migration rewrites that exact line. Re-cutting it against
-  `upstream-main` would mean porting it without the ConnectTimeout sibling fix.
-
-Separating both out is outstanding work. They are called out here rather than left to be
-inferred from the pull request list.
+Entries below 2.2.0 were written under the old arrangement, and some of them discuss which changes
+had or had not been sent upstream. They are left as written rather than rewritten to match the
+current model.
 
 ---
+
+## Unreleased
+
+### Added
+
+**`StreamClient.add_error_handler`.** A stream handler which raises is logged
+and skipped, and a connection which fails to close after logout is logged. Both
+are the right behaviour, and both leave the caller with a log record rather than
+something to react to. The only way to react was to attach a `logging.Handler`
+and match on message text, which every consumer who cared had to write and which
+coupled them to strings this library is free to reword.
+
+```python
+def on_stream_error(service, exception, message):
+    alert('schwab stream: %s raised %r' % (service, exception))
+
+stream_client.add_error_handler(on_stream_error)
+```
+
+Registering none keeps the existing behaviour exactly, and the log line is
+written either way.
+
+It is wired at **three** sites, not two. A synchronous handler's exception
+passes through an `except` block; an asynchronous handler's does not -- it
+surfaces in the task's done callback, at a different logging level, in a
+different function, with no `except` around it. A callback wired only where the
+`except` clauses are would look complete and cover synchronous handlers only,
+which for this purpose is worse than none: it turns "no signal" into "a signal,
+and it is quiet". There is a test that fails if the async site is left unwired
+and passes if only the synchronous one is checked.
+
+This matters most where a fallback covers for the stream. A subscription that
+quietly stops delivering costs nothing while a REST poll is authoritative, and
+then costs something the day it covers a case the poll does not. A silent
+failure that a fallback hides is the one most worth having a signal for.
+
+### Documented
+
+**Relabeling is not applied uniformly, and the docs said nothing about it.**
+Content on the `data` channel is relabeled from numeric field ids to names.
+Content on the `notify` channel is forwarded unchanged, ids intact. Both reach
+the same handlers, so a handler assuming relabeling mis-parses a notify frame --
+by finding nothing rather than by raising, since the keys it looks for are
+simply absent. The Data Field Relabeling section explained the mechanism and
+never mentioned the exception.
+
+**What `ACCT_ACTIVITY` payloads actually look like.** Schwab documents the
+three top-level fields and nothing inside `MESSAGE_DATA`, so every consumer
+reverse-engineers it privately. The order identifier appears under seven
+spellings, the symbol under four, and both `CANCELED` and `CANCELLED` occur in
+Schwab's own status tokens. That is now written down, contributed from about a
+year of one fleet's production traffic and labelled as an observation log rather
+than a contract -- nothing in it is validated by this library, and a shape that
+fleet never saw is not thereby impossible.
+
+### Changed
+
+**This fork no longer tracks upstream.** Through 2.1.0 every change was branched from a mirror of
+`alexgolec/schwab-py` and offered as a pull request before being merged here, on the reasoning that
+anything upstream took would shrink the divergence. Upstream merged none of them, and its
+maintainer confirmed in September 2026 that he does not intend to update the project.
+
+So the arrangement had become a ritual with a real cost: the last several changes were cut from
+`main` because they could not sensibly be cut from anywhere else, and each needed a paragraph
+explaining why it had not been sent. Topic branches now come from `main`, there is no PR queue, and
+changes are made because they are right for this library rather than because upstream might take
+them. `MAINTAINING.md` records what this changed and what it did not.
+
+Nothing about the code's authorship changes. This is still overwhelmingly Alex Golec's work, the
+licence and attribution are untouched, and if upstream ever resumes, `upstream-main` is still
+mirrored here and reconciling with it beats defending the fork.
 
 ## 2.1.0
 

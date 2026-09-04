@@ -200,9 +200,10 @@ on the ``schwab.streaming`` logger instead, with the service name attached. This
 applies equally to synchronous and coroutine handlers.
 
 That is worth knowing when debugging: **a handler which is quietly failing shows
-up in the logs and nowhere else.** If you are relying on a handler to do
-something important, watch that logger. See :ref:`enable_logging <help>` for how
-to turn logging on.
+up in the logs and nowhere else** -- unless you ask for it. See
+:ref:`error_handlers` below. If you are relying on a handler to do something
+important, do one or the other. See :ref:`enable_logging <help>` for how to turn
+logging on.
 
 Handlers should take a single argument representing the stream message received:
 
@@ -213,6 +214,40 @@ Handlers should take a single argument representing the stream message received:
   def sample_handler(msg):
       print(json.dumps(msg, indent=4))
 
+
+.. _error_handlers:
+
+------------------------------
+Reacting to Absorbed Failures
+------------------------------
+
+Skipping a failed handler is the right behaviour, but it leaves you with a log
+record rather than something you can act on. If your program needs to *react* --
+raise an alert, increment a counter, mark a subscription unhealthy -- register
+an error handler:
+
+.. code-block:: python
+
+  def on_stream_error(service, exception, message):
+      alert('schwab stream: %s raised %r' % (service, exception))
+
+  stream_client.add_error_handler(on_stream_error)
+
+It is called for two things: a stream handler which raised, and a connection
+which failed to close after logout. ``service`` and ``message`` are ``None``
+where they do not apply. Registering none keeps the existing behaviour exactly,
+and the log line is written either way.
+
+This matters most when something else covers for the stream. If a subscription
+quietly stops delivering and a REST poll is authoritative anyway, nothing looks
+wrong until something the poll does not cover finally breaks. **A silent failure
+that a fallback hides is the one most worth having a signal for.**
+
+An error handler is called for effect; its return value is ignored, and if it
+raises, that is logged and swallowed. A callback for absorbed failures must not
+itself become a way to fail.
+
+.. automethod:: schwab.streaming.StreamClient.add_error_handler
 
 ---------------------
 Data Field Relabeling
@@ -268,6 +303,20 @@ instance, the message above would be relabeled as:
 
 This documentation describes the various fields and their numerical values. You 
 can find them by investigating the various enum classes ending in ``***Fields``.
+
+.. warning::
+
+   **Relabeling is not applied uniformly.** Schwab delivers messages on two
+   channels. Content arriving on the ``data`` channel is relabeled as above.
+   Content arriving on the ``notify`` channel is passed to your handler
+   **unchanged**, with its bare numeric field ids intact.
+
+   Both reach the same handlers, so a handler which assumes relabeling will
+   mis-parse a notify frame -- and it will do so by finding nothing rather than
+   by raising, since the keys it looks for are simply absent. If you read fields
+   by name, check they are present rather than assuming them.
+
+   This is a property of the library, not of Schwab's protocol.
 
 Some streams, such as the ones described in :ref:`level_one`, allow you to
 specify a subset of fields to be returned. Subscription handlers for these
@@ -591,3 +640,68 @@ Account Activity
 .. autoclass:: schwab.streaming::StreamClient.AccountActivityFields
   :members:
   :undoc-members:
+
+----------------------------------------
+What the payload looks like, as observed
+----------------------------------------
+
+The three fields above are relabeled for you. What is *inside* ``MESSAGE_DATA``
+is not documented by Schwab, so every consumer ends up reverse-engineering it
+and keeping the results privately.
+
+What follows was contributed from roughly a year of one fleet's production
+traffic on funded accounts. **It is an observation log, not a contract.** Schwab
+publishes none of this, nothing here is validated by this library, and a shape
+that never appeared in that fleet's traffic is not thereby impossible. Treat it
+as a map drawn by someone who has been there, not as a specification.
+
+**The order identifier appears under at least seven spellings**, and which one
+you get depends on the message:
+
+.. code-block:: python
+
+  ('SchwabOrderID', 'schwabOrderID', 'OrderID', 'orderId',
+   'OrderKey', 'orderKey', 'order_id')
+
+**The symbol appears under four**, in descending order of preference:
+
+.. code-block:: python
+
+  ('Symbol', 'symbol', 'PrimaryMarketSymbol', 'UnderlyingSymbol')
+
+``Symbol`` is the tradeable ticker, and is an OCC option string for an option
+leg. The other two are fallbacks for shapes that carry only those.
+
+**Statuses observed to be terminal**:
+
+.. code-block:: python
+
+  ('FILLED', 'REJECTED', 'CANCELED', 'EXPIRED', 'REPLACED')
+
+Note ``CANCELED`` with one L.
+
+**``MESSAGE_TYPE`` tokens observed**:
+
+.. code-block:: python
+
+  ('SUBSCRIBED', 'ORDERCREATED', 'ORDERACCEPTED',
+   'EXECUTIONREQUESTED', 'EXECUTIONREQUESTCREATED',
+   'EXECUTIONREQUESTCOMPLETED', 'ORDERFILLCOMPLETED',
+   'ORDERPARTIALFILL', 'ORDERPARTIALLYFILLED', 'ORDERREJECTED',
+   'ORDERCANCELED', 'ORDERCANCELLED', 'ORDERUROUT', 'ORDEREXPIRED',
+   'ORDERREPLACED')
+
+Both ``CANCELED`` and ``CANCELLED`` appear -- the spelling is not consistent
+within Schwab's own tokens, so match on both. ``ORDERUROUT`` is Schwab's
+spelling for an unsolicited out.
+
+**Distinguishing a relabeled item from a raw one.** After relabeling, a
+``data``-channel content item carries ``seq``, ``key``, ``ACCOUNT``,
+``MESSAGE_TYPE`` and ``MESSAGE_DATA``. A content item carrying none of those is
+a ``notify``-channel item, which this library forwards unchanged -- see the
+warning under :ref:`Data Field Relabeling <stream>` above. Observed values there
+include an activity token of ``orderfill`` and a benign notice reading
+``feature not supported``.
+
+If you learn something this list gets wrong, a pull request correcting it is
+more useful than a private patch.

@@ -6561,6 +6561,100 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         })
 
 
+    ##########################################################################
+    # add_error_handler
+    #
+    # A stream handler which raises is logged and skipped, which is right --
+    # one bad message must not drop the connection. But it leaves the caller
+    # with a log record and nothing to react to, so a consumer who cares has to
+    # attach a logging.Handler and match on message text. add_error_handler is
+    # the programmatic signal.
+    #
+    # The async site is the one that matters most: it does not look like the
+    # other two, so it is the one an implementer forgets.
+
+    async def subscribe_and_deliver(self, ws_connect, handler):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')),
+            json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
+        ]
+        self.client.add_level_one_equity_handler(handler)
+        await self.client.level_one_equity_subs(['GOOG'])
+        await self.client.handle_message()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_synchronous_handler_failure_is_reported(self, ws_connect):
+        boom = ValueError('handler blew up')
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc, msg)))
+
+        await self.subscribe_and_deliver(ws_connect, Mock(side_effect=boom))
+
+        self.assertEqual(1, len(errors))
+        service, exc, msg = errors[0]
+        self.assertEqual('LEVELONE_EQUITIES', service)
+        self.assertIs(boom, exc)
+        self.assertEqual('LEVELONE_EQUITIES', msg['service'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_async_handler_failure_is_reported(self, ws_connect):
+        # The site a reader of the other two would miss: an async handler's
+        # exception never passes through an except block. It surfaces in the
+        # task's done callback, at a different logging level, in a different
+        # function. A callback wired only where the `except` clauses are would
+        # look complete and cover synchronous handlers only -- which is worse
+        # than none, since it turns "no signal" into "a signal, and it is
+        # quiet".
+        boom = ValueError('async handler blew up')
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc, msg)))
+
+        await self.subscribe_and_deliver(
+                ws_connect, AsyncMock(side_effect=boom))
+
+        # The failure surfaces when the task completes, not when it is created.
+        await asyncio.gather(*self.client._handler_tasks,
+                             return_exceptions=True)
+        await asyncio.sleep(0)
+
+        self.assertEqual(1, len(errors), 'async handler failure not reported')
+        _, exc, _ = errors[0]
+        self.assertIs(boom, exc)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_error_handler_which_raises_does_not_break_the_stream(
+            self, ws_connect):
+        # A callback for absorbed failures must not become a way to fail.
+        second = []
+        self.client.add_error_handler(
+                Mock(side_effect=RuntimeError('error handler blew up')))
+        self.client.add_error_handler(
+                lambda service, exc, msg: second.append(exc))
+
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        # The second handler still ran, and handle_message returned normally.
+        self.assertEqual(1, len(second))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_registering_no_error_handler_changes_nothing(
+            self, ws_connect):
+        # The behaviour without a callback is the behaviour before it existed:
+        # logged, skipped, connection intact.
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        self.assertEqual([], self.client._error_handlers)
+
+
 class LevelOneOptionStrikeFieldTest(IsolatedAsyncioTestCase):
     """Field 20 of LEVELONE_OPTIONS is documented by Schwab as "Strike Price".
     It was named STRIKE_TYPE, which is a different thing, so messages were

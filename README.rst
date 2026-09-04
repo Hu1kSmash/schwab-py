@@ -14,25 +14,16 @@
    importing when it is removed. See `CHANGELOG.md
    <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for the full list.
 
-   **Almost every change here is offered upstream as a pull request.** The exceptions are the
-   changes this fork made deliberately on its own account: the streaming client's
-   response-routing model, the move to ``httpx2``, and the 2.1.0 removals of the float price
-   path, the ``extra_headers`` shim and the ``STRIKE_TYPE`` alias. Those last are breaking
-   changes upstream has given no sign of wanting, and they were branched from this fork's
-   ``main`` rather than from a mirror of upstream, so their diffs carry this fork's identity
-   and cannot be opened as pull requests. The same is true of the 2.1.0 documentation and
-   tooling cleanup, two hunks of which -- a cross-reference to the predecessor project and a
-   docstring describing code that raises -- are plain bugs upstream still has and would
-   probably take; re-cutting those against a mirror of upstream is outstanding work. The same
-   applies to the 2.1.0 fix for option strike encoding, which is a plain upstream bug but landed
-   here bundled with release changes rather than on a topic branch of its own.
+   **As of 2.2.0 this fork no longer tracks upstream.** Every change used to be offered
+   upstream as a pull request first. Upstream merged none of them, and its maintainer confirmed
+   in September 2026 that he does not intend to update the project, so the queue was ceremony
+   rather than collaboration. Changes are now made because they are right for this library.
 
-   Everything else has been sent. Where that sentence has been wrong before, it was because a
-   change reached ``main`` without a branch that could be offered; the list above is maintained
-   against that failure rather than assumed.
    This is not a competing project and it is not a criticism of the original author, who wrote
-   essentially all of the code below. If upstream merges those changes, the fork's divergence
-   shrinks; if upstream resumes active maintenance, using it again is the better choice.
+   essentially all of the code below. The licence and the attribution are unchanged; going
+   authoritative is a statement about who maintains this, not about who wrote it. If upstream
+   ever resumes active maintenance, ``upstream-main`` is still mirrored here, and reconciling
+   with it is a better outcome than defending the fork.
 
    The importable package is still ``schwab``, so this is a drop-in replacement. It is not
    published to PyPI — install it from git, pinned to a tag or commit:

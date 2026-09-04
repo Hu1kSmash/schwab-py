@@ -6,14 +6,16 @@ Notes for whoever works on this next, including future me.
 
 | Branch | What it is |
 |---|---|
-| `main` | The fork's release line. Tagged releases come from here. |
-| `upstream-main` | A mirror of `alexgolec/schwab-py`'s `main`. Never commit to it. |
-| topic branches | One concern each, **branched from `upstream-main`**, opened as PRs upstream. |
+| `main` | The release line. Tagged releases come from here. |
+| `upstream-main` | A mirror of `alexgolec/schwab-py`'s `main`. Never commit to it. Kept as a merge source in case upstream revives, not as a branch point. |
+| topic branches | One concern each, **branched from `main`**. |
 
-The reason topic branches start from `upstream-main` rather than `main` is that a pull request
-against upstream must not carry this fork's identity — the version bump, the changed URLs, the
-changelog, the README notice. Branching from `main` would drag all of that into the diff and the PR
-would be unreviewable.
+**This changed in 2.2.0.** Topic branches used to start from `upstream-main`, because a pull
+request against upstream must not carry this fork's identity — the version bump, the changed URLs,
+the changelog, the README notice — and branching from `main` drags all of that into the diff.
+
+That constraint is gone, because the pull requests are gone. See *Why this fork stopped tracking
+upstream* below.
 
 Remotes:
 
@@ -25,21 +27,14 @@ upstream  https://github.com/alexgolec/schwab-py.git  (the original)
 ## Adding a change
 
 ```shell
-git fetch upstream
-git checkout upstream-main && git merge --ff-only upstream/main   # keep the mirror current
-git checkout -b some-focused-change upstream-main
+git checkout -b some-focused-change main
 
 # ... make the change, with tests ...
 
-git push origin some-focused-change
-gh pr create -R alexgolec/schwab-py --base main --head Hu1kSmash:some-focused-change
-
-git checkout main && git merge some-focused-change                # then take it into the fork
+git checkout main && git merge --no-ff some-focused-change
 ```
 
-Every change goes upstream as a PR **first**, then into `main`. Not the other way round, and not
-only into `main`. Two reasons: it is the honest thing to do given essentially all of this code is
-Alex Golec's, and every merged PR shrinks the divergence this fork has to carry.
+Then run the suite on `main`, not only on the branch — see the rules below.
 
 ## Keeping CI current
 
@@ -67,31 +62,40 @@ established against a live account, and the assertion should say so and give the
 `set_stop_price` take a string or a `decimal.Decimal`. `truncate_float` is gone. Upstream still
 has it, and still truncates, so a price example ported from there will not run here.
 
-**Do not bundle.** A PR that fixes one thing and tidies another does not get reviewed. This applies
-even though upstream is currently quiet; the PRs are a queue for whenever it is not.
+**When fixing a defect class, grep for the shape rather than the instance.** `truncate_float` was
+fixed to truncate in decimal rather than binary. The identical defect —
+`int(float(value) * 1000)` — sat untouched in `OptionSymbol.build()` for another release and
+mis-encoded 590 of the 100,000 cent-granular strikes between `$0.01` and `$1000.00`, naming a
+different contract on the order-placement path. Nobody looked, because the first fix felt complete.
+That is the failure mode: a fix that resolves the symptom stops the search for the pattern.
 
-**Check a branch really went upstream before calling it done.** `stream-reader-routing` was
-branched from `main` instead of `upstream-main`, so it could never be opened as a pull request —
-its diff carries the version bump and the fork notice along with the actual change — and it was
+**Ask what the bug was covering for.** Three times now a correctness fix has exposed something
+worse that the defect had been masking. Truncating prices hid that a `Decimal` built from a float
+renders its 57-character binary expansion. Migrating to `httpx2` for correct types flipped the
+exception hierarchy under the downstream consumer. Removing the float price path exposed that the
+constructor's zero-stripping never fired except on a trailing `.`. The question belongs in the fix,
+not in the postmortem.
+
+**Do not bundle.** This used to be about pull requests getting reviewed. It survives them for a
+better reason: a commit that fixes one thing and tidies another cannot be reverted, bisected to, or
+described in a changelog entry without dragging the tidying along. The 2.1.0 option-strike fix
+landed bundled with release changes and there is now a paragraph in the README explaining why,
+which is the kind of debt this rule prevents.
+
+**Say what the repository is actually keeping.** `stream-reader-routing` was branched from `main`
+rather than `upstream-main`, so it could never have been opened as a pull request, and it was
 merged here anyway. Nothing noticed for months: the branch existed, the code worked, the tests
-passed, and the README went on claiming everything had been offered upstream. To audit it:
+passed, and the README went on claiming everything had been offered upstream. The specific trap is
+gone with the upstream model, but the general one is not — a README, a changelog preamble or a
+docstring asserting something nothing checks will drift, and it drifts silently. Three separate
+review passes on 2.1.0 caught claims of exactly this kind.
 
-```shell
-gh pr list -R alexgolec/schwab-py --author Hu1kSmash --state all --limit 60 \
-    --json headRefName --jq '.[].headRefName' | sort -u > /tmp/prs
-git branch --merged main --format='%(refname:short)' | sort > /tmp/merged
-comm -23 /tmp/merged /tmp/prs
-```
-
-What comes out should be only fork-identity branches, fork-only features, and changes vendored
-from someone else's upstream PR. Anything else is a claim the README is making and the repository
-is not keeping.
-
-**Run the suite after every merge into `main`, not just on the topic branch.** This fork removed
-imports upstream still carries, so a branch which passes against `upstream-main` can fail here on
-names that exist there and not here. It has happened three times — `warnings`, `json` and the `abc`
-line in `client/base.py` — and the failure is a `NameError` at runtime, not a merge conflict, so
-nothing warns you. The fix is always to put the import back; the point is to notice.
+**Run the suite after every merge into `main`, not just on the topic branch.** This began as a
+guard against branches cut from `upstream-main`, which could pass there and fail here on imports
+this fork had removed — `warnings`, `json` and the `abc` line in `client/base.py`, three times,
+each a `NameError` at runtime rather than a merge conflict, so nothing warns you. Branching from
+`main` removes that particular cause and not the general one: two branches that each pass can still
+fail together. It costs four seconds.
 
 ## Cutting a release
 
@@ -134,9 +138,27 @@ The importable package stays `schwab`, which is what makes this a drop-in replac
 merges from upstream clean. The cost is that this cannot be installed alongside the PyPI package:
 both provide `schwab`, and whichever was installed last wins.
 
-## If upstream comes back
+## Why this fork stopped tracking upstream
 
-Merge what lands, drop the corresponding local commits, and reassess whether the fork still needs to
-exist. It was created because upstream had not merged anything in twelve months while defects
-affecting live trading stayed open. If that stops being true, the right move is to go back to
-upstream, not to defend the fork.
+Until 2.2.0, every change here was branched from a mirror of upstream and offered as a pull request
+before being merged. That was the honest arrangement: essentially all of this code is Alex Golec's,
+and every merged PR would have shrunk the divergence this fork has to carry.
+
+It stopped being an arrangement and became a ritual. Upstream merged nothing for over a year while
+defects affecting live trading stayed open. The maintainer was asked directly in September 2026 and
+confirmed he does not intend to update the project. Meanwhile the machinery kept costing: the last
+several changes were cut from `main` because they could not sensibly be cut from anywhere else, and
+each one needed a paragraph in the README explaining why it had not been sent.
+
+So this fork is now the authoritative project, and does not maintain compatibility with upstream.
+Practically:
+
+- Topic branches come from `main`. There is no PR queue and no branch-point discipline to keep.
+- Changes are made because they are right for this library, not because upstream might take them.
+- `upstream-main` stays as a mirror. If upstream ever revives, it is a merge source — reconcile
+  what lands, drop the corresponding local commits, and reassess. That is the same advice as
+  before; only the default direction has changed.
+
+What has *not* changed is the debt: this is still overwhelmingly Alex Golec's work, the README says
+so, and the licence and attribution stay exactly as they are. Going authoritative is a statement
+about maintenance, not about authorship.
