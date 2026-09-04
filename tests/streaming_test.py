@@ -7588,6 +7588,95 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertIsNot(first, self.client._socket)
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_both_framings_survive_a_malformed_element(self, ws_connect):
+        # The contract is that a late rejection behaves the same whether Schwab
+        # sends it alone or batched. Two loops parsing the same JSON drift: one
+        # was hardened and the other was not, so an identical payload was
+        # skipped with a warning in one framing and ended the caller's receive
+        # loop with an AttributeError in the other.
+        broken = {'service': 'X', 'command': 'SUBS', 'requestid': '99',
+                  'content': None}
+
+        socket = await self.login_and_get_socket(ws_connect)
+        self.client.add_level_one_equity_handler(lambda msg: None)
+
+        # Standalone framing, through handle_message's orphan path.
+        socket.recv.side_effect = [
+                json.dumps({'response': [broken]}),
+                json.dumps({'data': [self.streaming_entry(
+                    'LEVELONE_EQUITIES', 'SUBS')]}),
+        ]
+        await self.client.handle_message()
+        await self.client.handle_message()
+
+        # Batched framing, through the routing path. Must not raise either.
+        self.client._log_extra_responses({'response': [{}, broken]}, 1)
+        self.assertEqual(0, len(self.client._pending_reports))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_malformed_orphan_does_not_end_the_receive_loop(
+            self, ws_connect):
+        # One bad element among many must not cost the caller the good ones.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, msg)))
+
+        good = {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                'requestid': '99',
+                'content': {'code': 21, 'msg': 'a real rejection'}}
+        socket.recv.side_effect = [json.dumps({'response': [
+            'not a dict at all',
+            {'service': 'X', 'command': 'SUBS', 'content': None},
+            good,
+        ]})]
+
+        await self.client.handle_message()
+
+        self.assertEqual([('ACCT_ACTIVITY', good)], errors)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_response_frame_of_the_wrong_shape_ends_nothing(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps({'response': {'not': 'a list'}})]
+
+        # Iterating a dict yields its keys, and .get on a str raises.
+        await self.client.handle_message()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_frame_read_during_the_socket_swap_is_discarded(
+            self, ws_connect):
+        # The clears run after the new socket is in place. Clearing first left
+        # a hole: a concurrent reader on the old socket appends to
+        # _overflow_items while this coroutine is suspended in close() or
+        # connect(), and that frame survived into the new session.
+        first = await self.login_and_get_socket(ws_connect)
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        stale = {'data': [self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')]}
+
+        async def close_and_race():
+            # Stands in for a reader which got a frame off the old socket
+            # while this login was suspended mid-swap.
+            self.client._overflow_items.appendleft(stale)
+
+        first.close = close_and_race
+        ws_connect.return_value = AsyncMock()
+
+        await self.client._init_from_preferences(account_preferences(), {})
+
+        self.assertEqual(0, len(self.client._overflow_items))
+        self.assertEqual([], handled)
+
+    @no_duplicates
     def test_the_report_queue_is_bounded(self):
         # Nothing guarantees handle_message is ever called again. The log line
         # written when each rejection is found is the durable record, so

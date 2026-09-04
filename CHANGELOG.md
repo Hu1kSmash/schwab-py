@@ -60,6 +60,13 @@ upgrade.
 
 ### Fixed
 
+**A malformed response element ended the caller's receive loop.** A `"content"`
+present but JSON `null` made `content.get('code')` raise `AttributeError` out of
+`handle_message`. Both framings of the same event now share one parser, so a bad
+element is logged and skipped and the good elements beside it still report —
+they had diverged, with one framing hardened and the other not, which is exactly
+what the framing-independence contract above says cannot happen.
+
 **`login()` did not close the connection it replaced.** Calling it on a healthy
 client — a re-authentication, a preferences refresh — dropped a live websocket
 and its reader with nothing closing it. After a `ConnectionClosed` the old

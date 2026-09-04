@@ -331,16 +331,6 @@ class StreamClient(EnumEnforcer):
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
 
-        # Anything still queued belongs to the connection being replaced. Its
-        # exception carries a frame from that session, so reporting it now
-        # would attribute a dead session's rejection to this one, and a stale
-        # data frame would reach handlers as though it were live. close()
-        # clears both too, but a caller reconnecting after a ConnectionClosed
-        # may call login() again without closing first, and the guarantee has
-        # to hold whichever teardown they used.
-        self._pending_reports.clear()
-        self._overflow_items.clear()
-
         # Close whatever is being replaced. After a ConnectionClosed the old
         # socket is already gone and this is a no-op, but a caller who calls
         # login() on a healthy client -- a re-auth, a preferences refresh --
@@ -358,6 +348,20 @@ class StreamClient(EnumEnforcer):
 
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
+
+        # Cleared *after* the new socket is in place, not before. Anything
+        # still queued belongs to the connection being replaced: its exception
+        # carries a frame from that session, and a stale data frame would reach
+        # handlers as though it were live. Clearing first left a hole -- a
+        # concurrent reader on the old socket appends to _overflow_items while
+        # this coroutine is suspended in close() or connect(), and that frame
+        # would survive into the new session.
+        #
+        # close() clears both too, but a caller reconnecting after a
+        # ConnectionClosed may call login() again without closing first, and
+        # the guarantee has to hold whichever teardown they used.
+        self._pending_reports.clear()
+        self._overflow_items.clear()
 
 
     def _make_request(self, *, service, command, parameters):
@@ -494,6 +498,43 @@ class StreamClient(EnumEnforcer):
 
         return None
 
+    def _iter_responses(self, frame, start=0):
+        '''Yields ``(response, code, content)`` for the responses in a frame.
+
+        Shared by both framings of the same event -- a late rejection in a
+        frame of its own, and one batched behind the answer to a live request
+        -- because the contract is that they behave alike, and two loops
+        parsing the same JSON drift. One was hardened against a malformed
+        element and the other was not, so an identical payload was skipped with
+        a warning in one framing and ended the caller's receive loop with an
+        AttributeError in the other.
+
+        Nothing here raises. On the routing path this runs after the waiter's
+        future is resolved, so an exception escaping would reach the caller of
+        a request which SUCCEEDED; in handle_message it would end the receive
+        loop over one bad element among many.
+        '''
+        responses = frame.get('response')
+        if not isinstance(responses, list):
+            self.logger.warning(
+                    'Ignoring a response frame whose "response" is not a '
+                    'list: %r', responses)
+            return
+
+        for response in responses[start:]:
+            try:
+                # `or {}` rather than a default: the key is often present with
+                # a JSON null, which .get(key, {}) returns as None.
+                content = response.get('content') or {}
+                code = content.get('code')
+            except AttributeError:
+                self.logger.warning(
+                        'Ignoring an unparseable response element: %r',
+                        response)
+                continue
+
+            yield response, code, content
+
     def _log_extra_responses(self, frame, start=1):
         '''Logs every response past the first, and queues the rejections.
 
@@ -506,24 +547,7 @@ class StreamClient(EnumEnforcer):
         the first would make add_error_handler fire or stay silent for the same
         event depending on framing the caller cannot see or predict.
         '''
-        responses = frame.get('response')
-        if not isinstance(responses, list):
-            return
-
-        for response in responses[start:]:
-            # Nothing parsed here may raise. This runs on the routing path,
-            # after the waiter's future has already been resolved, so an
-            # exception escaping would reach the caller of a subscribe which
-            # SUCCEEDED -- the same failure the queue-don't-call design exists
-            # to prevent, arriving through parsing instead of a user callback.
-            try:
-                content = response.get('content') or {}
-                code = content.get('code')
-            except AttributeError:
-                self.logger.warning(
-                        'Ignoring an unparseable additional response in a '
-                        'matched frame: %r', response)
-                continue
+        for response, code, content in self._iter_responses(frame, start):
 
             # Matches the orphan path: a late acknowledgement of something that
             # worked is routine and logs at INFO, a late rejection warns.
@@ -1039,10 +1063,7 @@ class StreamClient(EnumEnforcer):
             # loses every message queued behind it, and does so precisely when
             # the server is slow, which is when a stream is least worth
             # dropping. Log it and carry on.
-            for response in msg['response']:
-                content = response.get('content', {})
-                code = content.get('code')
-
+            for response, code, content in self._iter_responses(msg):
                 # A late acknowledgement of something that worked is routine.
                 # A late *rejection* is not: the request was abandoned, so
                 # nothing else will ever report that Schwab refused it, and at
