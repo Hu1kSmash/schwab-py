@@ -2,7 +2,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 
 import collections
 import contextlib
-import httpx
+import httpx2
 import json
 import logging
 import multiprocess
@@ -473,10 +473,10 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                             'ignore',
                             category=urllib3.exceptions.InsecureRequestWarning)
 
-                    resp = httpx.get(
+                    resp = httpx2.get(
                             'https://127.0.0.1:{}/schwab-py-internal/status'.format(
                                 callback_port), verify=False)
-            except (httpx.ConnectError, httpx.ConnectTimeout):
+            except (httpx2.ConnectError, httpx2.ConnectTimeout):
                 # Not listening yet. Which of the two you get depends on the
                 # host: a port nothing is bound to is normally refused, giving
                 # ConnectError, but where the attempt is dropped rather than
@@ -490,7 +490,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                 # It answered. Anything other than success means the port is
                 # occupied by something which is not our callback server, and
                 # continuing would hand the login redirect to a stranger.
-                if resp.status_code == httpx.codes.OK:
+                if resp.status_code == httpx2.codes.OK:
                     break
 
                 raise RedirectServerExitedError(

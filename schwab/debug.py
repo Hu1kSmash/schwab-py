@@ -1,5 +1,5 @@
 import atexit
-import httpx
+import httpx2
 import json
 import logging
 import sys
@@ -65,7 +65,7 @@ def register_redactions_from_response(resp):
     if not _COLLECT_RESPONSE_REDACTIONS:
         return
 
-    if resp.status_code == httpx.codes.OK:
+    if resp.status_code == httpx2.codes.OK:
         try:
             register_redactions(resp.json())
         except json.decoder.JSONDecodeError:

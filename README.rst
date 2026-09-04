@@ -133,7 +133,7 @@ stays out of your way everywhere else:
 
 5. **Minimal wrapping everywhere else.** Unlike some other API wrappers, which
    build in lots of logic and validation, ``schwab-py`` takes raw values and
-   returns the raw ``httpx`` response, allowing you to interpret the complex API
+   returns the raw ``httpx2`` response, allowing you to interpret the complex API
    responses as you see fit. Anything you can do with raw HTTP requests you can
    do with ``schwab-py``, only more easily.
 

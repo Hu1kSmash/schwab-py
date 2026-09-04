@@ -14,6 +14,50 @@ called out here rather than left to be inferred from the pull request list.
 
 ---
 
+## Unreleased
+
+### Changed
+
+**This library now uses `httpx2` rather than `httpx`, and requires Authlib
+1.8 or later.** Both are breaking changes for anything that catches an
+exception from a client call or type-checks a response.
+
+Authlib 1.8 stopped importing `httpx` directly. Its `httpx_client` integration
+imports `httpx2` when that package is installed and falls back to `httpx` when
+it is not, emitting a deprecation warning it forces past the default filters.
+The fallback is documented as temporary. Since `OAuth2Client` inherits from
+whichever module Authlib resolved, the client's response and exception types
+were being decided by whatever else happened to be installed.
+
+`httpx` and `httpx2` share no hierarchy: `httpx2.Response` is not
+`httpx.Response`, and `httpx2.HTTPStatusError` is not a subclass of
+`httpx.HTTPStatusError`. Disagreeing with Authlib therefore fails silently
+rather than loudly -- an `isinstance` check stops matching, an `except` clause
+stops catching, and only in production, where the response comes from Authlib's
+session rather than from a test which constructed its own.
+
+**If you catch `httpx` exceptions around calls into this library, or check
+responses against `httpx` types, those now need to name `httpx2`.** Catching a
+tuple of both is a way to cross the change without a flag day.
+
+Declaring `httpx2` alone would not have been enough. The previous floor of
+`authlib>=1.6.0` left Authlib 1.7.2 with `httpx2` installed a legal
+resolution -- Authlib on `httpx`, this library's guards on `httpx2`, every
+guard silently dead. The floor moved to `authlib>=1.8` for that reason.
+
+### Added
+
+**A test that a half-finished version of this change cannot pass.**
+`tests/http_module_test.py` compares the module Authlib built `OAuth2Client`
+on against the module each guarding file imported, and fails when they differ.
+
+It was needed because nothing else could see the problem. Every other test in
+the suite constructs the type it then asserts on, so the whole of it passed
+against Authlib 1.8 with `httpx2` installed while the library still guarded on
+`httpx` -- 824 of 824 green, on 3.12 and 3.14, in exactly the configuration
+where `add_child_order_strategy` no longer recognises a response and the login
+flow's readiness wait no longer absorbs a refused connection.
+
 ## 1.11.4
 
 ### Fixed
