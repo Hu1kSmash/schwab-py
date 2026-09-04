@@ -14,10 +14,13 @@
    importing when it is removed. See `CHANGELOG.md
    <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for the full list.
 
-   **Every change here is offered upstream as a pull request**, with two exceptions: the
-   streaming client's response-routing model, which is entangled with this fork's own identity,
-   and the move to ``httpx2``, which rewrites a line upstream has not taken the fix for.
-   Neither has been separated out cleanly enough to send. Everything else has been sent.
+   **Almost every change here is offered upstream as a pull request.** The exceptions are the
+   changes this fork made deliberately on its own account: the streaming client's
+   response-routing model, the move to ``httpx2``, and the 2.1.0 removals of the float price
+   path, the ``extra_headers`` shim and the ``STRIKE_TYPE`` alias. Those last are breaking
+   changes upstream has given no sign of wanting, and they were branched from this fork's
+   ``main`` rather than from a mirror of upstream, so their diffs carry this fork's identity
+   and cannot be opened as pull requests. Everything else has been sent.
    This is not a competing project and it is not a criticism of the original author, who wrote
    essentially all of the code below. If upstream merges those changes, the fork's divergence
    shrinks; if upstream resumes active maintenance, using it again is the better choice.

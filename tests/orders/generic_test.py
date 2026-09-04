@@ -1,3 +1,4 @@
+import decimal
 import httpx2
 import unittest
 
@@ -1189,6 +1190,34 @@ class PricesAreStringsTest(unittest.TestCase):
             builder = OrderBuilder()
             builder.set_price(value)
             self.assertEqual(value, builder.build()['price'])
+
+    @no_duplicates
+    def test_a_decimal_price_is_accepted_exactly(self):
+        # Decimal is the type that avoids the float problem rather than hiding
+        # it, so it is taken as given -- rendering it decides nothing.
+        for value, expected in (('19.99', '19.99'), ('0.1869', '0.1869'),
+                                ('-5.00', '-5.00'), ('0.00', '0.00')):
+            builder = OrderBuilder()
+            builder.set_price(decimal.Decimal(value))
+            self.assertEqual(expected, builder.build()['price'])
+
+    @no_duplicates
+    def test_a_decimal_never_renders_in_scientific_notation(self):
+        # str(Decimal('1E+2')) is '1E+2', which is not a price. format(d, 'f')
+        # is what keeps that out of an order.
+        builder = OrderBuilder()
+        builder.set_price(decimal.Decimal('1E+2'))
+        self.assertEqual('100', builder.build()['price'])
+
+    @no_duplicates
+    def test_the_error_does_not_recommend_a_rounding_conversion(self):
+        # '{:.2f}'.format rounds where the removed conversion truncated, so
+        # recommending it as a drop-in would move prices by a tick. The message
+        # has to say so rather than suggest it bare.
+        with self.assertRaises(ValueError) as cm:
+            OrderBuilder().set_price(8.2)
+        self.assertIn('rounds', str(cm.exception))
+        self.assertIn('truncate', str(cm.exception))
 
     @no_duplicates
     def test_copy_price_still_takes_anything(self):

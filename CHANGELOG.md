@@ -36,10 +36,22 @@ now raises `ValueError` naming the fix.
 The conversion was removed rather than kept because the library was choosing a
 rounding, for a value denominated in money, on behalf of a caller who knows
 what the order is for. Whether a limit should round up, down or to the nearest
-tick is a trading decision. `'{:.2f}'.format(value)` reproduces the old
-behaviour for values at or above one. `copy_price` and `copy_stop_price` still
-set the field with no validation, which is what `contrib.orders` uses to
-reconstruct a historical order.
+tick is a trading decision.
+
+**`'{:.2f}'.format(value)` is not an equivalent.** It rounds; the old code
+truncated toward zero, and used four decimal places below one. `19.9999999`
+became `19.99` rather than `20.00`, and `0.186992` became `0.1869` rather than
+`0.19`. On a buy limit that difference is a price one tick higher than the one
+asked for. The docs carry the exact `decimal.ROUND_DOWN` equivalent for anyone
+who wants to migrate without moving any prices.
+
+`decimal.Decimal` is accepted alongside `str`, and is the better choice if you
+compute prices rather than write them down: it carries the precision you chose,
+and rendering it decides nothing. It is rendered with `format(d, 'f')` rather
+than `str(d)`, because `str(Decimal('1E+2'))` is `'1E+2'`, which is not a price.
+
+`copy_price` and `copy_stop_price` still set the field with no validation,
+which is what `contrib.orders` uses to reconstruct a historical order.
 
 **`websocket_connect_args['extra_headers']` is no longer translated.**
 websockets 14.0 renamed it to `additional_headers`; this library had been

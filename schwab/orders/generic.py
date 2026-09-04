@@ -1,3 +1,4 @@
+import decimal
 import math
 
 from enum import Enum
@@ -78,20 +79,31 @@ def _assert_finite(name, price):
 
 def _require_price_string(name, price):
     '''
-    Prices are strings. See :ref:`price_strings`.
+    Prices are strings, or ``decimal.Decimal``. See :ref:`price_strings`.
 
-    A float used to be accepted and converted here. That conversion is gone. It
+    A float used to be accepted and truncated here. That conversion is gone. It
     was lossy in the direction that costs money -- truncating the binary value
-    sent a price a tick below the one asked for -- and even done correctly, the
-    choice of how to round a price belongs to the caller, who knows what the
+    sent a price a tick below the one asked for -- and even done correctly, how
+    to round a price is a decision belonging to the caller, who knows what the
     order is for. There is no rounding this can pick which is right for
     everyone.
+
+    ``Decimal`` is accepted because it is the type that avoids the problem
+    rather than one that hides it: it carries the precision the caller chose,
+    and rendering it here decides nothing.
     '''
+    if isinstance(price, decimal.Decimal):
+        # format(d, 'f') rather than str(d): str(Decimal('1E+2')) is '1E+2',
+        # which is not a price. Neither form loses anything.
+        price = format(price, 'f')
+
     if not isinstance(price, str):
         raise ValueError(
-                '{} must be a string, got {!r}. Format it to the precision you '
-                'want, for example \'{{:.2f}}\'.format(value), or use '
-                'copy_{} to set the field with no validation at all.'.format(
+                '{} must be a string or a decimal.Decimal, got {!r}. How to '
+                'round it is yours to decide -- note that '
+                "'{{:.2f}}'.format(value) rounds, where this library used to "
+                'truncate toward zero, so it is not a drop-in replacement. '
+                'copy_{} sets the field with no validation at all.'.format(
                     name, price, name.replace(' ', '_')))
 
     _assert_finite(name, price)
@@ -248,8 +260,9 @@ class OrderBuilder(EnumEnforcer):
 
     def copy_stop_price(self, stop_price):
         '''
-        Directly set the stop price, avoiding all the validation and truncation
-        logic from :func:`set_stop_price`.
+        Directly set the stop price, with none of the validation
+        :func:`set_stop_price` applies -- no type check and no finiteness
+        check.
         '''
         self._stopPrice = stop_price
         return self
@@ -401,8 +414,10 @@ class OrderBuilder(EnumEnforcer):
 
     def copy_price(self, price):
         '''
-        Directly set the stop price, avoiding all the validation and truncation
-        logic from :func:`set_price`.
+        Directly set the price, with none of the validation
+        :func:`set_price` applies -- no type check and no finiteness check.
+        This is what :ref:`order_templates` uses to reconstruct an order
+        exactly as Schwab reported it.
         '''
         self._price = price
         return self

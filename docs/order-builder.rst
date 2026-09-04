@@ -161,17 +161,18 @@ orders easy:
 
 .. code-block:: python
 
-  from schwab.orders.common import OrderType
-  from schwab.orders.generic import OrderBuilder
+  from schwab.orders.common import (
+      OrderType, first_triggers_second, one_cancels_other)
+  from schwab.orders.equities import equity_buy_limit, equity_sell_limit
 
-  one_triggers_other(
-      equity_buy_limit('GOOG', 1, 1310),
+  first_triggers_second(
+      equity_buy_limit('GOOG', 1, '1310.00'),
       one_cancels_other(
-          equity_sell_limit('GOOG', 1, 1400),
-          equity_sell_limit('GOOG', 1, 1240)
+          equity_sell_limit('GOOG', 1, '1400.00'),
+          equity_sell_limit('GOOG', 1, '1240.00')
               .set_order_type(OrderType.STOP_LIMIT)
               .clear_price()
-              .set_stop_price(1250)
+              .set_stop_price('1250.00')
       ))
 
 You can find the full listing of order templates and utility functions 
@@ -312,6 +313,14 @@ you pass is what Schwab is asked for:
    order.set_price('199.99')
    order.set_price('0.1869')
 
+``decimal.Decimal`` is also accepted, and is the better choice if you are
+computing prices rather than writing them down -- it carries the precision you
+chose, and rendering it here decides nothing:
+
+.. code-block:: python
+
+   order.set_price(decimal.Decimal('199.99'))
+
 Passing a float raises ``ValueError``. Earlier versions accepted one and
 converted it here, truncating to two decimal places, or to four for values
 below one. That conversion has been removed.
@@ -319,9 +328,34 @@ below one. That conversion has been removed.
 It was removed rather than repaired because the library was picking a rounding,
 for a value denominated in money, on behalf of a caller who knows better what
 the order is for. Whether a limit price should round up, down or to the nearest
-tick is a trading decision, not a formatting one. Format the price yourself --
-``'{:.2f}'.format(value)`` reproduces the old behaviour for values at or above
-one -- and you keep the decision.
+tick is a trading decision, not a formatting one. Formatting it yourself is how
+you keep that decision.
+
+.. warning::
+
+   ``'{:.2f}'.format(value)`` is **not** what the old conversion did. It
+   rounds; the old code truncated toward zero. ``19.9999999`` became ``19.99``,
+   not ``20.00``, and ``12.129`` became ``12.12``, not ``12.13``. On a buy
+   limit the difference is a price one tick higher than the one you asked for.
+
+   If you want the old behaviour exactly, it was:
+
+   .. code-block:: python
+
+      import decimal
+
+      def truncate(value):
+          places = (decimal.Decimal('0.0001')
+                    if abs(value) < 1 and value != 0.0
+                    else decimal.Decimal('0.01'))
+          return str(decimal.Decimal(str(value)).quantize(
+              places, rounding=decimal.ROUND_DOWN))
+
+   Note the four decimal places below one: ``0.186992`` truncated to
+   ``0.1869``, where ``'{:.2f}'`` gives ``0.19``.
+
+   Copying that in is a reasonable way to migrate without changing any prices.
+   Deciding the rounding deliberately is the better one.
 
 :meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field with
 no validation of any kind, which is what :ref:`order_templates` uses to rebuild

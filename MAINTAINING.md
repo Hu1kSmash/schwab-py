@@ -63,8 +63,9 @@ looks like protection.
 nothing about whether the venue accepts it. Anything asserting real API behaviour has to be
 established against a live account, and the assertion should say so and give the date.
 
-**Never send a price as a binary float.** `truncate_float` is now correct, but strings are the
-supported path and the float path is deprecated upstream.
+**Never send a price as a binary float.** As of 2.1.0 the library refuses one: `set_price` and
+`set_stop_price` take a string or a `decimal.Decimal`. `truncate_float` is gone. Upstream still
+has it, and still truncates, so a price example ported from there will not run here.
 
 **Do not bundle.** A PR that fixes one thing and tidies another does not get reviewed. This applies
 even though upstream is currently quiet; the PRs are a queue for whenever it is not.

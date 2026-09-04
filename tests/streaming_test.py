@@ -328,6 +328,30 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_does_not_mutate_the_callers_connect_args(
+            self, ws_connect):
+        # login adds `ssl` to these before handing them to websockets. The
+        # dict belongs to the caller, who may well be holding one and reusing
+        # it across logins -- it must not come back with our key in it.
+        self.client = StreamClient(self.http_client, ssl_context='ssl_context')
+
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+        socket.recv.side_effect = [json.dumps(self.success_response(
+            0, 'ADMIN', 'LOGIN'))]
+
+        connect_args = {'args': 'yes'}
+        await self.client.login(websocket_connect_args=connect_args)
+
+        self.assertEqual({'args': 'yes'}, connect_args)
+        # ...while websockets did receive the addition.
+        ws_connect.assert_awaited_once_with(ANY, ssl='ssl_context', args='yes')
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_login_websocket_connect_args_both_header_names(
             self, ws_connect):
         self.http_client.get_user_preferences.return_value = MockResponse(
