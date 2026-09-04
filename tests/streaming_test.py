@@ -6623,8 +6623,85 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
 
         self.assertEqual(1, len(errors), 'async handler failure not reported')
-        _, exc, _ = errors[0]
+        service, exc, msg = errors[0]
         self.assertIs(boom, exc)
+
+        # Unpacking this as (_, exc, _) would have passed while the service and
+        # the message were both None -- which they were, until the callback
+        # started carrying them. "Mark this subscription unhealthy" is a stated
+        # reason to register a handler, and it needs to know which one.
+        self.assertEqual('LEVELONE_EQUITIES', service)
+        self.assertEqual('LEVELONE_EQUITIES', msg['service'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_coroutine_error_handler_is_awaited(self, ws_connect):
+        # Every other add_*_handler on this class accepts a coroutine function,
+        # so writing `async def on_stream_error(...)` is the natural thing to
+        # do. Calling it without awaiting drops the coroutine, runs none of the
+        # body, and leaves only a RuntimeWarning -- the "signal, and it is
+        # quiet" failure this callback exists to prevent, inside the callback.
+        errors = []
+
+        async def on_stream_error(service, exc, msg):
+            errors.append((service, exc, msg))
+
+        self.client.add_error_handler(on_stream_error)
+
+        boom = ValueError('handler blew up')
+        await self.subscribe_and_deliver(ws_connect, Mock(side_effect=boom))
+        await asyncio.gather(*self.client._error_handler_tasks,
+                             return_exceptions=True)
+
+        self.assertEqual(1, len(errors), 'coroutine error handler never ran')
+        self.assertIs(boom, errors[0][1])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_late_rejection_is_reported(self, ws_connect):
+        # A response with no request outstanding is absorbed rather than
+        # raised, which is right -- the request was abandoned and dropping the
+        # session over a late answer loses everything queued behind it. But a
+        # late *rejection* is the one thing nothing else will ever report.
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps({'response': [{
+            'service': 'LEVELONE_EQUITIES',
+            'command': 'SUBS',
+            'requestid': '9999',
+            'content': {'code': 21, 'msg': 'Bad command formatting'},
+        }]})]
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc, msg)))
+
+        await self.client.handle_message()
+
+        self.assertEqual(1, len(errors))
+        service, exc, _ = errors[0]
+        self.assertEqual('LEVELONE_EQUITIES', service)
+        self.assertIn('already', str(exc))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_late_success_is_not_reported(self, ws_connect):
+        # The other half: a late acknowledgement of something that worked is
+        # routine and must not wake anybody up.
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps({'response': [{
+            'service': 'LEVELONE_EQUITIES',
+            'command': 'SUBS',
+            'requestid': '9999',
+            'content': {'code': 0, 'msg': 'SUBS command succeeded'},
+        }]})]
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        await self.client.handle_message()
+
+        self.assertEqual([], errors)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -6648,11 +6725,14 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     async def test_registering_no_error_handler_changes_nothing(
             self, ws_connect):
         # The behaviour without a callback is the behaviour before it existed:
-        # logged, skipped, connection intact.
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+        # the handler was called, it raised, the failure was absorbed, and the
+        # stream is still usable. Asserting the handler list is empty would be
+        # true whether or not any of that held.
+        handler = Mock(side_effect=ValueError('handler blew up'))
+        await self.subscribe_and_deliver(ws_connect, handler)
 
-        self.assertEqual([], self.client._error_handlers)
+        handler.assert_called_once()
+        self.assertIsNotNone(self.client._socket)
 
 
 class LevelOneOptionStrikeFieldTest(IsolatedAsyncioTestCase):

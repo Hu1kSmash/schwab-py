@@ -15,7 +15,7 @@ current model.
 
 ---
 
-## Unreleased
+## 2.2.0
 
 ### Added
 
@@ -36,14 +36,26 @@ stream_client.add_error_handler(on_stream_error)
 Registering none keeps the existing behaviour exactly, and the log line is
 written either way.
 
-It is wired at **three** sites, not two. A synchronous handler's exception
-passes through an `except` block; an asynchronous handler's does not -- it
-surfaces in the task's done callback, at a different logging level, in a
-different function, with no `except` around it. A callback wired only where the
-`except` clauses are would look complete and cover synchronous handlers only,
-which for this purpose is worse than none: it turns "no signal" into "a signal,
-and it is quiet". There is a test that fails if the async site is left unwired
-and passes if only the synchronous one is checked.
+It reports three kinds of failure: a stream handler which raised, a late
+rejection of a request nobody was waiting on, and a connection which failed to
+close after logout. The middle one is the least obvious and the most
+actionable -- the request was abandoned, so nothing else will ever say Schwab
+refused it.
+
+Handler failures are wired at two places in the code, not one. A synchronous
+handler's exception passes through an `except` block; an asynchronous handler's
+does not -- it surfaces in the task's done callback, at a different logging
+level, in a different function, with no `except` around it. Wiring only the
+`except` clauses would look complete and cover synchronous handlers only, which
+for this purpose is worse than none: it turns "no signal" into "a signal, and it
+is quiet". There is a test that fails if the async site is left unwired and
+passes if only the synchronous one is checked, and the async case asserts on the
+service name as well as the exception -- reporting it as `None` would satisfy a
+weaker assertion while making "mark this subscription unhealthy" impossible.
+
+The handler may be a coroutine function, like every other handler on this class.
+Calling one without awaiting drops the coroutine and runs none of its body,
+which is the same quiet failure in a different place.
 
 This matters most where a fallback covers for the stream. A subscription that
 quietly stops delivering costs nothing while a REST poll is authoritative, and

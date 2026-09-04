@@ -233,21 +233,38 @@ an error handler:
 
   stream_client.add_error_handler(on_stream_error)
 
-It is called for two things: a stream handler which raised, and a connection
-which failed to close after logout. ``service`` and ``message`` are ``None``
-where they do not apply. Registering none keeps the existing behaviour exactly,
-and the log line is written either way.
+It is called for three things: a stream handler which raised, a late rejection
+of a request nobody was waiting on, and a connection which failed to close after
+logout. ``service`` and ``message`` are ``None`` where they do not apply.
+Registering none keeps the existing behaviour exactly, and the log line is
+written either way.
+
+The handler may be a coroutine function, like every other handler on this class:
+
+.. code-block:: python
+
+  async def on_stream_error(service, exception, message):
+      await alerts.publish(service, exception)
+
+  stream_client.add_error_handler(on_stream_error)
+
+Where a stream handler failed, ``message`` is the message *as that handler saw
+it* — relabeled, if the stream relabels. The exception is the one it raised.
 
 This matters most when something else covers for the stream. If a subscription
 quietly stops delivering and a REST poll is authoritative anyway, nothing looks
 wrong until something the poll does not cover finally breaks. **A silent failure
 that a fallback hides is the one most worth having a signal for.**
 
-An error handler is called for effect; its return value is ignored, and if it
-raises, that is logged and swallowed. A callback for absorbed failures must not
-itself become a way to fail.
+An error handler is called for effect. If it raises an ``Exception``, that is
+logged and swallowed: a callback for absorbed failures must not itself become a
+way to fail. A ``BaseException`` — ``CancelledError`` during shutdown, or
+``SystemExit`` — is left to propagate, since swallowing those breaks
+cancellation and process exit.
 
 .. automethod:: schwab.streaming.StreamClient.add_error_handler
+
+.. _data_field_relabeling:
 
 ---------------------
 Data Field Relabeling
@@ -699,7 +716,7 @@ spelling for an unsolicited out.
 ``data``-channel content item carries ``seq``, ``key``, ``ACCOUNT``,
 ``MESSAGE_TYPE`` and ``MESSAGE_DATA``. A content item carrying none of those is
 a ``notify``-channel item, which this library forwards unchanged -- see the
-warning under :ref:`Data Field Relabeling <stream>` above. Observed values there
+warning under :ref:`Data Field Relabeling <data_field_relabeling>` above. Observed values there
 include an activity token of ``orderfill`` and a benign notice reading
 ``feature not supported``.
 

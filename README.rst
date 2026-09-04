@@ -30,7 +30,7 @@
 
    .. code-block:: shell
 
-     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.1.0"
+     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
 
    Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
    the ``schwab`` package. Pick one.
@@ -78,7 +78,7 @@ project from PyPI instead:
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.1.0"
+  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
 
 You're good to go! To demonstrate, here's how you can authenticate and fetch
 daily historical price data for the past twenty years:
