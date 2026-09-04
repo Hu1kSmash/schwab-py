@@ -171,7 +171,7 @@ PyPI, so install it from git, pinned to a release. Plain
 
 .. code-block:: shell
 
-  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.3.0"
 
 The ``[login]`` part matters for this guide: the interactive login flow below
 runs a local HTTPS callback server, and the packages for that are an optional
