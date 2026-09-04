@@ -14,14 +14,23 @@ def _build_object(obj):
     if isinstance(obj, str) or isinstance(obj, int) or isinstance(obj, float):
         return obj
 
-    # A Decimal is a literal too, but it is not JSON-serializable and has no
-    # __dict__, so without this it falls to the vars() branch below and raises
-    # `vars() argument must have __dict__ attribute` at build() time -- far
-    # from the call that put it there, and naming neither the field nor the
-    # type. copy_price and copy_stop_price skip validation by design, so this
-    # is the path a Decimal reaches them by.
+    # A Decimal has no __dict__, so without a branch here it falls to the
+    # vars() path below and raises `vars() argument must have __dict__
+    # attribute` -- at build() time, naming neither the field nor the type.
+    #
+    # It is refused rather than rendered. Rendering every Decimal as a string
+    # was wrong for the fields Schwab types as numbers: quantity,
+    # stopPriceOffset and activationPrice would have gone out as "10" and
+    # "0.50", and a non-finite one would have gone out as "sNaN" instead of
+    # failing. Only the price fields take a Decimal, and they convert it where
+    # it is set.
     elif isinstance(obj, decimal.Decimal):
-        return format(obj, 'f')
+        raise ValueError(
+                'a decimal.Decimal reached the built order ({}). Only prices '
+                'take one -- set_price, set_stop_price and their copy_ '
+                'variants. Every other numeric field is a number in Schwab\'s '
+                'schema, so pass an int or a float there.'.format(
+                    format(obj, 'f')))
 
     # Note enums are not handled because call callers convert their enums to
     # values.
@@ -69,6 +78,17 @@ def _assert_finite(name, price):
     Only the spellings Python reads as non-finite are refused, because
     ``str()`` of a computed value is the obvious way to reach here.
     '''
+    # Decimal first: float(Decimal('sNaN')) raises ValueError, which the string
+    # branch below reads as "not a number at all" and lets through. A
+    # signalling NaN would then reach the <= 0 comparisons in the callers and
+    # raise a bare decimal.InvalidOperation whose message is a repr of its own
+    # class -- the exact failure this function runs first to prevent.
+    if isinstance(price, decimal.Decimal):
+        if price.is_nan() or price.is_infinite():
+            raise ValueError(
+                    '{} must be a finite number, got {!r}'.format(name, price))
+        return
+
     if isinstance(price, str):
         try:
             value = float(price)
@@ -91,6 +111,19 @@ def _assert_finite(name, price):
 # catch a Decimal carrying a float's binary expansion, which runs to 17 places
 # and beyond.
 _MAX_PRICE_DECIMAL_PLACES = 8
+
+
+def _render_decimal(value):
+    '''Renders a ``Decimal`` to the string a price field holds, and passes
+    anything else through untouched.
+
+    Used by the ``copy_`` setters, which validate nothing by contract. This is
+    serialization rather than validation: the field holds a string either way,
+    and a ``Decimal`` cannot survive to ``build()`` without becoming one.
+    '''
+    if isinstance(value, decimal.Decimal):
+        return format(value, 'f')
+    return value
 
 
 def _require_price_string(name, price):
@@ -311,7 +344,7 @@ class OrderBuilder(EnumEnforcer):
         :func:`set_stop_price` applies -- no type check and no finiteness
         check.
         '''
-        self._stopPrice = stop_price
+        self._stopPrice = _render_decimal(stop_price)
         return self
 
     def clear_stop_price(self):
@@ -468,7 +501,7 @@ class OrderBuilder(EnumEnforcer):
         to reconstruct an order exactly as Schwab reported it. The prebuilt
         templates use :func:`set_price` and take the same string it does.
         '''
-        self._price = price
+        self._price = _render_decimal(price)
         return self
 
     def clear_price(self):

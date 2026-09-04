@@ -321,6 +321,12 @@ chose, and rendering it here decides nothing:
 
    order.set_price(decimal.Decimal('199.99'))
 
+``Decimal`` is for prices specifically. The other numeric fields --
+``quantity``, ``activationPrice``, ``stopPriceOffset``, ``priceOffset`` -- are
+numbers in Schwab's schema rather than strings, so pass an ``int`` or a
+``float`` there. A ``Decimal`` in one of them raises rather than being
+serialized as a string of the wrong JSON type.
+
 **Build it from a string, not from a float.** ``decimal.Decimal(0.1)`` is not
 ``0.1``; it is that float's binary expansion, ``0.1000000000000000055511...``,
 to 55 decimal places. Since the whole point of accepting ``Decimal`` is to

@@ -1258,6 +1258,36 @@ class PricesAreStringsTest(unittest.TestCase):
             self.assertEqual('19.99', builder.build()[field])
 
     @no_duplicates
+    def test_a_decimal_in_a_numeric_field_is_refused_not_stringified(self):
+        # Schwab types quantity, stopPriceOffset and activationPrice as
+        # numbers. Rendering every Decimal as a string put "10" and "0.50" in
+        # them, which is the wrong JSON type on a live order, and a caller who
+        # adopted Decimal for money everywhere -- the natural reading of this
+        # release's own docs -- would have hit it.
+        for setter in ('set_quantity', 'set_stop_price_offset',
+                       'set_activation_price', 'set_price_offset'):
+            builder = OrderBuilder()
+            getattr(builder, setter)(decimal.Decimal('10'))
+            with self.assertRaises(ValueError, msg=setter) as cm:
+                builder.build()
+            self.assertIn('Only prices', str(cm.exception))
+
+    @no_duplicates
+    def test_no_setter_lets_a_non_finite_decimal_through(self):
+        # _assert_finite read float(Decimal('sNaN')) raising ValueError as
+        # "not a number at all" and returned, so every numeric setter passed a
+        # signalling NaN to a `<= 0` comparison that raised a bare
+        # decimal.InvalidOperation -- the failure it runs first to prevent.
+        for setter in ('set_price', 'set_stop_price', 'set_quantity',
+                       'set_activation_price', 'set_stop_price_offset',
+                       'set_price_offset'):
+            for spelling in ('sNaN', 'NaN', 'Infinity', '-Infinity'):
+                builder = OrderBuilder()
+                with self.assertRaises(
+                        ValueError, msg='{}({})'.format(setter, spelling)):
+                    getattr(builder, setter)(decimal.Decimal(spelling))
+
+    @no_duplicates
     def test_the_places_guard_names_both_ways_of_reaching_it(self):
         # A Decimal too deep to be a price arrives two ways, and they need
         # different fixes: from a float, where Decimal(str(x)) is the answer,

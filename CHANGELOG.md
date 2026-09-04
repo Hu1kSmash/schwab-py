@@ -118,12 +118,14 @@ having no `__dict__`, it fell to the reflection path and raised `vars()
 argument must have __dict__ attribute` from `build()`, far from the call that
 caused it and naming neither the field nor the type.
 
-**A signalling NaN could reach an order.** `Decimal('sNaN')` has a non-integer
-exponent, so it skipped the decimal-places check, and `_assert_finite` reads
-`float('sNaN')` raising `ValueError` as "not a number at all" and lets it
-through. The price went out as the string `'sNaN'`. `Decimal('NaN')` and
-`Decimal('Infinity')` were already refused; only the signalling spelling got
-past.
+**A non-finite `Decimal` now raises a clear error from every numeric setter.**
+`_assert_finite` reads `float(Decimal('sNaN'))` raising `ValueError` as "not a
+number at all" and returned, so a signalling NaN reached the `<= 0` comparisons
+in the setters and raised a bare `decimal.InvalidOperation` whose message is a
+repr of its own class -- the exact failure that check runs first to prevent.
+2.0.x refused these too, just unreadably; this is a diagnosis fix, not a safety
+one. (`Decimal('sNaN')` never reached an order in a released version. It could
+briefly during this release's development, which is why the test exists.)
 
 **`OptionSymbol` accepted a non-finite strike.** `float('nan')` parses and
 `nan <= 0` is `False`, so `'nan'` and `'inf'` passed the constructor's
