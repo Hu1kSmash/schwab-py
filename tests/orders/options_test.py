@@ -64,6 +64,14 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_non_finite_strike_is_refused_at_construction(self):
+        # float('nan') parses and `nan <= 0` is False, so these used to pass
+        # the constructor and fail inside build() as `cannot convert NaN to
+        # integer` -- naming neither the strike nor the symbol.
+        for strike in ('nan', 'NaN', 'inf', '-inf', 'Infinity'):
+            with self.assertRaises(ValueError, msg=strike):
+                OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', strike)
+
     def test_strike_is_encoded_in_decimal_not_binary(self):
         # The strike is scaled by 1000 to build the symbol. Doing that on a
         # binary float and truncating with int() truncates the representation

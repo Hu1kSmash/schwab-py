@@ -14,6 +14,15 @@ def _build_object(obj):
     if isinstance(obj, str) or isinstance(obj, int) or isinstance(obj, float):
         return obj
 
+    # A Decimal is a literal too, but it is not JSON-serializable and has no
+    # __dict__, so without this it falls to the vars() branch below and raises
+    # `vars() argument must have __dict__ attribute` at build() time -- far
+    # from the call that put it there, and naming neither the field nor the
+    # type. copy_price and copy_stop_price skip validation by design, so this
+    # is the path a Decimal reaches them by.
+    elif isinstance(obj, decimal.Decimal):
+        return format(obj, 'f')
+
     # Note enums are not handled because call callers convert their enums to
     # values.
 
@@ -108,14 +117,26 @@ def _require_price_string(name, price):
         # truncation hid this. Nothing that deep is a price, so it is refused
         # here rather than sent. Decimal(str(x)) is the fix, and is what the
         # caller meant.
+        # NaN and the infinities have a non-integer exponent, so they skip the
+        # places check below. format() renders them as 'sNaN'/'Infinity', and
+        # _assert_finite reads a signalling NaN as "not a number at all" and
+        # lets it past -- so without this, set_price(Decimal('sNaN')) reaches
+        # an order.
+        if price.is_nan() or price.is_infinite():
+            raise ValueError(
+                    '{} must be a finite number, got {!r}'.format(name, price))
+
         exponent = price.as_tuple().exponent
         if isinstance(exponent, int) and -exponent > _MAX_PRICE_DECIMAL_PLACES:
             raise ValueError(
-                    '{} has {} decimal places, which is not a price. This is '
-                    'what decimal.Decimal(some_float) produces -- it captures '
+                    '{} has {} decimal places, which is not a price: {}. Two '
+                    'things produce this. decimal.Decimal(some_float) captures '
                     "the float's binary expansion rather than the value you "
-                    'wrote. Use decimal.Decimal(str(value)), or format the '
-                    'price as a string yourself. Got: {}'.format(
+                    'wrote, and the fix is decimal.Decimal(str(value)). '
+                    'Decimal arithmetic keeps every place it produces, and the '
+                    'fix is to round it deliberately -- '
+                    "value.quantize(decimal.Decimal('0.01')) or whatever "
+                    'precision the order wants.'.format(
                         name, -exponent, format(price, 'f')))
 
         # format(d, 'f') rather than str(d): str(Decimal('1E+2')) is '1E+2',

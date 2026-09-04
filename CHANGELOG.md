@@ -76,10 +76,22 @@ your `Decimal` call sites. It is rendered with `format(d, 'f')` rather than
 float's binary expansion to 55 decimal places, and rendering it exactly -- the
 point of accepting `Decimal` at all -- would put all 57 characters on the wire.
 Up to 2.0.1 the truncation hid this. A price carrying more than eight decimal
-places is now refused with an error naming `Decimal(str(value))` as the fix.
-Eight is far beyond any real venue precision (Schwab's sub-penny prices and
-option strikes stop at four); the guard exists only to catch a float that got
-in through `Decimal`.
+places is now refused. Eight is far beyond any real venue precision (Schwab's
+sub-penny prices and option strikes stop at four).
+
+The guard catches two different mistakes and the error names both, because
+they need different fixes: a `Decimal` built from a float wants
+`Decimal(str(value))`, while one produced by arithmetic --
+`Decimal('1.00025') * Decimal('123.4567')` has nine places -- wants a
+deliberate `value.quantize(Decimal('0.01'))`. **Arithmetic like that worked in
+2.0.1**, where it fell through to the truncation; it now raises. That is the
+second and last of this release's silent-call-becomes-error changes.
+
+Note the guard applies to `Decimal` and not to `str`. A string is the price you
+literally wrote, and this library's contract is that it reaches Schwab
+unaltered -- `set_price('0.30000000000000004')` is still sent as written. A
+`Decimal` is rendered *by this library*, so the depth of what gets rendered is
+this library's business.
 
 `copy_price` and `copy_stop_price` still set the field with no validation,
 which is what `contrib.orders` uses to reconstruct a historical order.
@@ -99,6 +111,25 @@ documents it as. Code naming it now raises `AttributeError` instead of reading
 a field whose messages are labelled something else.
 
 ### Fixed
+
+**`copy_price` and `copy_stop_price` could not take a `Decimal`.** They skip
+validation by design, so a `Decimal` reached the object builder raw -- and
+having no `__dict__`, it fell to the reflection path and raised `vars()
+argument must have __dict__ attribute` from `build()`, far from the call that
+caused it and naming neither the field nor the type.
+
+**A signalling NaN could reach an order.** `Decimal('sNaN')` has a non-integer
+exponent, so it skipped the decimal-places check, and `_assert_finite` reads
+`float('sNaN')` raising `ValueError` as "not a number at all" and lets it
+through. The price went out as the string `'sNaN'`. `Decimal('NaN')` and
+`Decimal('Infinity')` were already refused; only the signalling spelling got
+past.
+
+**`OptionSymbol` accepted a non-finite strike.** `float('nan')` parses and
+`nan <= 0` is `False`, so `'nan'` and `'inf'` passed the constructor's
+positivity check and failed later inside `build()` as `cannot convert NaN to
+integer`, naming neither the strike nor the symbol. They are refused at
+construction now, next to the positivity check.
 
 **Option symbols encoded some strike prices a tenth of a cent low.**
 `OptionSymbol.build()` scaled the strike by 1000 as a binary float and

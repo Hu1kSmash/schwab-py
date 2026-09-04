@@ -685,7 +685,9 @@ class StreamClient(EnumEnforcer):
                                        ``additional_headers`` and removed
                                        ``create_protocol`` and ``read_limit``.
                                        Passing any of the three raises
-                                       ``ValueError`` naming the replacement.
+                                       ``ValueError``: for ``extra_headers``
+                                       naming the replacement, and for the
+                                       other two saying there is none.
         '''
 
         # Fetch required data and initialize the client

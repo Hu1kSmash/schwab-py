@@ -1229,9 +1229,46 @@ class PricesAreStringsTest(unittest.TestCase):
         for value in ('19.99', '0.1869', '1234.5678', '0.00012345', '100'):
             builder = OrderBuilder()
             builder.set_price(decimal.Decimal(value))
-            self.assertEqual(
-                    value if value != '100' else '100',
-                    builder.build()['price'])
+            self.assertEqual(value, builder.build()['price'])
+
+    @no_duplicates
+    def test_a_non_finite_decimal_is_refused_including_the_signalling_nan(self):
+        # NaN and the infinities have a non-integer Decimal exponent, so they
+        # skip the decimal-places guard. format() renders them as text and
+        # _assert_finite reads a signalling NaN as "not a number at all" and
+        # lets it past, so Decimal('sNaN') reached an order as the string
+        # 'sNaN' until this was checked explicitly.
+        for spelling in ('NaN', 'sNaN', 'Infinity', '-Infinity'):
+            for setter in ('set_price', 'set_stop_price'):
+                builder = OrderBuilder()
+                with self.assertRaises(ValueError, msg=spelling) as cm:
+                    getattr(builder, setter)(decimal.Decimal(spelling))
+                self.assertIn('finite', str(cm.exception))
+
+    @no_duplicates
+    def test_copy_price_accepts_a_decimal(self):
+        # copy_* skip validation, so a Decimal reaches _build_object raw. It
+        # has no __dict__, so without a branch there it fell through to vars()
+        # and raised `vars() argument must have __dict__ attribute` at build()
+        # time -- far from the call, naming neither field nor type.
+        for setter, field in (('copy_price', 'price'),
+                              ('copy_stop_price', 'stopPrice')):
+            builder = OrderBuilder()
+            getattr(builder, setter)(decimal.Decimal('19.99'))
+            self.assertEqual('19.99', builder.build()[field])
+
+    @no_duplicates
+    def test_the_places_guard_names_both_ways_of_reaching_it(self):
+        # A Decimal too deep to be a price arrives two ways, and they need
+        # different fixes: from a float, where Decimal(str(x)) is the answer,
+        # and from arithmetic, where quantize is. A message naming only the
+        # first misdiagnoses the second.
+        with self.assertRaises(ValueError) as cm:
+            OrderBuilder().set_price(
+                    decimal.Decimal('1.00025') * decimal.Decimal('123.4567'))
+        message = str(cm.exception)
+        self.assertIn('Decimal(str(value))', message)
+        self.assertIn('quantize', message)
 
     @no_duplicates
     def test_the_error_does_not_recommend_a_rounding_conversion(self):

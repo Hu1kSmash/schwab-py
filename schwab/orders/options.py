@@ -1,4 +1,5 @@
 import decimal
+import math
 import datetime
 
 from schwab.orders.generic import OrderBuilder
@@ -92,8 +93,12 @@ class OptionSymbol:
             strike = float(strike_price_as_string)
         except ValueError:
             pass
+        # math.isfinite as well as the positivity check: float('nan') parses,
+        # and `nan <= 0` is False, so a strike of 'nan' or 'inf' used to pass
+        # here and fail later inside build() -- as `cannot convert NaN to
+        # integer`, naming neither the strike nor the symbol.
         if (strike is None or not isinstance(strike_price_as_string, str)
-                or strike <= 0):
+                or not math.isfinite(strike) or strike <= 0):
             raise ValueError(
                 'strike price must be a string representing a positive ' +
                 'float')
