@@ -112,12 +112,24 @@ fail together. It costs four seconds.
    reader following a stale one installs the wrong release without any sign
    that they have.
 
+   `schwab/_optional.py` prints the same pin in the ImportError for a missing
+   extra, but interpolates `schwab.version.version` rather than hardcoding it,
+   so step 2 fixes it and the grep above does not need to find it. The one
+   window where it is wrong is between the bump and the tag: the message names
+   a tag that does not exist yet. Do steps 2 through 5 together rather than
+   leaving a bumped `main` untagged.
+
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
 6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
 
 Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
 `python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
+
+`python -m build --sdist` earns its place here: `setup.py` is not imported by
+the suite, so an edit which leaves it unparseable is invisible to `pytest`.
+`tests/packaging_test.py` now covers the common cases, but the build is what
+proves the artifact.
 
 Never write a bare `pip install schwab-py` anywhere. That installs the original
 project from PyPI, which is not this code — and it will appear to work, since

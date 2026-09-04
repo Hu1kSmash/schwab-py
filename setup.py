@@ -8,6 +8,20 @@ with open('schwab/version.py', 'r') as f:
     version = [s.strip() for s in f.read().strip().split('=')][1]
     version = version[1:-1]
 
+# The interactive login flow runs a local HTTPS callback server in a separate
+# process. Nothing else needs any of this, and a process which loads its token
+# from a file should not carry a web framework.
+LOGIN_REQUIRES = [
+    'flask',
+    'multiprocess',
+    'psutil',
+]
+
+# contrib.orders formats the code it generates.
+CODEGEN_REQUIRES = [
+    'autopep8',
+]
+
 setuptools.setup(
     name='schwab-py',
     version=version,
@@ -39,23 +53,14 @@ setuptools.setup(
         'websockets>=14.0'
     ],
     extras_require={
-        # The interactive login flow runs a local HTTPS callback server in a
-        # separate process. Nothing else here needs any of this, and a process
-        # that loads its token from a file should not carry a web framework.
-        'login': [
-            'flask',
-            'multiprocess',
-            'psutil',
-        ],
-        # contrib.orders formats the code it generates.
-        'codegen': [
-            'autopep8',
-        ],
-        'dev': [
-            'autopep8',
-            'flask',
-            'multiprocess',
-            'psutil',
+        'login': LOGIN_REQUIRES,
+        'codegen': CODEGEN_REQUIRES,
+        # Composed rather than restated. The suite really starts flask servers
+        # through multiprocess, so dev depends on the extras; listing them
+        # twice meant adding a package to an extra and forgetting dev produced
+        # a green local run against a stale virtualenv and a red CI, failing in
+        # auth tests rather than anywhere near the change.
+        'dev': LOGIN_REQUIRES + CODEGEN_REQUIRES + [
             'callee',
             'colorama',
             'coverage',

@@ -2,6 +2,7 @@ import argparse
 import httpx2
 import json
 
+from schwab._optional import import_optional
 from schwab.auth import client_from_token_file
 from schwab.contrib.orders import construct_repeat_order, code_for_builder
 
@@ -24,6 +25,14 @@ def latest_order_main(sys_args):
             help='Restrict lookups to the account with the specified hash')
 
     args = parser.parse_args(args=sys_args)
+
+    # Checked before authenticating rather than at the point of use. The
+    # formatter is only needed by the last line of this function, so without
+    # this the run loads a token, fetches account numbers and fetches orders
+    # before failing on a missing package -- several seconds and three API
+    # calls to learn something knowable at startup.
+    import_optional('autopep8', 'codegen', 'Generating order-builder code')
+
     client = client_from_token_file(
             args.token_file, args.app_secret, args.api_key)
 

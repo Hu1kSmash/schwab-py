@@ -1,5 +1,6 @@
 import schwab
 
+from schwab._optional import import_optional
 from schwab.orders.common import (
         EquityInstrument,
         OptionInstrument,
@@ -168,10 +169,9 @@ def code_for_builder(builder, var_name=None):
     else:
         var_prefix = ''
 
-    # Only the code generator needs a formatter; see auth._import_optional for
-    # why these are extras.
-    from schwab.auth import _import_optional
-    autopep8 = _import_optional(
+    # Only the code generator needs a formatter; see schwab._optional for why
+    # these are extras.
+    autopep8 = import_optional(
             'autopep8', 'codegen', 'Generating order-builder code')
 
     return autopep8.fix_code(

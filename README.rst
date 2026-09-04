@@ -25,12 +25,19 @@
    ever resumes active maintenance, ``upstream-main`` is still mirrored here, and reconciling
    with it is a better outcome than defending the fork.
 
-   The importable package is still ``schwab``, so this is a drop-in replacement. It is not
+   The importable package is still ``schwab``, so your imports do not change. It is not
    published to PyPI — install it from git, pinned to a tag or commit:
 
    .. code-block:: shell
 
      pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+
+   As of 2.3.0 that plain install is three packages, because the interactive login flow moved
+   to an extra. **Install** ``schwab-py[login]`` **instead if you call** ``easy_client`` **or**
+   ``client_from_login_flow`` — including when you already have a token file, since
+   ``easy_client`` re-authenticates through the login flow once the token passes
+   ``max_token_age``. Calling either without the extra raises an ``ImportError`` saying so.
+   ``schwab-py[codegen]`` covers the order-code generator.
 
    Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
    the ``schwab`` package. Pick one.

@@ -225,7 +225,20 @@ Combine them with a comma --- ``schwab-py[login,codegen]``. Calling one of
 those entry points without its extra raises an ``ImportError`` naming the extra
 and the command to install it, rather than a bare "No module named 'flask'".
 
-A daemon that authenticates from a stored token and streams needs neither.
+.. warning::
+
+  ``easy_client`` needs ``login`` **even if you already have a token file.**
+  Its ``max_token_age`` defaults to 6.5 days, and it discards a token older
+  than that and fetches a new one through the login flow. Without the extra,
+  such a program runs for 6.5 days and then fails on a routine
+  re-authentication. Pass ``max_token_age=0`` to turn the proactive refresh
+  off --- though Schwab's refresh token expires seven days after
+  authorization whatever you do, so anything long-running needs some way to
+  log in again.
+
+A daemon which authenticates with :func:`~schwab.auth.client_from_token_file`
+and streams needs neither extra. So does one built on
+:func:`~schwab.auth.client_from_access_functions`.
 
 ++++++++++++
 Getting Help

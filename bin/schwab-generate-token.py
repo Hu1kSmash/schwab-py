@@ -11,7 +11,17 @@ def main(api_key, app_secret, callback_url, token_path, requested_browser):
                 api_key, app_secret, callback_url, token_path,
                 requested_browser=requested_browser, callback_timeout=300)
         return 0
-    except:
+    except ImportError as exc:
+        # Not swallowed into the fallback message below. The browser flow needs
+        # the 'login' extra, and its ImportError says which one and how to
+        # install it. Reported as a browser failure instead, the user would be
+        # dropped into the manual flow every time with nothing to act on.
+        print(exc, file=sys.stderr)
+        return 1
+    except Exception:
+        # Deliberately not a bare 'except:'. That caught KeyboardInterrupt and
+        # SystemExit too, so a Ctrl-C at the login prompt fell through into the
+        # manual flow rather than quitting.
         print('Failed to fetch a token using a web browser, falling back to '
                 'the manual flow')
 

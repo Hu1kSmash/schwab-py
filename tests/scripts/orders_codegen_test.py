@@ -481,3 +481,28 @@ class ScriptInvocationTest(unittest.TestCase):
         output = subprocess.check_output(
                 'schwab-order-codegen.py --help',
                 shell=True, text=True)
+
+
+class CodegenExtraTest(unittest.TestCase):
+    '''The formatter is only used by the last statement of latest_order_main.
+    Without the check at the top, a user missing the 'codegen' extra pays for
+    a token load and two API calls before being told about a missing package.'''
+
+    @no_duplicates
+    @patch('schwab.scripts.orders_codegen.import_optional')
+    @patch('schwab.scripts.orders_codegen.client_from_token_file')
+    def test_the_extra_is_checked_before_anything_is_fetched(
+            self, mock_client_from_token_file, mock_import_optional):
+        mock_import_optional.side_effect = ImportError(
+                "requires the 'codegen' extra")
+
+        with self.assertRaises(ImportError):
+            latest_order_main([
+                '--token_file', 'token.json',
+                '--api_key', 'api-key',
+                '--app_secret', 'app-secret'])
+
+        mock_import_optional.assert_called_once_with(
+                'autopep8', 'codegen', 'Generating order-builder code')
+        # The point of the finding: nothing was authenticated or fetched.
+        mock_client_from_token_file.assert_not_called()

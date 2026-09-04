@@ -24,10 +24,24 @@ install requires three packages -- `authlib`, `httpx2`, `websockets` -- and
 nothing else. `flask`, `multiprocess` and `psutil` move to `schwab-py[login]`;
 `autopep8` moves to `schwab-py[codegen]`.
 
-**This is breaking if you use `client_from_login_flow` or `easy_client` without
-an existing token.** Add `[login]` to your install. Calling either without it
-raises an `ImportError` that names the extra and gives the command, rather than
-a bare "No module named 'flask'".
+**This is breaking if you use `client_from_login_flow` or `easy_client`.** Add
+`[login]` to your install. Calling either without it raises an `ImportError`
+that names the extra and gives the command, rather than a bare "No module named
+'flask'".
+
+Note the second one carefully: **`easy_client` needs `[login]` even when you
+already have a token file.** Its `max_token_age` defaults to 6.5 days, and a
+token older than that is discarded and replaced through the login flow. So a
+plain install works for 6.5 days and then fails on a routine re-authentication,
+which on an unattended machine is the worst shape this break can take. Pass
+`max_token_age=0` to disable the proactive refresh if you really want to run
+`easy_client` without the extra — but Schwab's refresh token expires seven days
+from authorization regardless, so anything long-running needs a way to log in
+again either way.
+
+Not affected: `client_from_token_file`, `client_from_access_functions`,
+`client_from_received_url`, `client_from_manual_flow`, and the streaming client.
+None of them touch the callback server.
 
 Measured on a clean 3.14 install: 27 packages before, 15 after. The twelve that
 go are `flask` and its tree (`blinker`, `click`, `itsdangerous`, `jinja2`,

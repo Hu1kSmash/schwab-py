@@ -1,4 +1,5 @@
 from schwab import auth
+from schwab._optional import import_optional
 from .utils import (
         AnyStringWith,
         MockAsyncOAuthClient,
@@ -8,11 +9,13 @@ from .utils import (
 from unittest.mock import patch, ANY, MagicMock
 from unittest.mock import ANY as _
 
+import contextlib
 import json
 import os
 import requests
 import stat
 import tempfile
+import sys
 import time
 import unittest
 
@@ -1393,3 +1396,122 @@ class NormalizeCredentialTest(unittest.TestCase):
         _, kwargs = sync_session.call_args
         self.assertEqual(APP_SECRET, kwargs['client_secret'])
         self.assertEqual(API_KEY, sync_session.call_args[0][0])
+
+
+class ImportOptionalTest(unittest.TestCase):
+    '''The user-facing contract of the login/codegen extras is entirely the
+    error you get without them: it has to name the extra and give a command
+    that works. None of that is exercised by importing a package which is
+    installed, so it is asserted here directly.'''
+
+    def block(self, *module_names, evict=()):
+        '''Makes ``module_names`` unimportable for the duration of a with
+        block, the way a machine without the extra would have them. Patching
+        importlib.import_module would test the mock rather than the import
+        machinery, and would not produce a real ModuleNotFoundError with a
+        populated .name, which is what the helper now discriminates on.
+
+        ``evict`` drops further modules from the cache without blocking them,
+        so a package which is installed is re-imported inside the block and
+        fails on whatever it imports rather than being served from
+        ``sys.modules``.'''
+        blocked = set(module_names)
+        evicted = blocked | set(evict)
+
+        class Blocker:
+            def find_module(self, fullname, path=None):
+                return None
+
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.split('.')[0] in blocked:
+                    raise ModuleNotFoundError(
+                            'No module named %r' % fullname, name=fullname)
+                return None
+
+        @contextlib.contextmanager
+        def ctx():
+            saved = dict(sys.modules)
+            for name in list(sys.modules):
+                if name.split('.')[0] in evicted:
+                    del sys.modules[name]
+            blocker = Blocker()
+            sys.meta_path.insert(0, blocker)
+            try:
+                yield
+            finally:
+                sys.meta_path.remove(blocker)
+                # Replaced wholesale, not merged: a half-initialised module
+                # left behind by the failed import would otherwise stay in the
+                # cache and break every later test that imports it.
+                sys.modules.clear()
+                sys.modules.update(saved)
+
+        return ctx()
+
+    @no_duplicates
+    def test_missing_login_package_names_the_extra_and_the_command(self):
+        with self.block('flask'):
+            with self.assertRaises(ImportError) as cm:
+                import_optional('flask', 'login', 'The interactive login flow')
+
+        msg = str(cm.exception)
+        self.assertIn("requires the 'login' extra", msg)
+        self.assertIn('The interactive login flow', msg)
+        self.assertIn('pip install "schwab-py[login] @ '
+                      'git+https://github.com/Hu1kSmash/schwab-py@v', msg)
+        self.assertIn('(missing module: flask)', msg)
+
+    @no_duplicates
+    def test_missing_codegen_package_names_the_extra_and_the_command(self):
+        with self.block('autopep8'):
+            with self.assertRaises(ImportError) as cm:
+                import_optional('autopep8', 'codegen',
+                                'Generating order-builder code')
+
+        msg = str(cm.exception)
+        self.assertIn("requires the 'codegen' extra", msg)
+        self.assertIn('pip install "schwab-py[codegen] @ '
+                      'git+https://github.com/Hu1kSmash/schwab-py@v', msg)
+
+    @no_duplicates
+    def test_the_command_pins_the_running_version(self):
+        # The pin is interpolated rather than hardcoded so it cannot rot into
+        # naming a tag older than the one the caller is running.
+        from schwab.version import version
+
+        with self.block('flask'):
+            with self.assertRaises(ImportError) as cm:
+                import_optional('flask', 'login', 'The interactive login flow')
+
+        self.assertIn('@v%s"' % version, str(cm.exception))
+
+    @no_duplicates
+    def test_a_package_which_fails_to_import_itself_is_not_called_missing(self):
+        # flask is present, but the werkzeug it imports is not. Telling this
+        # caller to install the 'login' extra is wrong advice for a version
+        # conflict, and hides which module actually failed. flask really is
+        # imported here: the point is that the failure comes from inside it.
+        import flask  # noqa: F401  -- the test is meaningless if absent
+
+        with self.block('werkzeug', evict=('flask',)):
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                import_optional('flask', 'login',
+                                'The interactive login flow')
+
+        self.assertEqual('werkzeug', cm.exception.name.split('.')[0])
+        self.assertNotIn('extra', str(cm.exception))
+
+    @no_duplicates
+    def test_a_non_modulenotfound_import_error_propagates_unchanged(self):
+        sentinel = ImportError('cannot import name something from flask')
+
+        with patch('schwab._optional.importlib.import_module',
+                   side_effect=sentinel):
+            with self.assertRaises(ImportError) as cm:
+                import_optional('flask', 'login', 'The interactive login flow')
+
+        self.assertIs(sentinel, cm.exception)
+
+    @no_duplicates
+    def test_an_installed_package_is_returned(self):
+        self.assertIs(json, import_optional('json', 'login', 'Whatever'))
