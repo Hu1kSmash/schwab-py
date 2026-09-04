@@ -17,6 +17,23 @@ current model.
 
 ## Unreleased
 
+### Fixed
+
+**A malformed answer took down the receive loop as well as its own request.**
+`_validate_response` read four fields straight after the request id, unguarded.
+A `KeyError` there reached `_fail_pending_request`, which sets the exception on
+the waiting future *and* re-raises — so one unreadable field failed the request
+with a bare `KeyError` and ended the caller's `handle_message` loop with it. A
+frame too malformed to check is now returned as an `UnexpectedResponse` saying
+so, which fails that request and leaves the stream usable.
+
+Found by sweeping for the shape of the 2.3.0 fix rather than waiting for a
+report: 2.3.0 guarded the request-id read, and this sat four lines below it.
+
+A rejection carrying a code but no `msg` is also no longer treated as an
+unreadable frame. The code is the part a caller can act on, and losing it to a
+missing message field was the worse outcome.
+
 ### Documentation
 
 **`pip freeze` drops the extra from a pinned line, and says nothing.** A

@@ -385,7 +385,26 @@ class StreamClient(EnumEnforcer):
         Checks a response frame against the request it is supposed to answer.
         Returns ``None`` if it matches, or the exception to fail that request
         with if it does not.
+
+        A frame too malformed to check is *returned as* an exception rather
+        than raising one. Raising here reaches _read_and_route, which hands it
+        to _fail_pending_request and re-raises -- so one unreadable field
+        failed the request with a bare KeyError and ended the caller's receive
+        loop as well. Failing just the request, with an exception that says
+        what was wrong, is what the caller can act on: the answer to their
+        request really was unusable.
         '''
+        try:
+            return StreamClient._validate_response_fields(
+                    resp, request_id, service, command)
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) \
+                as exc:
+            return UnexpectedResponse(
+                resp, 'malformed response frame: {}: {}'.format(
+                    type(exc).__name__, exc))
+
+    @staticmethod
+    def _validate_response_fields(resp, request_id, service, command):
         # Validate request ID
         resp_request_id = int(resp['response'][0]['requestid'])
         if resp_request_id != request_id:
@@ -404,13 +423,17 @@ class StreamClient(EnumEnforcer):
             return UnexpectedResponse(
                 resp, 'unexpected command: {}'.format(resp_command))
 
-        # Validate response code
-        resp_code = resp['response'][0]['content']['code']
+        # Validate response code. `msg` is read with .get: a rejection which
+        # carries a code but no message is still a rejection, and reporting it
+        # as an unreadable frame instead would lose the code -- the one part
+        # the caller can act on.
+        content = resp['response'][0]['content']
+        resp_code = content['code']
         if resp_code != 0:
             return UnexpectedResponseCode(
                 resp,
                 'unexpected response code: {}, msg is \'{}\''.format(
-                    resp_code, resp['response'][0]['content']['msg']))
+                    resp_code, content.get('msg')))
 
         return None
 

@@ -7007,7 +7007,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             await self.client.handle_message()
             return errors
 
-        data = {'data': [self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')]}
+        data = self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')
 
         batched_frame = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
         batched_frame['response'].append(rejected)
@@ -7038,8 +7038,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         })
         socket.recv.side_effect = [
                 json.dumps(ok),
-                json.dumps({'data': [self.streaming_entry(
-                    'LEVELONE_EQUITIES', 'SUBS')]}),
+                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
         ]
 
         await self.client.level_one_equity_subs(['GOOG'])
@@ -7072,8 +7071,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             'requestid': '77',
             'content': {'code': 21, 'msg': 'SUBS command failed'},
         })
-        data = json.dumps({'data': [self.streaming_entry(
-            'LEVELONE_EQUITIES', 'SUBS')]})
+        data = json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS'))
         socket.recv.side_effect = [json.dumps(ok), data, data]
 
         await self.client.level_one_equity_subs(['GOOG'])
@@ -7112,8 +7110,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 # The answer to the handler's own subscribe.
                 json.dumps(self.success_response(
                     2, 'LEVELONE_EQUITIES', 'SUBS')),
-                json.dumps({'data': [self.streaming_entry(
-                    'LEVELONE_EQUITIES', 'SUBS')]}),
+                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
         ]
 
         await self.client.level_one_equity_subs(['GOOG'])
@@ -7400,7 +7397,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                                'requestid': '77',
                                'content': {'code': 21, 'msg': 'dead session'}}]})
         self.client._overflow_items.appendleft(
-                {'data': [self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')]})
+                self.streaming_entry('LEVELONE_EQUITIES', 'SUBS'))
 
         await self.client.close()
 
@@ -7604,8 +7601,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # Standalone framing, through handle_message's orphan path.
         socket.recv.side_effect = [
                 json.dumps({'response': [broken]}),
-                json.dumps({'data': [self.streaming_entry(
-                    'LEVELONE_EQUITIES', 'SUBS')]}),
+                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
         ]
         await self.client.handle_message()
         await self.client.handle_message()
@@ -7689,7 +7685,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         handled = []
         self.client.add_level_one_equity_handler(handled.append)
 
-        stale = {'data': [self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')]}
+        stale = self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')
 
         async def close_and_race():
             # Stands in for a reader which got a frame off the old socket
@@ -7703,6 +7699,64 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(0, len(self.client._overflow_items))
         self.assertEqual([], handled)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_malformed_answer_fails_only_its_own_request(
+            self, ws_connect):
+        # The sibling of the requestid guard. _validate_response read four more
+        # fields straight after it, unguarded, and a KeyError there reached
+        # _fail_pending_request -- which sets it on the future AND re-raises,
+        # so one unreadable field failed the request with a bare KeyError and
+        # ended the caller's receive loop too.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        for missing in ('service', 'command', 'content'):
+            with self.subTest(missing=missing):
+                frame = self.success_response(
+                        self.client._request_id, 'LEVELONE_EQUITIES', 'SUBS')
+                del frame['response'][0][missing]
+                socket.recv.side_effect = [json.dumps(frame)]
+
+                with self.assertRaises(
+                        schwab.streaming.UnexpectedResponse) as cm:
+                    await asyncio.wait_for(
+                            self.client.level_one_equity_subs(['GOOG']),
+                            timeout=5)
+
+                # Says what was wrong, rather than surfacing a bare KeyError.
+                self.assertIn('malformed response frame', str(cm.exception))
+
+        # And the stream is still usable afterwards: the receive loop was not
+        # taken down with the request.
+        socket.recv.side_effect = [
+                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
+        ]
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+        await self.client.handle_message()
+        self.assertEqual(1, len(handled))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_rejection_without_a_message_still_reports_its_code(
+            self, ws_connect):
+        # The code is the part the caller can act on. Treating a missing `msg`
+        # as an unreadable frame would lose it.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        frame = self.success_response(
+                self.client._request_id, 'LEVELONE_EQUITIES', 'SUBS')
+        frame['response'][0]['content'] = {'code': 21}
+        socket.recv.side_effect = [json.dumps(frame)]
+
+        with self.assertRaises(
+                schwab.streaming.UnexpectedResponseCode) as cm:
+            await asyncio.wait_for(
+                    self.client.level_one_equity_subs(['GOOG']), timeout=5)
+
+        self.assertIn('21', str(cm.exception))
+        self.assertNotIn('malformed', str(cm.exception))
 
     @no_duplicates
     def test_the_report_queue_is_bounded(self):
