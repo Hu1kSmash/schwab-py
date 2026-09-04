@@ -674,7 +674,7 @@ class StreamClient(EnumEnforcer):
 
         Performs initial stream setup:
          * Fetches streaming information from the HTTP client's
-           :meth:`~tda.client.Client.get_user_principals` method
+           :meth:`~schwab.client.Client.get_user_preferences` method
          * Initializes the socket
          * Builds and sends and authentication request
          * Waits for response indicating login success

@@ -238,8 +238,13 @@ class TokenMetadata:
     def from_loaded_token(cls, token, unwrapped_token_write_func):
         '''
         Returns a new ``TokenMetadata`` object extracted from the metadata of
-        the loaded token object. If the token has a legacy format which contains
-        no metadata, assign default values.
+        the loaded token object.
+
+        A token predating the metadata wrapper is rejected rather than adapted.
+        Its creation timestamp is what decides whether the refresh token is
+        still inside Schwab's seven-day window, and there is no honest value to
+        invent for it -- guessing would either refuse a usable token or keep
+        presenting a dead one.
         '''
         if 'creation_timestamp' not in token:
             raise ValueError(
