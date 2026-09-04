@@ -36,13 +36,10 @@ setuptools.setup(
     install_requires=[
         'autopep8',
         'authlib>=1.8',
-        'certifi>=2025.6.15',
         'flask',
         'httpx2>=2.12.0',
         'multiprocess',
         'psutil',
-        'python-dateutil',
-        'urllib3',
         'websockets>=14.0'
     ],
     extras_require={
@@ -50,8 +47,8 @@ setuptools.setup(
             'callee',
             'colorama',
             'coverage',
-            'nose',
             'pytest',
+            'requests',
             'pytz',
             'setuptools',
             'sphinx_rtd_theme',

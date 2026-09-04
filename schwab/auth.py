@@ -13,7 +13,6 @@ import sys
 import tempfile
 import time
 import urllib
-import urllib3
 import warnings
 import webbrowser
 
@@ -468,14 +467,13 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 
             # Attempt to send a request to the server
             try:
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                            'ignore',
-                            category=urllib3.exceptions.InsecureRequestWarning)
-
-                    resp = httpx2.get(
-                            'https://127.0.0.1:{}/schwab-py-internal/status'.format(
-                                callback_port), verify=False)
+                # verify=False because the callback server presents a
+                # self-signed certificate. httpx2 says nothing about that; the
+                # suppression which used to sit here was for a urllib3 warning
+                # that never reached this code.
+                resp = httpx2.get(
+                        'https://127.0.0.1:{}/schwab-py-internal/status'.format(
+                            callback_port), verify=False)
             except (httpx2.ConnectError, httpx2.ConnectTimeout):
                 # Not listening yet. Which of the two you get depends on the
                 # host: a port nothing is bound to is normally refused, giving
