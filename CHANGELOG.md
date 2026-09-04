@@ -60,9 +60,15 @@ scheduled error handlers, because one that awaits anything -- publishing an
 alert, which is the documented example -- has not resumed when the loop goes
 down, and the report of the failure immediately before shutdown is the one most
 worth having. It closes the socket first and drains afterwards, so a
-cancellation mid-drain cannot leave the connection open, and it never waits on
-the task doing the waiting -- an error handler that reacts by calling `close()`
-is a natural thing to write and would otherwise deadlock permanently.
+cancellation mid-drain cannot leave the connection open.
+
+The drain waits on pending stream-handler tasks as well as error-handler ones,
+because a handler that has not raised yet has not scheduled its report yet --
+draining only the error handlers returned immediately and then lost exactly that
+report, which is the commonest configuration. It is re-entrant, so any number of
+handlers may respond to a failure by calling `close()` without deadlocking. And
+it is bounded in time: handler code belongs to the caller, and one that blocks
+must not hang every shutdown path.
 
 A handler of the wrong shape is refused at registration rather than discovered
 at report time. Every other `add_*_handler` here takes a one-argument callback,

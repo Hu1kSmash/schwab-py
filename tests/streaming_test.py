@@ -6731,6 +6731,91 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_two_error_handlers_may_both_close_the_stream(
+            self, ws_connect):
+        # Excluding only the current task is not enough. Two handlers reacting
+        # to two failures in the same batch each drain, each waits on the
+        # other, and the cycle cannot be cancelled -- cancellation recurses
+        # through the mutually-gathering children until it hits the recursion
+        # limit and the process hangs for good.
+        closed = []
+
+        async def close_on_error(service, exc, msg):
+            await self.client.close()
+            closed.append(True)
+
+        self.client.add_error_handler(close_on_error)
+
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')),
+            json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
+        ]
+        # Two handlers on the same service, so one frame produces two reports.
+        self.client.add_level_one_equity_handler(
+                Mock(side_effect=ValueError('first blew up')))
+        self.client.add_level_one_equity_handler(
+                Mock(side_effect=ValueError('second blew up')))
+
+        await self.client.level_one_equity_subs(['GOOG'])
+        await self.client.handle_message()
+
+        await asyncio.wait_for(
+                asyncio.gather(*self.client._error_handler_tasks,
+                               return_exceptions=True),
+                timeout=5.0)
+
+        self.assertEqual(2, len(closed))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_does_not_wait_forever_on_a_handler(self, ws_connect):
+        # Handler code belongs to the caller. One posting an alert over HTTP
+        # with no timeout of its own would otherwise hang close(), __aexit__
+        # and logout's finally for as long as the far end took.
+        async def never_returns(service, exc, msg):
+            await asyncio.sleep(300)
+
+        self.client.add_error_handler(never_returns)
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 0.25):
+            await asyncio.wait_for(self.client.close(), timeout=5.0)
+
+        self.assertIsNone(self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_waits_for_an_async_stream_handler_to_fail(
+            self, ws_connect):
+        # The commonest configuration, and the one the drain originally
+        # missed. An async stream handler still pending at close() has not
+        # raised yet, so nothing is in _error_handler_tasks and a drain that
+        # only covered those returned immediately -- then the handler failed,
+        # scheduled its report, and nothing was left to await it.
+        delivered = []
+
+        async def on_stream_error(service, exc, msg):
+            await asyncio.sleep(0)
+            delivered.append(exc)
+
+        async def failing_handler(msg):
+            await asyncio.sleep(0)
+            raise ValueError('async handler blew up')
+
+        self.client.add_error_handler(on_stream_error)
+        await self.subscribe_and_deliver(ws_connect, failing_handler)
+
+        # Deliberately no gathering of _handler_tasks by hand: close() is
+        # supposed to be sufficient.
+        await self.client.close()
+
+        self.assertEqual(1, len(delivered),
+                         'an async stream handler\'s report was lost at close')
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_a_close_failure_report_reaches_a_coroutine_handler(
             self, ws_connect):
         # logout reports the close failure after close() has already drained,

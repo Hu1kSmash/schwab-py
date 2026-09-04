@@ -61,9 +61,13 @@ class _BaseFieldEnum(Enum):
                 new_msg[new_key] = new_msg.pop(old_key)
 
 
-# How many times close() will wait for scheduled error handlers before giving
-# up. Each pass can schedule more, so this is a bound rather than a count.
+# How many times close() will wait for in-flight handler work before giving up.
+# Each pass can schedule more, so this is a bound rather than a count.
 _MAX_ERROR_DRAIN_PASSES = 8
+
+# How long close() will wait for that work in total. Handler code belongs to the
+# caller and a shutdown path cannot wait on it forever.
+_ERROR_DRAIN_TIMEOUT = 10.0
 
 
 class UnexpectedResponse(Exception):
@@ -210,6 +214,7 @@ class StreamClient(EnumEnforcer):
         # tasks are held for the same reason _handler_tasks are.
         self._error_handlers = []
         self._error_handler_tasks = set()
+        self._draining_error_handlers = False
 
         # Tasks for handlers which turned out to be coroutines. The event loop
         # only holds a weak reference to a running task, so a task which nothing
@@ -815,9 +820,16 @@ class StreamClient(EnumEnforcer):
                 # neither a late rejection nor a late success, and reporting it
                 # as a rejection pages someone over `code None, msg None`.
                 if code is not None and code != 0:
+                    # msg, not response: _validate_response builds this same
+                    # exception from the whole frame, so a caller reads
+                    # exc.response['response'][0]['content']. Handing it one
+                    # element would make the same type mean two shapes, and the
+                    # KeyError that follows would be swallowed by
+                    # _report_error's except clause -- leaving nothing but a
+                    # log line, which is what this callback exists to replace.
                     self._report_error(
                             UnexpectedResponseCode(
-                                response,
+                                msg,
                                 'Schwab rejected a request which had already '
                                 'been abandoned: code {}, msg {!r}'.format(
                                     code, content.get('msg'))),
@@ -981,36 +993,76 @@ class StreamClient(EnumEnforcer):
             await self._drain_error_handlers()
 
     async def _drain_error_handlers(self):
-        '''Waits for scheduled coroutine error handlers to finish.
+        '''Waits for in-flight handler work to finish, so a report scheduled
+        on the way down is not lost when the loop stops.
 
-        Their exceptions are already logged by their done callback, so failures
-        here are not re-raised: draining is about not losing the report, not
-        about propagating whatever the reporter did with it.
+        Two sets, in order. Pending stream-handler tasks first, because one
+        that has not raised yet has not scheduled its report yet -- draining
+        only the error handlers returns immediately and then loses exactly that
+        report. Then the error handlers themselves.
+
+        Exceptions from either are already logged by their done callbacks, so
+        nothing is re-raised here: draining is about not losing the report, not
+        about propagating what the reporter did with it.
+
+        Re-entrant by design rather than by accident. An error handler which
+        reacts to a failure by tearing the stream down -- ``await
+        client.close()``, a natural reaction to this signal -- re-enters here
+        from inside a task this drain is waiting on. Excluding only the current
+        task is not enough: two such handlers running concurrently each wait on
+        the other, and the resulting cycle cannot even be cancelled, because
+        cancellation recurses through the mutually-gathering children until it
+        hits the recursion limit. A drain already in progress simply returns.
         '''
-        # Never wait on the task doing the waiting. An error handler which
-        # reacts to a failure by tearing the stream down -- `await
-        # client.close()`, a natural reaction to this signal -- would otherwise
-        # be gathered along with everything else and wait on itself forever,
-        # not even cancellable.
+        if self._draining_error_handlers:
+            return
+
+        self._draining_error_handlers = True
+        try:
+            await asyncio.wait_for(self._drain_once(),
+                                   timeout=_ERROR_DRAIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            # Handler code is the caller's, and a shutdown path cannot wait on
+            # it indefinitely: an error handler posting an alert over HTTP with
+            # no timeout of its own would hang close(), __aexit__ and logout's
+            # finally for as long as the far end took.
+            self.logger.warning(
+                    'Timed out after %ss waiting for handlers to finish. '
+                    'Some error reports may not have been delivered.',
+                    _ERROR_DRAIN_TIMEOUT)
+        finally:
+            self._draining_error_handlers = False
+
+    async def _drain_once(self):
         current = asyncio.current_task()
 
-        # Bounded loop rather than one pass: a report scheduled *during* the
-        # drain (a concurrent handle_message, or an error handler that triggers
-        # another report) lands after a snapshot would have been taken. The
-        # bound stops an error handler which reports on every call from
-        # spinning here forever.
+        # Bounded rather than a single pass: work drained in one pass can
+        # schedule more -- a stream handler failing produces a report, and a
+        # report can produce another. The bound stops an error handler which
+        # reports on every call from spinning here forever.
         for _ in range(_MAX_ERROR_DRAIN_PASSES):
-            pending = tuple(task for task in self._error_handler_tasks
-                            if task is not current)
+            pending = tuple(
+                    task
+                    for task in tuple(self._handler_tasks)
+                    + tuple(self._error_handler_tasks)
+                    if task is not current)
+
             if not pending:
                 return
 
             await asyncio.gather(*pending, return_exceptions=True)
 
-        self.logger.warning(
-                'Error handlers were still scheduling more reports after %d '
-                'drain passes. Giving up on the rest.',
-                _MAX_ERROR_DRAIN_PASSES)
+        # Checked again rather than warning on the way out of the loop: a chain
+        # which finished on the last pass has drained everything, and saying
+        # reports were dropped when none were is a false alarm on a line whose
+        # only purpose is to report drops.
+        if any(task is not current
+               for task in tuple(self._handler_tasks)
+               + tuple(self._error_handler_tasks)):
+            self.logger.warning(
+                    'Handlers were still scheduling more work after %d drain '
+                    'passes. Giving up on the rest.',
+                    _MAX_ERROR_DRAIN_PASSES)
 
     async def __aenter__(self):
         return self

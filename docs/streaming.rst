@@ -265,6 +265,16 @@ way to fail. A ``BaseException`` — ``CancelledError`` during shutdown, or
 ``SystemExit`` — is left to propagate, since swallowing those breaks
 cancellation and process exit.
 
+``close()`` waits for in-flight handlers before returning, so a report scheduled
+on the way down is not lost when the loop stops. Two consequences worth knowing:
+
+* An error handler may itself call ``close()`` or ``logout()``. Tearing the
+  stream down is a reasonable reaction to a failure, and it will not deadlock,
+  however many handlers do it at once.
+* The wait is bounded. A handler that blocks — posting an alert to something
+  slow, with no timeout of its own — will not hang shutdown; the drain gives up
+  after ten seconds and logs that reports may have been lost.
+
 .. automethod:: schwab.streaming.StreamClient.add_error_handler
 
 .. _data_field_relabeling:
