@@ -6,13 +6,86 @@ Versions below 1.6.0 are upstream releases; see the upstream repository for thei
 Every change in this fork is offered upstream as a pull request, so that where upstream merges
 one, the fork's divergence shrinks accordingly.
 
-One change is currently an exception: the streaming client's response-routing model, introduced
-in 1.7.0. It was branched from this fork's `main` rather than from a mirror of upstream, so its
-diff carries the version bump, the changed URLs and this notice along with the actual change,
-which makes it unreviewable as a pull request. Separating it out is outstanding work. It is
-called out here rather than left to be inferred from the pull request list.
+Two changes are currently exceptions. Both were branched from this fork's `main` rather than
+from a mirror of upstream, so their diffs carry the version bump, the changed URLs and this
+notice along with the actual change, which makes them unreviewable as pull requests:
+
+- the streaming client's response-routing model, introduced in 1.7.0;
+- the move to `httpx2` and Authlib 1.8, released in 2.0.0. This one was branched from `main`
+  deliberately, because upstream's `auth.py` still carries only the bare `except
+  httpx.ConnectError` and the migration rewrites that exact line. Re-cutting it against
+  `upstream-main` would mean porting it without the ConnectTimeout sibling fix.
+
+Separating both out is outstanding work. They are called out here rather than left to be
+inferred from the pull request list.
 
 ---
+
+## 2.0.1
+
+### Documented
+
+**2.0.0 moved where TLS trust comes from, and did not say so.** `httpx` depended on
+`certifi` and built its default SSL context from the CA bundle shipped inside that
+wheel. `httpx2` does not depend on `certifi` at all -- it uses `truststore`, which
+reads the **operating system** trust store:
+
+```
+httpx/_config.py    create_ssl_context -> import certifi
+                    ssl.create_default_context(cafile=certifi.where())
+
+httpx2/_config.py   create_ssl_context -> import truststore
+                    ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+```
+
+Two things follow, neither of which is a defect, but both of which are worth
+knowing before you move this onto a new host:
+
+- **TLS now depends on the host having a populated CA store.** A slim or distroless
+  container without `ca-certificates` worked on 1.11.4, because the bundle travelled
+  inside the `certifi` wheel. On 2.0.0 and later, certificate verification fails and
+  surfaces as `httpx2.ConnectError`. It will not hide: nothing in this library
+  catches that outside the login flow's readiness probe, so it reaches your caller
+  on every request rather than being absorbed and retried. A sudden run of connect
+  errors immediately after a host or image change is this, not the network.
+- **The trust set is whatever the OS trusts.** An interception or corporate root
+  installed in the host store is now trusted for Schwab traffic, where previously
+  only certifi's bundle was. That is a real change in posture for a process holding
+  tokens with full account access.
+
+`SSL_CERT_FILE` and `SSL_CERT_DIR` still override, if you would rather pin the trust
+set explicitly than inherit the host's.
+
+### Removed
+
+**Four dependency declarations that nothing imports.** `certifi` was there to keep a
+current CA bundle in the `httpx -> httpcore -> certifi` chain, which 2.0.0 removed;
+leaving it declared implies a bundle that is no longer in the path. `urllib3`,
+`python-dateutil` and `nose` are referenced nowhere in the library, the tests or the
+tooling.
+
+**A warning suppression which could never fire.** The login flow's readiness probe
+wrapped its `verify=False` request in a filter for
+`urllib3.exceptions.InsecureRequestWarning`. `urllib3` is not in `httpx2`'s stack and
+was not in `httpx`'s either; measured against a self-signed local server, `httpx2`
+emits no warning at all on `verify=False`. The filter, the `urllib3` import and two
+`-W ignore::urllib3.exceptions.*` entries in `tox.ini` are all gone.
+
+### Fixed
+
+**`make release` uploaded to PyPI with the tests switched off.** It ran
+`twine upload dist/*` against `schwab-py`, which on PyPI is the *upstream* project --
+so it would have replaced someone else's package with this library under their name.
+The test step had been commented out with a `# TODO: Reinstate tests before
+releasing` left in place. Inherited from upstream, where publishing to PyPI is
+correct. There is now no release target: it prints why and exits non-zero, and
+points at `MAINTAINING.md`. `make coverage` ran `nose`, which does not work on any
+Python this project supports, and `make dist` used the deprecated
+`setup.py sdist bdist_wheel`.
+
+**`requests` was used by the test suite and declared nowhere.** It arrived only
+because `twine` pulls in `requests-toolbelt`. It is now a dev dependency in its own
+right.
 
 ## 2.0.0
 
