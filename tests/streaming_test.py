@@ -354,16 +354,22 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_login_websocket_connect_args_both_header_names(
             self, ws_connect):
+        # Supplying the new name alongside the old one does not rescue the old
+        # one. A caller migrating might reasonably add additional_headers and
+        # leave extra_headers behind; the stale key would then be passed
+        # straight through to websockets as an unexpected kwarg. Refusing here
+        # names it instead.
         self.http_client.get_user_preferences.return_value = MockResponse(
             account_preferences(), 200)
         socket = AsyncMock()
         ws_connect.return_value = socket
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as cm:
             await self.client.login(websocket_connect_args={
                 'extra_headers': {'X-Custom-Header': 'value'},
                 'additional_headers': {'X-Custom-Header': 'value'}})
 
+        self.assertIn('extra_headers', str(cm.exception))
         ws_connect.assert_not_awaited()
 
 

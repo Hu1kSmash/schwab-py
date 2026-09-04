@@ -1,3 +1,4 @@
+import decimal
 import datetime
 
 from schwab.orders.generic import OrderBuilder
@@ -149,7 +150,15 @@ class OptionSymbol:
             self.underlying_symbol,
             self.expiration_date.strftime('%y%m%d'),
             self.contract_type,
-            int(float(self.strike_price) * 1000)
+            # Decimal, not float: scaling the binary value and truncating with
+            # int() truncates the representation error along with the value.
+            # 2.01 * 1000 is 2009.9999999999998, so int() gives 2009 and the
+            # symbol names a strike a tenth of a cent low -- a different
+            # contract, or none. 590 of the 100,000 cent-granular strikes
+            # between $0.01 and $1000.00 were affected. strike_price is
+            # validated as a string on the way in, so Decimal() reads it
+            # exactly as written.
+            int(decimal.Decimal(self.strike_price) * 1000)
         )
 
 

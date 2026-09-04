@@ -20,7 +20,11 @@
    path, the ``extra_headers`` shim and the ``STRIKE_TYPE`` alias. Those last are breaking
    changes upstream has given no sign of wanting, and they were branched from this fork's
    ``main`` rather than from a mirror of upstream, so their diffs carry this fork's identity
-   and cannot be opened as pull requests. Everything else has been sent.
+   and cannot be opened as pull requests. The same is true of the 2.1.0 documentation and
+   tooling cleanup, two hunks of which -- a cross-reference to the predecessor project and a
+   docstring describing code that raises -- are plain bugs upstream still has and would
+   probably take; re-cutting those against a mirror of upstream is outstanding work.
+   Everything else has been sent.
    This is not a competing project and it is not a criticism of the original author, who wrote
    essentially all of the code below. If upstream merges those changes, the fork's divergence
    shrinks; if upstream resumes active maintenance, using it again is the better choice.

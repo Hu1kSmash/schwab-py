@@ -64,6 +64,36 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_strike_is_encoded_in_decimal_not_binary(self):
+        # The strike is scaled by 1000 to build the symbol. Doing that on a
+        # binary float and truncating with int() truncates the representation
+        # error with it: 2.01 * 1000 is 2009.9999999999998, so int() gives
+        # 2009 and the symbol names a strike a tenth of a cent low -- a
+        # different contract, or one that does not exist. This is the same
+        # defect that made limit prices a cent low, in a different function.
+        for strike, expected in (('2.01', '00002010'), ('4.02', '00004020'),
+                                 ('8.19', '00008190'), ('2.03', '00002030')):
+            op = OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', strike)
+            self.assertTrue(
+                    op.build().endswith(expected),
+                    '{} encoded as {}, expected to end {}'.format(
+                        strike, op.build(), expected))
+
+    def test_every_cent_granular_strike_encodes_exactly(self):
+        # The sweep the single cases above are drawn from: every cent from
+        # $0.01 to $1000.00. 590 of these were wrong before the fix.
+        import decimal
+        wrong = []
+        for cents in range(1, 100001):
+            strike = '{:.2f}'.format(cents / 100)
+            built = OptionSymbol(
+                    'AAPL', datetime.date(2024, 5, 10), 'C', strike).build()
+            if int(built[-8:]) != int(decimal.Decimal(strike) * 1000):
+                wrong.append(strike)
+                if len(wrong) > 5:
+                    break
+        self.assertEqual([], wrong)
+
     def test_strike_ends_in_decimal_point(self):
         op = OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', '100.')
         self.assertEqual('AAPL  240510C00100000', op.build())

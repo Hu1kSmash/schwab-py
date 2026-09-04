@@ -35,9 +35,16 @@ Three APIs which had been deprecated with warnings. All three are breaking for
 code still using them, and all three fail loudly at the point of use rather
 than changing what an order or a subscription means.
 
-**Prices must be strings.** `set_price` and `set_stop_price` used to accept a
-float and truncate it -- two decimal places, or four below one. Passing a float
-now raises `ValueError` naming the fix.
+**Prices must be strings.** `set_price` and `set_stop_price` used to accept
+any number and truncate it -- two decimal places, or four below one. Passing a
+number now raises `ValueError` naming the fix.
+
+Note this includes **integers**: `set_price(1250)` raises, not just
+`set_price(1250.0)`. Integer prices were the form this project's own
+documentation used, so auditing your call sites for float literals alone will
+miss some. The removed helper was named `truncate_float`, which is worth
+searching for too -- it was a public module-level name, and anything importing
+it now gets an `ImportError`.
 
 The conversion was removed rather than kept because the library was choosing a
 rounding, for a value denominated in money, on behalf of a caller who knows
@@ -81,6 +88,20 @@ it meant the name a caller wrote was not the name the library called.
 `STRIKE_PRICE`, kept when field 20 was renamed to what Schwab actually
 documents it as. Code naming it now raises `AttributeError` instead of reading
 a field whose messages are labelled something else.
+
+### Fixed
+
+**Option symbols encoded some strike prices a tenth of a cent low.**
+`OptionSymbol.build()` scaled the strike by 1000 as a binary float and
+truncated with `int()`, which truncates the representation error along with the
+value: `2.01 * 1000` is `2009.9999999999998`, so the symbol came out
+`...C00002009` rather than `...C00002010` -- a different contract, or one that
+does not exist. 590 of the 100,000 cent-granular strikes between `$0.01` and
+`$1000.00` were affected, on the order-placement path.
+
+This is the same defect that made limit prices a cent low, in a different
+function, and it survived the fix to that one. It now scales in `decimal`,
+which is exact: the strike is already validated as a string on the way in.
 
 ### Note
 

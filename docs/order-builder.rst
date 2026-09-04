@@ -321,7 +321,8 @@ chose, and rendering it here decides nothing:
 
    order.set_price(decimal.Decimal('199.99'))
 
-Passing a float raises ``ValueError``. Earlier versions accepted one and
+Passing a number raises ``ValueError`` -- integers included, so
+``set_price(1250)`` raises just as ``set_price(1250.0)`` does. Earlier versions accepted one and
 converted it here, truncating to two decimal places, or to four for values
 below one. That conversion has been removed.
 

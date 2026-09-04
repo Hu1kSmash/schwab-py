@@ -418,8 +418,9 @@ class OrderBuilder(EnumEnforcer):
         '''
         Directly set the price, with none of the validation
         :func:`set_price` applies -- no type check and no finiteness check.
-        This is what :ref:`order_templates` uses to reconstruct an order
-        exactly as Schwab reported it.
+        This is what :func:`schwab.contrib.orders.construct_repeat_order` uses
+        to reconstruct an order exactly as Schwab reported it. The prebuilt
+        templates use :func:`set_price` and take the same string it does.
         '''
         self._price = price
         return self
