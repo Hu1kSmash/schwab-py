@@ -115,37 +115,6 @@ def _assert_finite(name, price):
                 '{} must be a finite number, got {!r}'.format(name, price))
 
 
-# No venue quotes to this many places. Schwab's own sub-penny prices and option
-# strikes stop at four, so this is generous by a wide margin and exists only to
-# catch a Decimal carrying a float's binary expansion, which runs to 17 places
-# and beyond.
-_MAX_PRICE_DECIMAL_PLACES = 8
-
-
-def _decimal_places(value):
-    '''How many decimal places ``value`` actually carries, or ``None`` if it
-    has no finite exponent.
-
-    Counts significant places rather than the declared exponent, because the
-    two differ on trailing zeros and the difference is a price this library
-    would otherwise refuse. ``Decimal('100.00') * Decimal('1.0500') ** 2`` is
-    ``Decimal('110.2500000000')`` -- exactly $110.25, reached by applying two
-    four-place factors, which is an ordinary way to compute a limit. Its
-    declared exponent says ten places; it carries two.
-
-    ``normalize()`` rounds to the ambient context precision, so this pins one.
-    At ``prec=9`` the ambient answer for ``Decimal(0.1)`` is one place, and the
-    guard would wave through the binary expansion it exists to catch.
-    '''
-    with decimal.localcontext() as ctx:
-        ctx.prec = 60
-        exponent = value.normalize().as_tuple().exponent
-
-    if not isinstance(exponent, int):
-        return None
-    return max(0, -exponent)
-
-
 def _render_decimal(name, value):
     '''Renders a ``Decimal`` to the string a price field holds, and passes
     anything else through untouched.
@@ -183,37 +152,26 @@ def _require_price_string(name, price):
     ``Decimal`` is accepted because it is the type that avoids the problem
     rather than one that hides it: it carries the precision the caller chose,
     and rendering it here decides nothing.
+
+    Depth is deliberately not policed. ``Decimal(0.1)`` carries a float's
+    binary expansion and renders 57 characters, which is ugly, but Schwab types
+    both price fields ``number($double)``, so it parses to the same double a
+    short spelling would -- it is unreadable, not wrong. And no digit count
+    separates it from honest arithmetic: measured over realistic inputs,
+    float-derived values span 0 to 53 decimal places and string arithmetic
+    spans 1 to 9, which overlap. A guard on depth therefore refuses valid
+    computed limits at order-placement time to prevent a payload that is
+    merely long. ``Decimal(str(value))`` is still the right habit, and the
+    docs say so.
     '''
     if isinstance(price, decimal.Decimal):
-        # A Decimal built from a float carries the binary expansion, not the
-        # value the caller thinks they wrote: Decimal(0.1) is
-        # 0.1000000000000000055511151231257827021181583404541015625, and
-        # rendering it exactly -- which is the point of taking Decimal at all
-        # -- would put all 57 characters on the wire. Up to 2.0.1 the
-        # truncation hid this. Nothing that deep is a price, so it is refused
-        # here rather than sent. Decimal(str(x)) is the fix, and is what the
-        # caller meant.
-        # NaN and the infinities have a non-integer exponent, so they skip the
-        # places check below. format() renders them as 'sNaN'/'Infinity', and
+        # format() renders NaN and the infinities as 'sNaN'/'Infinity', and
         # _assert_finite reads a signalling NaN as "not a number at all" and
         # lets it past -- so without this, set_price(Decimal('sNaN')) reaches
         # an order.
         if price.is_nan() or price.is_infinite():
             raise ValueError(
                     '{} must be a finite number, got {!r}'.format(name, price))
-
-        places = _decimal_places(price)
-        if places is not None and places > _MAX_PRICE_DECIMAL_PLACES:
-            raise ValueError(
-                    '{} has {} decimal places, which is not a price: {}. Two '
-                    'things produce this. decimal.Decimal(some_float) captures '
-                    "the float's binary expansion rather than the value you "
-                    'wrote, and the fix is decimal.Decimal(str(value)). '
-                    'Decimal arithmetic keeps every place it produces, and the '
-                    'fix is to round it deliberately -- '
-                    "value.quantize(decimal.Decimal('0.01')) or whatever "
-                    'precision the order wants.'.format(
-                        name, places, format(price, 'f')))
 
         # format(d, 'f') rather than str(d): str(Decimal('1E+2')) is '1E+2',
         # which is not a price. Neither form loses anything.

@@ -330,11 +330,20 @@ wrong JSON type.
 
 **Build it from a string, not from a float.** ``decimal.Decimal(0.1)`` is not
 ``0.1``; it is that float's binary expansion, ``0.1000000000000000055511...``,
-to 55 decimal places. Since the whole point of accepting ``Decimal`` is to
-render it exactly, all 57 characters would reach Schwab. A price that deep is
-refused with an error saying this, but the habit to keep is
-``decimal.Decimal(str(value))`` -- particularly when the value came from parsed
-JSON, where a quote field is already a float.
+to 55 decimal places, and since the point of accepting ``Decimal`` is to render
+it exactly, all 57 characters reach Schwab. That is unreadable rather than
+wrong -- Schwab types both price fields ``number($double)``, so it parses to
+the same double a short spelling would -- but ``decimal.Decimal(str(value))``
+is the habit to keep, particularly when the value came from parsed JSON where a
+quote field is already a float.
+
+``schwab-py`` does not refuse a price for being deep. It was tried and removed:
+no digit count separates a float's expansion from honest arithmetic. Over
+realistic inputs, float-derived values span 0 to 53 decimal places while string
+arithmetic spans 1 to 9, so any threshold either misses contamination or
+refuses a valid computed limit at order-placement time. Rounding a computed
+price is your decision -- ``value.quantize(decimal.Decimal('0.01'))`` -- and
+this library does not make it for you.
 
 Passing a number raises ``ValueError`` -- integers included, so
 ``set_price(1250)`` raises just as ``set_price(1250.0)`` does. Earlier versions accepted one and

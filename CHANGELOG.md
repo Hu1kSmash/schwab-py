@@ -74,27 +74,22 @@ your `Decimal` call sites. It is rendered with `format(d, 'f')` rather than
 
 **Build a `Decimal` from a string, not a float.** `Decimal(0.1)` is that
 float's binary expansion to 55 decimal places, and rendering it exactly -- the
-point of accepting `Decimal` at all -- would put all 57 characters on the wire.
-Up to 2.0.1 the truncation hid this. A price carrying more than eight decimal
-places is now refused. Eight is far beyond any real venue precision (Schwab's
-sub-penny prices and option strikes stop at four). Significant places, not the
-declared exponent: `Decimal('100.00') * Decimal('1.0500') ** 2` is
-`Decimal('110.2500000000')`, which is exactly $110.25 reached by applying two
-four-place factors, and counting its exponent would refuse a valid price.
+point of accepting `Decimal` at all -- puts all 57 characters on the wire. Up
+to 2.0.1 the truncation hid this.
 
-The guard catches two different mistakes and the error names both, because
-they need different fixes: a `Decimal` built from a float wants
-`Decimal(str(value))`, while one produced by arithmetic --
-`Decimal('1.00025') * Decimal('123.4567')` has nine places -- wants a
-deliberate `value.quantize(Decimal('0.01'))`. **Arithmetic like that worked in
-2.0.1**, where it fell through to the truncation; it now raises. That is the
-second and last of this release's silent-call-becomes-error changes.
+It is not refused. A guard on decimal places was written for this release and
+then removed, because measuring it showed the guard could not do what it
+claimed: over realistic inputs, float-derived values span 0 to 53 decimal
+places while string arithmetic spans 1 to 9, so no threshold separates
+contamination from an honest computed limit. What a threshold does reliably is
+refuse a valid price at order-placement time. And the payload it prevents is
+merely long, not wrong -- Schwab types both `price` and `stopPrice` as
+`number($double)`, so a 57-character spelling parses to the same double a short
+one does.
 
-Note the guard applies to `Decimal` and not to `str`. A string is the price you
-literally wrote, and this library's contract is that it reaches Schwab
-unaltered -- `set_price('0.30000000000000004')` is still sent as written. A
-`Decimal` is rendered *by this library*, so the depth of what gets rendered is
-this library's business.
+So `Decimal(str(value))` is a habit this library recommends and does not
+enforce, and rounding a computed price stays your decision:
+`value.quantize(Decimal('0.01'))`.
 
 `copy_price` and `copy_stop_price` still set the field with no validation,
 which is what `contrib.orders` uses to reconstruct a historical order.

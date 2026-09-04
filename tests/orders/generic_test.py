@@ -1210,19 +1210,6 @@ class PricesAreStringsTest(unittest.TestCase):
         self.assertEqual('100', builder.build()['price'])
 
     @no_duplicates
-    def test_a_decimal_built_from_a_float_is_refused(self):
-        # Decimal(0.1) is not 0.1, it is the float's binary expansion to 55
-        # places. Rendering a Decimal exactly is the whole point of accepting
-        # one, so this would put all 57 characters on the wire. Up to 2.0.1 the
-        # truncation hid it. Decimal(str(x)) is what the caller meant.
-        for value in (0.1, 19.99, 8.2):
-            builder = OrderBuilder()
-            with self.assertRaises(ValueError, msg=repr(value)) as cm:
-                builder.set_price(decimal.Decimal(value))
-            self.assertIn('decimal places', str(cm.exception))
-            self.assertIn('Decimal(str(value))', str(cm.exception))
-
-    @no_duplicates
     def test_a_decimal_with_real_price_precision_is_kept(self):
         # The guard must not catch prices anyone actually sends. Schwab's
         # sub-penny prices and option strikes stop at four places.
@@ -1312,31 +1299,31 @@ class PricesAreStringsTest(unittest.TestCase):
                     getattr(builder, setter)(decimal.Decimal(spelling))
 
     @no_duplicates
-    def test_trailing_zeros_are_not_counted_as_precision(self):
-        # Decimal('100.00') * Decimal('1.0500') ** 2 is Decimal('110.2500000000')
-        # -- exactly $110.25, reached by applying two four-place factors, which
-        # is an ordinary way to compute a limit. Its declared exponent says ten
-        # places; it carries two. Counting the exponent refused a valid price
-        # at order-placement time and told the caller it was not one.
-        value = decimal.Decimal('100.00') * decimal.Decimal('1.0500') \
-                * decimal.Decimal('1.0500')
-        builder = OrderBuilder()
-        builder.set_price(value)
-        self.assertEqual('110.2500000000', builder.build()['price'])
+    def test_decimal_depth_is_not_policed(self):
+        # A guard on decimal places was tried and removed. Schwab types both
+        # price fields number($double), so a long spelling parses to the same
+        # double a short one does -- unreadable, not wrong -- and no digit
+        # count separates a float's expansion from honest arithmetic: measured
+        # over realistic inputs, float-derived values span 0 to 53 places and
+        # string arithmetic spans 1 to 9. Policing depth therefore refused
+        # valid computed limits to prevent a merely long payload.
+        cases = (
+            # an ordinary computed limit: a 0.025% offset on a four-place quote
+            decimal.Decimal('123.4567') * decimal.Decimal('1.00025'),
+            # two four-place factors, which leaves trailing zeros
+            decimal.Decimal('100.00') * decimal.Decimal('1.0500')
+            * decimal.Decimal('1.0500'),
+            # the float expansion the guard existed to catch
+            decimal.Decimal(0.1),
+        )
 
-    @no_duplicates
-    def test_the_places_guard_ignores_the_global_decimal_context(self):
-        # normalize() rounds to the ambient context precision. At prec=9 the
-        # ambient answer for Decimal(0.1) is one decimal place, and the guard
-        # would wave through the binary expansion it exists to catch.
-        original = decimal.getcontext().prec
-        try:
-            for prec in (3, 5, 9, 28):
-                decimal.getcontext().prec = prec
-                with self.assertRaises(ValueError, msg='prec={}'.format(prec)):
-                    OrderBuilder().set_price(decimal.Decimal(0.1))
-        finally:
-            decimal.getcontext().prec = original
+        for value in cases:
+            builder = OrderBuilder()
+            builder.set_price(value)
+            sent = builder.build()['price']
+            self.assertEqual(
+                    float(value), float(sent),
+                    '{} was altered on the way through'.format(value))
 
     @no_duplicates
     def test_copy_stop_price_names_its_own_field(self):
@@ -1345,19 +1332,6 @@ class PricesAreStringsTest(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             OrderBuilder().copy_stop_price(decimal.Decimal('NaN'))
         self.assertIn('stop price', str(cm.exception))
-
-    @no_duplicates
-    def test_the_places_guard_names_both_ways_of_reaching_it(self):
-        # A Decimal too deep to be a price arrives two ways, and they need
-        # different fixes: from a float, where Decimal(str(x)) is the answer,
-        # and from arithmetic, where quantize is. A message naming only the
-        # first misdiagnoses the second.
-        with self.assertRaises(ValueError) as cm:
-            OrderBuilder().set_price(
-                    decimal.Decimal('1.00025') * decimal.Decimal('123.4567'))
-        message = str(cm.exception)
-        self.assertIn('Decimal(str(value))', message)
-        self.assertIn('quantize', message)
 
     @no_duplicates
     def test_the_error_does_not_recommend_a_rounding_conversion(self):

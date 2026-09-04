@@ -107,7 +107,11 @@ class OptionSymbol:
         strike = None
         try:
             strike = float(strike_price_as_string)
-        except ValueError:
+        except (TypeError, ValueError):
+            # TypeError as well as ValueError: a strike that is not a string
+            # at all -- None from a chain lookup that missed, most often --
+            # raises TypeError out of float() with a message about float()'s
+            # arguments, naming neither the strike nor the symbol.
             pass
         # math.isfinite as well as the positivity check: float('nan') parses,
         # and `nan <= 0` is False, so a strike of 'nan' or 'inf' used to pass
