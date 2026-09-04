@@ -199,6 +199,10 @@ class StreamClient(EnumEnforcer):
         self._request_id = 0
         self._handlers = defaultdict(list)
 
+        # Callbacks for failures this client absorbs rather than raising. See
+        # add_error_handler.
+        self._error_handlers = []
+
         # Tasks for handlers which turned out to be coroutines. The event loop
         # only holds a weak reference to a running task, so a task which nothing
         # else refers to can be garbage collected before it finishes. Hold onto
@@ -561,6 +565,57 @@ class StreamClient(EnumEnforcer):
 
         await self._request_response(request, request_id, service, command)
 
+    def add_error_handler(self, error_handler):
+        '''
+        Registers a callback for failures this client absorbs rather than
+        raising.
+
+        Two things reach it. A stream handler which raises is logged and
+        skipped, because one misbehaving handler must not stop the others or
+        drop the connection; and a connection which fails to close after logout
+        is logged, because the logout itself succeeded. Both are the right
+        behaviour and both leave the caller with nothing to react to but a log
+        record.
+
+        That matters most where a fallback covers for the stream. If a
+        subscription quietly stops delivering, and a REST poll is authoritative
+        anyway, nothing is wrong until something the poll does not cover
+        finally breaks. A silent failure a fallback hides is the one worth
+        having a signal for.
+
+        ``error_handler`` is called as ``error_handler(service, exception,
+        message)``:
+
+        * ``service`` is the stream service the failure belongs to, or ``None``
+          where it has none -- the close failure, or a message which named no
+          service.
+        * ``exception`` is the exception that was raised.
+        * ``message`` is the message being handled, or ``None``.
+
+        It is called for effect and its return value is ignored. If it raises,
+        that is logged and swallowed: a callback for absorbed failures must not
+        become a way to fail. Handlers are called in registration order, and
+        registering none keeps the current behaviour exactly.
+        '''
+        self._error_handlers.append(error_handler)
+
+    def _report_error(self, exception, *, service=None, message=None):
+        '''Delivers ``exception`` to every registered error handler.
+
+        Alongside the logging rather than instead of it, so nothing regresses
+        for a caller who registers nothing.
+        '''
+        for error_handler in self._error_handlers:
+            try:
+                error_handler(service, exception, message)
+            except Exception:
+                # Logged, not reported: reporting an error handler's failure
+                # through the error handlers is a loop, and the whole point of
+                # this callback is that it cannot take the stream down.
+                self.logger.exception(
+                        'Error handler raised while reporting an error. '
+                        'Ignoring it.')
+
     def _on_handler_task_done(self, task):
         self._handler_tasks.discard(task)
 
@@ -573,6 +628,9 @@ class StreamClient(EnumEnforcer):
                     'Asynchronous stream handler raised an exception. The '
                     'message it was handling has been dropped.',
                     exc_info=exception)
+            # The service and the message are not recoverable here -- the task
+            # outlived the dispatch that created it.
+            self._report_error(exception)
 
     def _dispatch_to_handlers(self, service, msg, *, relabel):
         '''
@@ -593,11 +651,12 @@ class StreamClient(EnumEnforcer):
                 # unexpected shape can fail here rather than in the handler.
                 payload = handler.label_message(msg) if relabel else msg
                 result = handler(payload)
-            except Exception:
+            except Exception as exc:
                 self.logger.exception(
                         'Stream handler for service %s raised an exception. '
                         'The message it was handling has been dropped.',
                         service)
+                self._report_error(exc, service=service, message=msg)
                 continue
 
             # Check if the result is an awaitable, if so schedule it. This
@@ -749,9 +808,10 @@ class StreamClient(EnumEnforcer):
             # went wrong with the logout itself, which is the more useful error.
             try:
                 await self.close()
-            except Exception:
+            except Exception as exc:
                 self.logger.exception(
                         'Failed to close the stream connection after logout.')
+                self._report_error(exc)
 
     async def close(self):
         '''

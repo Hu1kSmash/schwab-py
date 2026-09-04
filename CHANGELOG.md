@@ -17,6 +17,58 @@ current model.
 
 ## Unreleased
 
+### Added
+
+**`StreamClient.add_error_handler`.** A stream handler which raises is logged
+and skipped, and a connection which fails to close after logout is logged. Both
+are the right behaviour, and both leave the caller with a log record rather than
+something to react to. The only way to react was to attach a `logging.Handler`
+and match on message text, which every consumer who cared had to write and which
+coupled them to strings this library is free to reword.
+
+```python
+def on_stream_error(service, exception, message):
+    alert('schwab stream: %s raised %r' % (service, exception))
+
+stream_client.add_error_handler(on_stream_error)
+```
+
+Registering none keeps the existing behaviour exactly, and the log line is
+written either way.
+
+It is wired at **three** sites, not two. A synchronous handler's exception
+passes through an `except` block; an asynchronous handler's does not -- it
+surfaces in the task's done callback, at a different logging level, in a
+different function, with no `except` around it. A callback wired only where the
+`except` clauses are would look complete and cover synchronous handlers only,
+which for this purpose is worse than none: it turns "no signal" into "a signal,
+and it is quiet". There is a test that fails if the async site is left unwired
+and passes if only the synchronous one is checked.
+
+This matters most where a fallback covers for the stream. A subscription that
+quietly stops delivering costs nothing while a REST poll is authoritative, and
+then costs something the day it covers a case the poll does not. A silent
+failure that a fallback hides is the one most worth having a signal for.
+
+### Documented
+
+**Relabeling is not applied uniformly, and the docs said nothing about it.**
+Content on the `data` channel is relabeled from numeric field ids to names.
+Content on the `notify` channel is forwarded unchanged, ids intact. Both reach
+the same handlers, so a handler assuming relabeling mis-parses a notify frame --
+by finding nothing rather than by raising, since the keys it looks for are
+simply absent. The Data Field Relabeling section explained the mechanism and
+never mentioned the exception.
+
+**What `ACCT_ACTIVITY` payloads actually look like.** Schwab documents the
+three top-level fields and nothing inside `MESSAGE_DATA`, so every consumer
+reverse-engineers it privately. The order identifier appears under seven
+spellings, the symbol under four, and both `CANCELED` and `CANCELLED` occur in
+Schwab's own status tokens. That is now written down, contributed from about a
+year of one fleet's production traffic and labelled as an observation log rather
+than a contract -- nothing in it is validated by this library, and a shape that
+fleet never saw is not thereby impossible.
+
 ### Changed
 
 **This fork no longer tracks upstream.** Through 2.1.0 every change was branched from a mirror of
