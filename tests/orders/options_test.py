@@ -64,6 +64,20 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_a_strike_too_large_for_the_symbol_is_refused(self):
+        # The strike field is eight digits of thousandths, so it stops just
+        # below $100,000. Past that the format silently widened: '700000' gave
+        # a 22-character symbol with a nine-digit strike. The realistic way to
+        # get here is a strike already in cents or thousandths.
+        for strike in ('100000', '250000', '700000', '99999999'):
+            with self.assertRaises(ValueError, msg=strike):
+                OptionSymbol('BRKA', datetime.date(2024, 5, 10), 'C', strike)
+
+        # The boundary itself is representable, and the symbol stays 21 chars.
+        op = OptionSymbol('BRKA', datetime.date(2024, 5, 10), 'C', '99999.999')
+        self.assertEqual(21, len(op.build()))
+        self.assertTrue(op.build().endswith('99999999'))
+
     def test_a_strike_finer_than_a_tenth_of_a_cent_is_refused(self):
         # The symbol encodes thousandths, so int() used to drop the rest
         # silently: '2.0019' became 00002001, a $2.001 contract, and '0.0005'
@@ -83,17 +97,27 @@ class OptionSymbolTest(unittest.TestCase):
         # money-handling application setting its own precision is not unusual,
         # and the point of scaling in decimal is that it is exact.
         import decimal
-        original = decimal.getcontext().prec
+        original = decimal.getcontext()
         try:
-            for prec in (2, 5, 9, 28):
-                decimal.getcontext().prec = prec
+            # prec alone, and then the whole context: localcontext() copies the
+            # ambient one, so Emax, Emin and the traps come along unless a
+            # fresh Context is supplied. Under Emax=3 a strike of '500' raised
+            # decimal.Overflow from the constructor, and with Overflow
+            # untrapped it returned Infinity -- which is integral, so the
+            # granularity check passed it and build() died converting it.
+            contexts = [decimal.Context(prec=p) for p in (2, 5, 9, 28)]
+            contexts.append(decimal.Context(prec=28, Emax=3, Emin=-3))
+            contexts.append(decimal.Context(prec=28, Emax=3, Emin=-3, traps=[]))
+
+            for ctx in contexts:
+                decimal.setcontext(ctx)
                 op = OptionSymbol(
                         'AAPL', datetime.date(2024, 5, 10), 'C', '1234.567')
                 self.assertTrue(
                         op.build().endswith('01234567'),
-                        'prec={} gave {}'.format(prec, op.build()))
+                        '{} gave {}'.format(ctx, op.build()))
         finally:
-            decimal.getcontext().prec = original
+            decimal.setcontext(original)
 
     def test_non_finite_strike_is_refused_at_construction(self):
         # float('nan') parses and `nan <= 0` is False, so these used to pass

@@ -333,6 +333,11 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # login adds `ssl` to these before handing them to websockets. The
         # dict belongs to the caller, who may well be holding one and reusing
         # it across logins -- it must not come back with our key in it.
+        #
+        # This guards the invariant rather than any particular change to it:
+        # the version this replaced also copied, just at the top of the
+        # function instead of the bottom. It is here because the copy is easy
+        # to drop while rearranging, and nothing else would notice.
         self.client = StreamClient(self.http_client, ssl_context='ssl_context')
 
         self.http_client.get_user_preferences.return_value = MockResponse(

@@ -5,6 +5,11 @@ import datetime
 from schwab.orders.generic import OrderBuilder
 
 
+# The symbol encodes the strike as eight digits of thousandths, so the largest
+# it can carry is $99,999.999.
+_MAX_ENCODABLE_STRIKE_THOUSANDTHS = 99999999
+
+
 def _scale_strike(strike_price):
     '''Scales a strike to the thousandths the symbol encodes, exactly.
 
@@ -16,8 +21,13 @@ def _scale_strike(strike_price):
     names a different contract. The point of this function is that the scaling
     is exact, so it should not depend on a setting made elsewhere.
     '''
-    with decimal.localcontext() as ctx:
-        ctx.prec = 28
+    # A fresh Context, not localcontext() with prec set: localcontext copies
+    # the ambient one, so Emax, Emin and the traps came along. Under
+    # Context(prec=28, Emax=3, Emin=-3) a strike of '500' raised
+    # decimal.Overflow out of the constructor, and with Overflow untrapped it
+    # returned Infinity, which is integral -- so the granularity check passed
+    # it and build() died on `cannot convert Infinity to integer`.
+    with decimal.localcontext(decimal.Context(prec=28)):
         return decimal.Decimal(strike_price) * 1000
 
 
@@ -142,6 +152,20 @@ class OptionSymbol:
                 'strike price {} is finer than a tenth of a cent, which an '
                 'option symbol cannot represent. Round it to at most three '
                 'decimal places.'.format(strike_price_as_string))
+
+        # The symbol's strike field is eight digits of thousandths, so it tops
+        # out just under $100,000. Beyond that the format silently widens:
+        # '700000' produced a 22-character symbol with a nine-digit strike.
+        # The realistic way to arrive here is a strike already expressed in
+        # cents or thousandths -- '250000' meaning $250.00 -- which deserves
+        # the same clear refusal as the too-fine case rather than a malformed
+        # symbol.
+        if scaled > _MAX_ENCODABLE_STRIKE_THOUSANDTHS:
+            raise ValueError(
+                'strike price {} does not fit an option symbol, whose strike '
+                'field is eight digits of thousandths and so stops just below '
+                '$100,000. If this is already in cents or thousandths, pass '
+                'it in dollars.'.format(strike_price_as_string))
 
         self.strike_price = strike_price_as_string
 

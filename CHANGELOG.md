@@ -147,6 +147,15 @@ have set. At `prec=5`, a strike of `1234.5678` encoded as `01234600` -- a
 different contract. The scaling runs in a local context now, since the point of
 doing it in `decimal` is that it is exact.
 
+**`OptionSymbol` accepted strikes it could not encode.** The symbol's strike
+field is eight digits of thousandths, so it cannot carry more than three
+decimal places and stops just below `$100,000`. Neither limit was checked: a
+strike of `2.0019` was truncated to `00002001`, naming a `$2.001` contract, and
+`0.0005` became a strike of zero, while `700000` widened the field and produced
+a 22-character symbol. Both are refused at construction now, where the strike
+is still in hand, rather than producing a symbol for a different contract or
+none.
+
 **Option symbols encoded some strike prices a tenth of a cent low.**
 `OptionSymbol.build()` scaled the strike by 1000 as a binary float and
 truncated with `int()`, which truncates the representation error along with the
