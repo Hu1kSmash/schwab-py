@@ -263,22 +263,25 @@ An error handler is called for effect. If it raises an ``Exception``, that is
 logged and swallowed: a callback for absorbed failures must not itself become a
 way to fail. A ``BaseException`` — ``CancelledError`` during shutdown, or
 ``SystemExit`` — is left to propagate, since swallowing those breaks
-cancellation and process exit.
+cancellation and process exit. Where it propagates to depends on which failure
+was being reported: into your receive loop for a synchronous handler, into the
+failing handler's own task for an asynchronous one.
 
-``close()`` waits for in-flight handlers before returning, so a report scheduled
-on the way down is not lost when the loop stops. Two consequences worth knowing:
+**The handler runs inline, and a coroutine one is awaited.** The report finishes
+before the call that reported the failure returns. Three consequences worth
+knowing:
 
+* **Keep it quick.** It runs on the path that found the failure, so a handler
+  that blocks holds up ``handle_message`` — exactly as a slow synchronous
+  handler always has. If you need to do something slow, hand off to a task of
+  your own and return.
 * An error handler may itself call ``close()`` or ``logout()``. Tearing the
-  stream down is a reasonable reaction to a failure, and it will not deadlock,
-  however many handlers do it at once.
-* The wait is bounded. A handler that blocks — posting an alert to something
-  slow, with no timeout of its own — will not hang shutdown; the drain stops
-  waiting after ten seconds and logs it. It stops *waiting*: the handler is left
-  running rather than cancelled, since killing it mid-publish would destroy the
-  report the wait exists to preserve.
-* Registering no error handler leaves ``close()`` exactly as it was. The wait
-  happens because there is something to deliver, so with nothing registered
-  there is nothing to wait for — a reconnect loop does not start stalling.
+  stream down is a reasonable reaction to a failure, and it is safe however many
+  handlers do it, because nothing is waiting on a set of scheduled reports.
+* ``close()`` does not wait for stream handlers you have in flight. If an
+  ``async`` stream handler is still running when you close, it has not failed
+  yet and so has not reported yet. Await your own handler tasks first if you
+  need their reports.
 
 .. automethod:: schwab.streaming.StreamClient.add_error_handler
 

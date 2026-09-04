@@ -6620,7 +6620,6 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # The failure surfaces when the task completes, not when it is created.
         await asyncio.gather(*self.client._handler_tasks,
                              return_exceptions=True)
-        await asyncio.sleep(0)
 
         self.assertEqual(1, len(errors), 'async handler failure not reported')
         service, exc, msg = errors[0]
@@ -6650,68 +6649,19 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         boom = ValueError('handler blew up')
         await self.subscribe_and_deliver(ws_connect, Mock(side_effect=boom))
-        await asyncio.gather(*self.client._error_handler_tasks,
-                             return_exceptions=True)
 
+        # No gathering: the report is awaited where it is made, so it has
+        # already happened by the time handle_message returns.
         self.assertEqual(1, len(errors), 'coroutine error handler never ran')
         self.assertIs(boom, errors[0][1])
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_close_waits_for_a_coroutine_error_handler(self, ws_connect):
-        # A coroutine error handler that awaits anything -- publishing an
-        # alert, which is the documented example -- has not resumed when
-        # close() is called. Without draining, the loop shutting down cancels
-        # it, and the report of the failure immediately before the process went
-        # down is the one guaranteed to be lost.
-        delivered = []
-
-        async def on_stream_error(service, exc, msg):
-            await asyncio.sleep(0)
-            delivered.append(exc)
-
-        self.client.add_error_handler(on_stream_error)
-
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
-        await self.client.close()
-
-        self.assertEqual(1, len(delivered),
-                         'the last report before shutdown was lost')
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_close_still_closes_if_the_drain_is_cancelled(
-            self, ws_connect):
-        # gather re-raises CancelledError, so draining before closing meant a
-        # cancellation during the drain left the socket open and _socket set --
-        # and logout's finally catches Exception, which does not catch
-        # CancelledError, so the connection leaked on exactly the shutdown path
-        # that finally exists to cover.
-        async def never_finishes(service, exc, msg):
-            await asyncio.sleep(30)
-
-        self.client.add_error_handler(never_finishes)
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
-
-        socket = self.client._socket
-        closing = asyncio.ensure_future(self.client.close())
-        await asyncio.sleep(0)
-        closing.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await closing
-
-        socket.close.assert_awaited()
-        self.assertIsNone(self.client._socket)
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_an_error_handler_may_close_the_stream(self, ws_connect):
-        # Tearing the stream down is a natural reaction to this signal. The
-        # handler runs as a task in _error_handler_tasks, so a drain which
-        # gathered that whole set would include the handler's own task and wait
-        # on itself -- permanently, and not cancellable.
+        # Tearing the stream down is a natural reaction to this signal, and it
+        # has to be safe however many handlers do it. Reporting inline is what
+        # makes that true: there is no set of scheduled reports for close() to
+        # wait on, so nothing can wait on itself.
         closed = []
 
         async def close_on_error(service, exc, msg):
@@ -6719,133 +6669,22 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             closed.append(True)
 
         self.client.add_error_handler(close_on_error)
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
-
         await asyncio.wait_for(
-                asyncio.gather(*self.client._error_handler_tasks,
-                               return_exceptions=True),
+                self.subscribe_and_deliver(
+                        ws_connect,
+                        Mock(side_effect=ValueError('handler blew up'))),
                 timeout=5.0)
 
         self.assertEqual([True], closed)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_two_error_handlers_may_both_close_the_stream(
-            self, ws_connect):
-        # Excluding only the current task is not enough. Two handlers reacting
-        # to two failures in the same batch each drain, each waits on the
-        # other, and the cycle cannot be cancelled -- cancellation recurses
-        # through the mutually-gathering children until it hits the recursion
-        # limit and the process hangs for good.
-        closed = []
-
-        async def close_on_error(service, exc, msg):
-            await self.client.close()
-            closed.append(True)
-
-        self.client.add_error_handler(close_on_error)
-
-        socket = await self.login_and_get_socket(ws_connect)
-        socket.recv.side_effect = [
-            json.dumps(self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')),
-            json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
-        ]
-        # Two handlers on the same service, so one frame produces two reports.
-        self.client.add_level_one_equity_handler(
-                Mock(side_effect=ValueError('first blew up')))
-        self.client.add_level_one_equity_handler(
-                Mock(side_effect=ValueError('second blew up')))
-
-        await self.client.level_one_equity_subs(['GOOG'])
-        await self.client.handle_message()
-
-        await asyncio.wait_for(
-                asyncio.gather(*self.client._error_handler_tasks,
-                               return_exceptions=True),
-                timeout=5.0)
-
-        self.assertEqual(2, len(closed))
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_close_does_not_wait_forever_on_a_handler(self, ws_connect):
-        # Handler code belongs to the caller. One posting an alert over HTTP
-        # with no timeout of its own would otherwise hang close(), __aexit__
-        # and logout's finally for as long as the far end took.
-        async def never_returns(service, exc, msg):
-            await asyncio.sleep(300)
-
-        self.client.add_error_handler(never_returns)
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
-
-        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 0.25):
-            await asyncio.wait_for(self.client.close(), timeout=5.0)
-
-        self.assertIsNone(self.client._socket)
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_the_drain_timeout_does_not_cancel_the_handler(
-            self, ws_connect):
-        # Giving up on waiting is not the same as killing the work. Cancelling
-        # a handler mid-publish destroys the very report the drain exists to
-        # preserve -- an alert half-sent is worse than one merely not waited
-        # for -- so the timeout leaves it running.
-        observed = {}
-
-        async def slow(service, exc, msg):
-            try:
-                await asyncio.sleep(0.4)
-                observed['finished'] = True
-            except asyncio.CancelledError:
-                observed['cancelled'] = True
-                raise
-
-        self.client.add_error_handler(slow)
-        await self.subscribe_and_deliver(
-                ws_connect, Mock(side_effect=ValueError('handler blew up')))
-
-        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 0.05):
-            await self.client.close()
-
-        await asyncio.sleep(0.6)
-        self.assertNotIn('cancelled', observed)
-        self.assertTrue(observed.get('finished'))
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_close_does_not_wait_on_handlers_with_no_error_handler(
-            self, ws_connect):
-        # "Registering none keeps the current behaviour exactly" has to hold
-        # for close() too. Draining unconditionally made every reconnect --
-        # close() then login() again -- stall on unrelated in-flight stream
-        # handlers, for a report nobody had asked to receive.
-        started = asyncio.Event()
-
-        async def slow_handler(msg):
-            started.set()
-            await asyncio.sleep(30)
-
-        await self.subscribe_and_deliver(ws_connect, slow_handler)
-        await started.wait()
-
-        with patch('schwab.streaming._ERROR_DRAIN_TIMEOUT', 30):
-            await asyncio.wait_for(self.client.close(), timeout=2.0)
-
-        for task in tuple(self.client._handler_tasks):
-            task.cancel()
-
-    @no_duplicates
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_close_waits_for_an_async_stream_handler_to_fail(
             self, ws_connect):
-        # The commonest configuration, and the one the drain originally
-        # missed. An async stream handler still pending at close() has not
-        # raised yet, so nothing is in _error_handler_tasks and a drain that
-        # only covered those returned immediately -- then the handler failed,
-        # scheduled its report, and nothing was left to await it.
+        # An async stream handler's failure is reported from inside its own
+        # task, before that task completes -- so awaiting the handler task is
+        # enough, and there is no second set of scheduled reports that could
+        # outlive it.
         delivered = []
 
         async def on_stream_error(service, exc, msg):
@@ -6859,12 +6698,11 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.client.add_error_handler(on_stream_error)
         await self.subscribe_and_deliver(ws_connect, failing_handler)
 
-        # Deliberately no gathering of _handler_tasks by hand: close() is
-        # supposed to be sufficient.
-        await self.client.close()
+        await asyncio.gather(*self.client._handler_tasks,
+                             return_exceptions=True)
 
         self.assertEqual(1, len(delivered),
-                         'an async stream handler\'s report was lost at close')
+                         'an async stream handler\'s report was lost')
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -6890,6 +6728,27 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(1, len(delivered),
                          'the close-failure report was never awaited')
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_coroutine_report_finishes_before_the_call_returns(
+            self, ws_connect):
+        # This is what replaced the drain. Awaiting the report where it is made
+        # means there is nothing scheduled to outlive the call, so nothing has
+        # to be kept alive at shutdown -- and nothing can deadlock, time out or
+        # be cancelled half-delivered keeping it alive.
+        order = []
+
+        async def on_stream_error(service, exc, msg):
+            await asyncio.sleep(0)
+            order.append('reported')
+
+        self.client.add_error_handler(on_stream_error)
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+        order.append('handle_message returned')
+
+        self.assertEqual(['reported', 'handle_message returned'], order)
 
     @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):

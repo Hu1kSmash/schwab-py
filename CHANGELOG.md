@@ -53,28 +53,14 @@ passes if only the synchronous one is checked, and the async case asserts on the
 service name as well as the exception -- reporting it as `None` would satisfy a
 weaker assertion while making "mark this subscription unhealthy" impossible.
 
-The handler may be a coroutine function, like every other handler on this class.
-Calling one without awaiting drops the coroutine and runs none of its body,
-which is the same quiet failure in a different place. `close()` waits for
-scheduled error handlers, because one that awaits anything -- publishing an
-alert, which is the documented example -- has not resumed when the loop goes
-down, and the report of the failure immediately before shutdown is the one most
-worth having. It closes the socket first and drains afterwards, so a
-cancellation mid-drain cannot leave the connection open.
-
-The drain waits on pending stream-handler tasks as well as error-handler ones,
-because a handler that has not raised yet has not scheduled its report yet --
-draining only the error handlers returned immediately and then lost exactly that
-report, which is the commonest configuration. It is re-entrant, so any number of
-handlers may respond to a failure by calling `close()` without deadlocking. And
-it is bounded in time: handler code belongs to the caller, and one that blocks
-must not hang every shutdown path. Bounded means it stops waiting, not that it
-cancels -- killing a handler mid-publish destroys the report the wait exists to
-preserve.
-
-The wait only happens when an error handler is registered. Draining regardless
-made `close()` block on unrelated in-flight stream handlers, so a reconnect loop
-stalled for a report nobody had asked to receive.
+The handler may be a coroutine function, like every other handler on this class,
+and it is **awaited** rather than scheduled — the report finishes before the call
+that found the failure returns. That keeps the report reliable with no machinery
+to keep it alive: nothing to drain at shutdown, so nothing that can deadlock,
+time out or be cancelled half-delivered while draining. The cost is that the
+handler runs on the path that found the failure, so a slow one holds up
+`handle_message`, exactly as a slow synchronous handler always has. Hand off to
+your own task if you need to do something slow.
 
 A handler of the wrong shape is refused at registration rather than discovered
 at report time. Every other `add_*_handler` here takes a one-argument callback,
@@ -82,11 +68,6 @@ so `add_error_handler(lambda exc: ...)` is the natural mistake -- and it would
 raise `TypeError` on every report, inside the `except` clause that exists to
 stop an error handler failing the stream, so it would never run and never say
 so.
-
-This matters most where a fallback covers for the stream. A subscription that
-quietly stops delivering costs nothing while a REST poll is authoritative, and
-then costs something the day it covers a case the poll does not. A silent
-failure that a fallback hides is the one most worth having a signal for.
 
 ### Documented
 

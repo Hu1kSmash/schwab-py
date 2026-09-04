@@ -5,9 +5,7 @@ from enum import Enum
 import asyncio
 import copy
 import httpx2
-import functools
 import inspect
-import time
 import json
 import logging
 import schwab
@@ -60,16 +58,6 @@ class _BaseFieldEnum(Enum):
             if old_key in cls.key_mapping():
                 new_key = cls.key_mapping()[old_key]
                 new_msg[new_key] = new_msg.pop(old_key)
-
-
-# How many times close() will wait for in-flight handler work before giving up.
-# Each pass can schedule more, so this is a bound rather than a count.
-_MAX_ERROR_DRAIN_PASSES = 8
-
-# How long close() will wait for that work in total. Handler code belongs to the
-# caller and a shutdown path cannot wait on it forever. Waiting stops at this
-# point; the work itself is left running rather than cancelled.
-_ERROR_DRAIN_TIMEOUT = 10.0
 
 
 class UnexpectedResponse(Exception):
@@ -212,11 +200,8 @@ class StreamClient(EnumEnforcer):
         self._handlers = defaultdict(list)
 
         # Callbacks for failures this client absorbs rather than raising. See
-        # add_error_handler. Coroutine error handlers are scheduled, so their
-        # tasks are held for the same reason _handler_tasks are.
+        # add_error_handler.
         self._error_handlers = []
-        self._error_handler_tasks = set()
-        self._draining_error_handlers = False
 
         # Tasks for handlers which turned out to be coroutines. The event loop
         # only holds a weak reference to a running task, so a task which nothing
@@ -623,6 +608,14 @@ class StreamClient(EnumEnforcer):
         propagate, because swallowing those breaks cancellation and process
         exit, which are worse outcomes than the masking.
 
+        Where it propagates *to* depends on which failure was being reported.
+        Reporting a synchronous handler's failure happens inside
+        ``handle_message``, so it reaches your receive loop. Reporting an
+        asynchronous handler's happens inside that handler's own task, so it
+        reaches whoever awaits the task, or the event loop's exception handler
+        if nobody does. A ``SystemExit`` from an error handler therefore exits
+        the process in the first case and not necessarily in the second.
+
         Handlers are called in registration order, and registering none keeps
         the current behaviour exactly.
         '''
@@ -656,15 +649,27 @@ class StreamClient(EnumEnforcer):
 
         self._error_handlers.append(error_handler)
 
-    def _report_error(self, exception, *, service=None, message=None):
+    async def _report_error(self, exception, *, service=None, message=None):
         '''Delivers ``exception`` to every registered error handler.
 
         Alongside the logging rather than instead of it, so nothing regresses
         for a caller who registers nothing.
+
+        Awaited rather than scheduled. A coroutine error handler therefore
+        finishes before the call that reported the failure returns, which is
+        what makes the report reliable without any machinery to keep the task
+        alive: nothing has to be drained at shutdown, so nothing can deadlock
+        draining it, time out draining it, or be cancelled half-drained. An
+        earlier version scheduled these and grew a drain to protect them; the
+        drain went on to leak the socket, deadlock against itself, deadlock
+        against a second copy of itself, and finally to skip the report it
+        existed to protect. Awaiting is the version with none of those.
         '''
         for error_handler in self._error_handlers:
             try:
                 result = error_handler(service, exception, message)
+                if inspect.isawaitable(result):
+                    await result
             except Exception:
                 # Logged, not reported: reporting an error handler's failure
                 # through the error handlers is a loop, and the whole point of
@@ -672,55 +677,32 @@ class StreamClient(EnumEnforcer):
                 self.logger.exception(
                         'Error handler raised while reporting an error. '
                         'Ignoring it.')
-                continue
 
-            # Coroutine error handlers are scheduled, the same way coroutine
-            # stream handlers are. Every other add_*_handler on this class
-            # accepts one, so writing `async def on_stream_error(...)` is the
-            # natural mistake -- and calling it without awaiting drops the
-            # coroutine, runs none of the body, and leaves nothing but a
-            # RuntimeWarning most consumers filter. That is precisely the
-            # "a signal, and it is quiet" failure this callback exists to
-            # prevent, reproduced inside the callback itself.
-            if inspect.isawaitable(result):
-                task = asyncio.ensure_future(result)
-                self._error_handler_tasks.add(task)
-                task.add_done_callback(self._on_error_handler_task_done)
-
-    def _on_error_handler_task_done(self, task):
-        self._error_handler_tasks.discard(task)
-
-        if task.cancelled():
-            # Cancellation means the report never landed. Nothing else will say
-            # so, and the failure it was reporting is now unreported too.
-            self.logger.warning(
-                    'An asynchronous error handler was cancelled before it '
-                    'finished. The error it was reporting has not been '
-                    'delivered.')
-            return
-
-        exception = task.exception()
-        if exception is not None:
-            # Logged rather than reported, for the same reason as above.
-            self.logger.error(
-                    'Asynchronous error handler raised while reporting an '
-                    'error. Ignoring it.', exc_info=exception)
-
-    def _on_handler_task_done(self, task, *, service=None, message=None):
+    def _on_handler_task_done(self, task):
         self._handler_tasks.discard(task)
 
-        if task.cancelled():
-            return
+    async def _run_handler(self, awaitable, service, payload):
+        '''Awaits a coroutine handler and reports its failure from inside its
+        own task.
 
-        exception = task.exception()
-        if exception is not None:
+        The alternative is a done callback, which is synchronous and so cannot
+        await a coroutine error handler -- it has to schedule one, and then
+        something has to keep that alive until it finishes. Reporting here
+        keeps the report inside the task the caller can already see and wait
+        for.
+        '''
+        try:
+            await awaitable
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             self.logger.error(
                     'Asynchronous stream handler raised an exception. The '
                     'message it was handling has been dropped.',
-                    exc_info=exception)
-            self._report_error(exception, service=service, message=message)
+                    exc_info=exc)
+            await self._report_error(exc, service=service, message=payload)
 
-    def _dispatch_to_handlers(self, service, msg, *, relabel):
+    async def _dispatch_to_handlers(self, service, msg, *, relabel):
         '''
         Delivers ``msg`` to every handler registered for ``service``.
 
@@ -751,22 +733,19 @@ class StreamClient(EnumEnforcer):
                 # payload, not msg: the handler was given the relabeled
                 # message, so that is the one it failed on, and the one an
                 # error handler reading fields by name can make sense of.
-                self._report_error(exc, service=service, message=payload)
+                await self._report_error(
+                        exc, service=service, message=payload)
                 continue
 
             # Check if the result is an awaitable, if so schedule it. This
-            # allows for both sync and async handlers.
+            # allows for both sync and async handlers. It is wrapped so that a
+            # failure is reported from inside the task rather than from a done
+            # callback, which cannot await a coroutine error handler.
             if inspect.isawaitable(result):
-                task = asyncio.ensure_future(result)
+                task = asyncio.ensure_future(
+                        self._run_handler(result, service, payload))
                 self._handler_tasks.add(task)
-                # Bind the service and the message into the callback. Without
-                # this an async handler's failure is reported with no idea
-                # which subscription it came from, which defeats the point of
-                # reporting it -- and async handlers are the normal shape in an
-                # asyncio library.
-                task.add_done_callback(functools.partial(
-                        self._on_handler_task_done,
-                        service=service, message=payload))
+                task.add_done_callback(self._on_handler_task_done)
 
     async def handle_message(self):
         # Read until something arrives which is actually ours. A response to a
@@ -823,13 +802,17 @@ class StreamClient(EnumEnforcer):
                 # as a rejection pages someone over `code None, msg None`.
                 if code is not None and code != 0:
                     # msg, not response: _validate_response builds this same
-                    # exception from the whole frame, so a caller reads
-                    # exc.response['response'][0]['content']. Handing it one
-                    # element would make the same type mean two shapes, and the
-                    # KeyError that follows would be swallowed by
-                    # _report_error's except clause -- leaving nothing but a
-                    # log line, which is what this callback exists to replace.
-                    self._report_error(
+                    # exception from the whole frame, and handing it a single
+                    # element would make one type mean two shapes -- the
+                    # KeyError that followed would be swallowed by
+                    # _report_error's except clause, leaving nothing but a log
+                    # line, which is what this callback exists to replace.
+                    #
+                    # The frame can carry several responses and this reports
+                    # per element, so exc.response['response'][0] is not
+                    # necessarily the one that was rejected. The rejected
+                    # element is what reaches the handler as `message`.
+                    await self._report_error(
                             UnexpectedResponseCode(
                                 msg,
                                 'Schwab rejected a request which had already '
@@ -842,7 +825,8 @@ class StreamClient(EnumEnforcer):
         # data
         if 'data' in msg:
             for d in msg['data']:
-                self._dispatch_to_handlers(d.get('service'), d, relabel=True)
+                await self._dispatch_to_handlers(
+                        d.get('service'), d, relabel=True)
 
         # notify
         if 'notify' in msg:
@@ -852,8 +836,8 @@ class StreamClient(EnumEnforcer):
                 else:
                     # Not every notify message is guaranteed to name a service,
                     # and one that does not must not raise out of here.
-                    self._dispatch_to_handlers(d.get('service'), d,
-                                               relabel=False)
+                    await self._dispatch_to_handlers(
+                            d.get('service'), d, relabel=False)
 
     ##########################################################################
     # LOGIN
@@ -939,7 +923,7 @@ class StreamClient(EnumEnforcer):
                 self.logger.exception(
                         'Failed to close the stream connection after logout.')
                 try:
-                    self._report_error(exc)
+                    await self._report_error(exc)
                 except BaseException:
                     # BaseException is deliberately left to propagate out of
                     # _report_error everywhere else. Not here: this is the
@@ -952,16 +936,6 @@ class StreamClient(EnumEnforcer):
                             'Error handler raised while reporting a close '
                             'failure. Ignoring it.')
 
-                # This report is scheduled after close() has already drained,
-                # so without draining again a coroutine handler for it is never
-                # awaited -- losing the report at one of the three documented
-                # sites, which is what the drain exists to prevent.
-                try:
-                    await self._drain_error_handlers()
-                except Exception:
-                    self.logger.exception(
-                            'Failed to drain error handlers after reporting a '
-                            'close failure. Ignoring it.')
 
     async def close(self):
         '''
@@ -975,109 +949,10 @@ class StreamClient(EnumEnforcer):
         The client must be re-initialized with :meth:`login` to perform further
         operations.
         '''
-        # The socket goes first, and the drain runs in a finally. Draining
-        # first meant a cancellation during the drain -- gather re-raises
-        # CancelledError -- left the socket open and self._socket still set,
-        # and logout's finally catches Exception, which does not catch
-        # CancelledError. The connection leaked on exactly the shutdown path
-        # that finally exists to cover.
         socket, self._socket = self._socket, None
 
-        try:
-            if socket is not None:
-                await socket.close()
-        finally:
-            # A coroutine error handler that awaits anything -- publishing an
-            # alert, which is the documented example -- has not resumed when
-            # close() is called, and the loop shutting down afterwards cancels
-            # it. That loses the report of the failure immediately before the
-            # process went down, which is the one most worth having.
-            await self._drain_error_handlers()
-
-    async def _drain_error_handlers(self):
-        '''Waits for in-flight handler work to finish, so a report scheduled
-        on the way down is not lost when the loop stops.
-
-        Two sets, in order. Pending stream-handler tasks first, because one
-        that has not raised yet has not scheduled its report yet -- draining
-        only the error handlers returns immediately and then loses exactly that
-        report. Then the error handlers themselves.
-
-        Exceptions from either are already logged by their done callbacks, so
-        nothing is re-raised here: draining is about not losing the report, not
-        about propagating what the reporter did with it.
-
-        Re-entrant by design rather than by accident. An error handler which
-        reacts to a failure by tearing the stream down -- ``await
-        client.close()``, a natural reaction to this signal -- re-enters here
-        from inside a task this drain is waiting on. Excluding only the current
-        task is not enough: two such handlers running concurrently each wait on
-        the other, and the resulting cycle cannot even be cancelled, because
-        cancellation recurses through the mutually-gathering children until it
-        hits the recursion limit. A drain already in progress simply returns.
-        '''
-        # Nothing registered means nothing to preserve, and draining anyway
-        # would make close() wait on unrelated in-flight stream handlers --
-        # breaking the promise that registering no error handler leaves
-        # behaviour exactly as it was. A reconnect loop calling close() would
-        # start stalling for no reason.
-        if not self._error_handlers:
-            return
-
-        if self._draining_error_handlers:
-            return
-
-        # Captured here, in the caller's own task. It cannot be read inside a
-        # coroutine wrapped by asyncio.wait_for: below 3.12 wait_for runs the
-        # coroutine in a task of its own, so current_task() there is that inner
-        # task, which is in neither set -- the exclusion silently stops working
-        # and a handler calling close() waits on itself again. setup.py
-        # supports 3.10 and CI runs it, so that is a shipped configuration.
-        current = asyncio.current_task()
-
-        self._draining_error_handlers = True
-        try:
-            await self._drain_until(current,
-                                    time.monotonic() + _ERROR_DRAIN_TIMEOUT)
-        finally:
-            self._draining_error_handlers = False
-
-    async def _drain_until(self, current, deadline):
-        # Bounded by passes as well as by time: work drained in one pass can
-        # schedule more -- a stream handler failing produces a report, and a
-        # report can produce another.
-        for _ in range(_MAX_ERROR_DRAIN_PASSES):
-            pending = tuple(
-                    task
-                    for task in tuple(self._handler_tasks)
-                    + tuple(self._error_handler_tasks)
-                    if task is not current and not task.done())
-
-            if not pending:
-                return
-
-            remaining = deadline - time.monotonic()
-            if remaining > 0:
-                # asyncio.wait rather than gather: on timeout it returns what
-                # is still pending and leaves it running. gather inside a
-                # wait_for would cancel the lot, destroying the very report
-                # this exists to preserve -- an alert half-published is worse
-                # than one merely not waited for.
-                _, still_pending = await asyncio.wait(
-                        pending, timeout=remaining)
-                if not still_pending:
-                    continue
-
-            self.logger.warning(
-                    'Gave up waiting for %d handler task(s) after %ss. They '
-                    'are still running; any error reports they had not '
-                    'finished delivering may not arrive.',
-                    len(pending), _ERROR_DRAIN_TIMEOUT)
-            return
-
-        self.logger.warning(
-                'Handlers were still scheduling more work after %d drain '
-                'passes. Giving up on the rest.', _MAX_ERROR_DRAIN_PASSES)
+        if socket is not None:
+            await socket.close()
 
     async def __aenter__(self):
         return self
