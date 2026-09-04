@@ -14,7 +14,7 @@ called out here rather than left to be inferred from the pull request list.
 
 ---
 
-## Unreleased
+## 2.0.0
 
 ### Changed
 
