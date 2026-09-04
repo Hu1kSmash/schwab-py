@@ -5,6 +5,22 @@ import datetime
 from schwab.orders.generic import OrderBuilder
 
 
+def _scale_strike(strike_price):
+    '''Scales a strike to the thousandths the symbol encodes, exactly.
+
+    In a local context because ``Decimal.__mul__`` rounds to
+    ``decimal.getcontext().prec`` significant digits, which is process-global
+    and something a money-handling application may well have set. At the
+    default 28 any realistic strike survives, but at ``prec=5``
+    ``Decimal('1234.5678') * 1000`` comes back as ``1.2346E+6`` and the symbol
+    names a different contract. The point of this function is that the scaling
+    is exact, so it should not depend on a setting made elsewhere.
+    '''
+    with decimal.localcontext() as ctx:
+        ctx.prec = 28
+        return decimal.Decimal(strike_price) * 1000
+
+
 def _parse_expiration_date(expiration_date):
     date = None
     try:
@@ -163,7 +179,7 @@ class OptionSymbol:
             # between $0.01 and $1000.00 were affected. strike_price is
             # validated as a string on the way in, so Decimal() reads it
             # exactly as written.
-            int(decimal.Decimal(self.strike_price) * 1000)
+            int(_scale_strike(self.strike_price))
         )
 
 

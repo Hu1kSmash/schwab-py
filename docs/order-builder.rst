@@ -324,8 +324,9 @@ chose, and rendering it here decides nothing:
 ``Decimal`` is for prices specifically. The other numeric fields --
 ``quantity``, ``activationPrice``, ``stopPriceOffset``, ``priceOffset`` -- are
 numbers in Schwab's schema rather than strings, so pass an ``int`` or a
-``float`` there. A ``Decimal`` in one of them raises rather than being
-serialized as a string of the wrong JSON type.
+``float`` there. Passing a ``Decimal`` to one of those setters raises
+immediately, naming the field, rather than being serialized as a string of the
+wrong JSON type.
 
 **Build it from a string, not from a float.** ``decimal.Decimal(0.1)`` is not
 ``0.1``; it is that float's binary expansion, ``0.1000000000000000055511...``,

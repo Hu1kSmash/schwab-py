@@ -112,6 +112,12 @@ a field whose messages are labelled something else.
 
 ### Fixed
 
+**`Decimal` is for the price fields only, and is refused elsewhere at the
+setter.** `quantity`, `activationPrice`, `stopPriceOffset` and `priceOffset`
+are `number($double)` in Schwab's schema, so passing a `Decimal` to one raises
+where the field is still known, rather than producing a string of the wrong
+JSON type on a live order.
+
 **`copy_price` and `copy_stop_price` could not take a `Decimal`.** They skip
 validation by design, so a `Decimal` reached the object builder raw -- and
 having no `__dict__`, it fell to the reflection path and raised `vars()
@@ -132,6 +138,13 @@ briefly during this release's development, which is why the test exists.)
 positivity check and failed later inside `build()` as `cannot convert NaN to
 integer`, naming neither the strike nor the symbol. They are refused at
 construction now, next to the positivity check.
+
+**Option strike scaling no longer depends on the global decimal context.**
+`Decimal.__mul__` rounds to `decimal.getcontext().prec` significant digits,
+which is process-global and something a money-handling application may well
+have set. At `prec=5`, a strike of `1234.5678` encoded as `01234600` -- a
+different contract. The scaling runs in a local context now, since the point of
+doing it in `decimal` is that it is exact.
 
 **Option symbols encoded some strike prices a tenth of a cent low.**
 `OptionSymbol.build()` scaled the strike by 1000 as a binary float and

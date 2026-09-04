@@ -64,6 +64,25 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_strike_scaling_ignores_the_global_decimal_context(self):
+        # Decimal.__mul__ rounds to decimal.getcontext().prec significant
+        # digits, which is process-global. At prec=5, '1234.5678' * 1000 comes
+        # back as 1.2346E+6 and the symbol names a different contract. A
+        # money-handling application setting its own precision is not unusual,
+        # and the point of scaling in decimal is that it is exact.
+        import decimal
+        original = decimal.getcontext().prec
+        try:
+            for prec in (2, 5, 9, 28):
+                decimal.getcontext().prec = prec
+                op = OptionSymbol(
+                        'AAPL', datetime.date(2024, 5, 10), 'C', '1234.5678')
+                self.assertTrue(
+                        op.build().endswith('01234567'),
+                        'prec={} gave {}'.format(prec, op.build()))
+        finally:
+            decimal.getcontext().prec = original
+
     def test_non_finite_strike_is_refused_at_construction(self):
         # float('nan') parses and `nan <= 0` is False, so these used to pass
         # the constructor and fail inside build() as `cannot convert NaN to

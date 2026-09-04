@@ -87,7 +87,16 @@ def _assert_finite(name, price):
         if price.is_nan() or price.is_infinite():
             raise ValueError(
                     '{} must be a finite number, got {!r}'.format(name, price))
-        return
+
+        # Only the price fields take a Decimal, and they convert it before
+        # reaching here, so anything still holding one is a numeric field --
+        # quantity, the offsets, the activation price -- which Schwab types as
+        # a number rather than a string. Refused here rather than at build(),
+        # which knows the value but no longer knows which field it came from.
+        raise ValueError(
+                '{} is a number in Schwab\'s schema, not a price string, so '
+                'it does not take a decimal.Decimal. Pass an int or a float. '
+                'Got: {}'.format(name, format(price, 'f')))
 
     if isinstance(price, str):
         try:
@@ -122,6 +131,16 @@ def _render_decimal(value):
     and a ``Decimal`` cannot survive to ``build()`` without becoming one.
     '''
     if isinstance(value, decimal.Decimal):
+        # Refused even here, where nothing else is checked. The float escape
+        # hatch is not equivalent: copy_price(float('nan')) yields a bare NaN,
+        # which json.dumps emits as invalid JSON and a strict parser rejects,
+        # so it cannot quietly become an order. Rendering a non-finite Decimal
+        # produces the well-formed string "NaN", which transmits cleanly. That
+        # is a worse outcome than the crash this replaced, and it is not what
+        # skipping validation is supposed to buy.
+        if value.is_nan() or value.is_infinite():
+            raise ValueError(
+                    'price must be a finite number, got {!r}'.format(value))
         return format(value, 'f')
     return value
 
