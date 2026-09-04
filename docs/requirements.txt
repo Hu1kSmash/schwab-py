@@ -5,9 +5,9 @@
 # docstrings, so whatever is installed here has to satisfy setup.py as well.
 # A pin drifts out of agreement with setup.py silently: nothing fails until the
 # documentation build imports something which is not there.
-authlib>=1.6.0
+authlib>=1.8
 Flask>=3.0.3
-httpx>=0.28.1
+httpx2>=2.12.0
 multiprocess>=0.70.16
 prompt_toolkit>=3.0.43
 psutil>=5.9.8

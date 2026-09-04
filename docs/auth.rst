@@ -50,7 +50,7 @@ your issues `on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues
           token_path='/tmp/token.json')
 
   resp = c.get_price_history_every_day('AAPL')
-  assert resp.status_code == httpx.codes.OK
+  assert resp.status_code == httpx2.codes.OK
   history = resp.json()
 
 
@@ -244,7 +244,7 @@ have retried through is worse off than one which retried a little too long.
    Both placements are accepted, in case it is ever corrected.
 
 Only a refusal by the token endpoint is reported this way. A connection failure
-while refreshing raises the ``httpx`` exception it always did, because a
+while refreshing raises the ``httpx2`` exception it always did, because a
 connection failure while refreshing and one while fetching a quote are the same
 problem and cannot be told apart from inside the library.
 

@@ -35,10 +35,10 @@ setuptools.setup(
     python_requires='>=3.10',
     install_requires=[
         'autopep8',
-        'authlib>=1.6.0',
+        'authlib>=1.8',
         'certifi>=2025.6.15',
         'flask',
-        'httpx>=0.28.1',
+        'httpx2>=2.12.0',
         'multiprocess',
         'psutil',
         'python-dateutil',

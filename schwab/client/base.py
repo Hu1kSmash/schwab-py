@@ -142,8 +142,8 @@ class BaseClient(EnumEnforcer):
         authlib and know a type this library does not document anywhere.
 
         Only OAuthError is translated. It never comes from a data request: one
-        which fails does not raise at all, since httpx reports status through
-        the response. Network errors are left as the httpx exceptions they are,
+        which fails does not raise at all, since httpx2 reports status through
+        the response. Network errors are left as the httpx2 exceptions they are,
         because a connection failure while refreshing and one while fetching a
         quote are the same problem and are not distinguishable from here.
 
@@ -310,11 +310,10 @@ class BaseClient(EnumEnforcer):
         '''Sets the timeout configuration for this client. Applies to all HTTP 
         calls.
 
-        :param timeout: ``httpx`` timeout configuration. Passed directly to 
-                        underlying ``httpx`` library. See
-                        `here <https://www.python-httpx.org/advanced/
-                        #setting-a-default-timeout-on-a-client>`__ for
-                        examples.'''
+        :param timeout: ``httpx2`` timeout configuration. Passed directly to
+                        underlying ``httpx2`` library. See
+                        `here <https://github.com/pydantic/httpx2/blob/main/
+                        docs/advanced/timeouts.md>`__ for examples.'''
         self.session.timeout = timeout
 
     def token_age(self):

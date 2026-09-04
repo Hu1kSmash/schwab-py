@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-import httpx
+import httpx2
 import inspect
 import logging
 import os
@@ -2605,9 +2605,9 @@ class _TestClient:
         # A connection failure while refreshing and one while fetching a quote
         # are the same problem, and are not distinguishable from here. Claiming
         # the token is at fault would be a guess.
-        self.mock_session.get.side_effect = httpx.ConnectError('no route')
+        self.mock_session.get.side_effect = httpx2.ConnectError('no route')
 
-        with self.assertRaises(httpx.ConnectError):
+        with self.assertRaises(httpx2.ConnectError):
             self.client.get_quote(SYMBOL)
 
 
