@@ -235,7 +235,9 @@ an error handler:
 
 It is called for three things: a stream handler which raised, a late rejection
 of a request nobody was waiting on, and a connection which failed to close after
-logout. ``service`` and ``message`` are ``None`` where they do not apply.
+logout. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
+frame — which can hold several responses — so read the rejected one from
+``message`` rather than from ``exception.response['response'][0]``. ``service`` and ``message`` are ``None`` where they do not apply.
 Registering none keeps the existing behaviour exactly, and the log line is
 written either way.
 

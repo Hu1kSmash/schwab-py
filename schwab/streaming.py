@@ -577,7 +577,12 @@ class StreamClient(EnumEnforcer):
           misbehaving handler must not stop the others or drop the connection;
         * a response arriving for a request nobody is waiting on which carries
           a rejection, because the request was abandoned and nothing else will
-          ever say Schwab refused it;
+          ever say Schwab refused it. Note the ``UnexpectedResponseCode``
+          raised here carries the whole frame, and a frame can hold several
+          responses -- so ``exception.response['response'][0]`` is not
+          necessarily the rejected one, unlike the same exception raised from a
+          request you are waiting on. The rejected element is what arrives as
+          ``message``;
         * a connection which fails to close after logout, because the logout
           itself succeeded.
 
@@ -701,6 +706,17 @@ class StreamClient(EnumEnforcer):
                     'message it was handling has been dropped.',
                     exc_info=exc)
             await self._report_error(exc, service=service, message=payload)
+        except BaseException as exc:
+            # Logged and re-raised, not absorbed. SystemExit and friends are
+            # control flow rather than a stream failure, so they are not
+            # reported to the error handlers -- but the done callback used to
+            # log them and no longer does, and losing them silently is how a
+            # handler calling sys.exit() becomes a mystery.
+            self.logger.error(
+                    'Asynchronous stream handler raised %s. The message it '
+                    'was handling has been dropped, and the exception is '
+                    'being propagated.', type(exc).__name__, exc_info=exc)
+            raise
 
     async def _dispatch_to_handlers(self, service, msg, *, relabel):
         '''
@@ -924,6 +940,13 @@ class StreamClient(EnumEnforcer):
                         'Failed to close the stream connection after logout.')
                 try:
                     await self._report_error(exc)
+                except asyncio.CancelledError:
+                    # Not swallowed with the rest. Discarding a cancellation
+                    # makes logout() refuse to die -- a supervisor or TaskGroup
+                    # calling cancel() during shutdown would find this task
+                    # running to completion regardless, which is a worse
+                    # outcome than the masking the guard below prevents.
+                    raise
                 except BaseException:
                     # BaseException is deliberately left to propagate out of
                     # _report_error everywhere else. Not here: this is the

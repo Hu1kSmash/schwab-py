@@ -6679,7 +6679,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_close_waits_for_an_async_stream_handler_to_fail(
+    async def test_an_async_stream_handler_reports_from_its_own_task(
             self, ws_connect):
         # An async stream handler's failure is reported from inside its own
         # task, before that task completes -- so awaiting the handler task is
@@ -6708,9 +6708,9 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_a_close_failure_report_reaches_a_coroutine_handler(
             self, ws_connect):
-        # logout reports the close failure after close() has already drained,
-        # so without draining again the report is scheduled with nothing left
-        # to await it -- losing it at one of the three documented sites.
+        # The close failure is one of the three reported sites, and its report
+        # is awaited inside logout's finally, so it has happened by the time
+        # logout returns.
         delivered = []
 
         async def on_stream_error(service, exc, msg):
@@ -6749,6 +6749,54 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         order.append('handle_message returned')
 
         self.assertEqual(['reported', 'handle_message returned'], order)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_does_not_wait_for_in_flight_handlers(
+            self, ws_connect):
+        # The documented guarantee, which replaced the drain: close() returns
+        # without waiting on stream handlers the caller has in flight. The test
+        # that used to sit here was named for waiting and never called close(),
+        # so it asserted nothing either way.
+        running = asyncio.Event()
+
+        async def slow_handler(msg):
+            running.set()
+            await asyncio.sleep(30)
+
+        await self.subscribe_and_deliver(ws_connect, slow_handler)
+        await running.wait()
+
+        await asyncio.wait_for(self.client.close(), timeout=2.0)
+        self.assertTrue(any(not task.done()
+                            for task in self.client._handler_tasks))
+
+        for task in tuple(self.client._handler_tasks):
+            task.cancel()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logout_can_still_be_cancelled_while_reporting(
+            self, ws_connect):
+        # The BaseException guard around the close-failure report must not
+        # swallow cancellation. Discarding it makes logout() refuse to die, so
+        # a supervisor calling cancel() during shutdown finds the task running
+        # to completion regardless.
+        async def slow_error_handler(service, exc, msg):
+            await asyncio.sleep(30)
+
+        socket = await self.login_and_get_socket(ws_connect)
+        self.client.add_error_handler(slow_error_handler)
+        socket.close.side_effect = ValueError('close blew up')
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ADMIN', 'LOGOUT'))]
+
+        task = asyncio.ensure_future(self.client.logout())
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await task
 
     @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):
