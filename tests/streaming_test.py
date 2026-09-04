@@ -6658,6 +6658,75 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_waits_for_a_coroutine_error_handler(self, ws_connect):
+        # A coroutine error handler that awaits anything -- publishing an
+        # alert, which is the documented example -- has not resumed when
+        # close() is called. Without draining, the loop shutting down cancels
+        # it, and the report of the failure immediately before the process went
+        # down is the one guaranteed to be lost.
+        delivered = []
+
+        async def on_stream_error(service, exc, msg):
+            await asyncio.sleep(0)
+            delivered.append(exc)
+
+        self.client.add_error_handler(on_stream_error)
+
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+        await self.client.close()
+
+        self.assertEqual(1, len(delivered),
+                         'the last report before shutdown was lost')
+
+    @no_duplicates
+    def test_an_error_handler_of_the_wrong_arity_is_refused(self):
+        # Every other add_*_handler on this class takes a one-argument
+        # callback, so passing one here is the natural mistake. Discovered at
+        # report time it raises TypeError inside the except clause that exists
+        # to stop an error handler failing the stream -- so it would never run,
+        # forever, with only a log line to say so.
+        for bad in (lambda exc: None,
+                    lambda service, exc: None,
+                    lambda a, b, c, d: None):
+            with self.assertRaises(ValueError):
+                self.client.add_error_handler(bad)
+
+        with self.assertRaises(ValueError):
+            self.client.add_error_handler('not callable')
+
+        # The correct shapes still register.
+        self.client.add_error_handler(lambda service, exc, msg: None)
+
+        def named(service, exception, message):
+            pass
+
+        self.client.add_error_handler(named)
+        self.assertEqual(2, len(self.client._error_handlers))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_response_with_no_code_is_not_reported(self, ws_connect):
+        # An absent code is neither a late rejection nor a late success.
+        # Reporting it as a rejection pages someone over "code None, msg None".
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps({'response': [{
+            'service': 'LEVELONE_EQUITIES',
+            'command': 'SUBS',
+            'requestid': '9999',
+            'content': {},
+        }]})]
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        await self.client.handle_message()
+
+        self.assertEqual([], errors)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_a_late_rejection_is_reported(self, ws_connect):
         # A response with no request outstanding is absorbed rather than
         # raised, which is right -- the request was abandoned and dropping the

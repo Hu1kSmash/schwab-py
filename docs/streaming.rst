@@ -251,6 +251,9 @@ The handler may be a coroutine function, like every other handler on this class:
 Where a stream handler failed, ``message`` is the message *as that handler saw
 it* — relabeled, if the stream relabels. The exception is the one it raised.
 
+If relabeling itself was what failed, the handler never saw anything, and
+``message`` is the message as it arrived, with its numeric field ids intact.
+
 This matters most when something else covers for the stream. If a subscription
 quietly stops delivering and a REST poll is authoritative anyway, nothing looks
 wrong until something the poll does not cover finally breaks. **A silent failure

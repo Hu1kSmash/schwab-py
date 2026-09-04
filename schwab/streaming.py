@@ -614,6 +614,24 @@ class StreamClient(EnumEnforcer):
         Handlers are called in registration order, and registering none keeps
         the current behaviour exactly.
         '''
+        if not callable(error_handler):
+            raise ValueError('error handler must be callable')
+
+        # Checked here rather than discovered at report time. Every other
+        # add_*_handler on this class takes a one-argument callback, so passing
+        # one here is the natural mistake -- and it would raise TypeError on
+        # every single report, inside the except clause that exists to stop an
+        # error handler failing the stream. The result is a handler that never
+        # runs, forever, with nothing but a log line to say so: the exact state
+        # this callback is meant to replace.
+        try:
+            inspect.signature(error_handler).bind(None, None, None)
+        except TypeError as exc:
+            raise ValueError(
+                    'error handler must accept three positional arguments '
+                    '(service, exception, message); {!r} does not: {}'.format(
+                        error_handler, exc)) from None
+
         self._error_handlers.append(error_handler)
 
     def _report_error(self, exception, *, service=None, message=None):
@@ -651,6 +669,12 @@ class StreamClient(EnumEnforcer):
         self._error_handler_tasks.discard(task)
 
         if task.cancelled():
+            # Cancellation means the report never landed. Nothing else will say
+            # so, and the failure it was reporting is now unreported too.
+            self.logger.warning(
+                    'An asynchronous error handler was cancelled before it '
+                    'finished. The error it was reporting has not been '
+                    'delivered.')
             return
 
         exception = task.exception()
@@ -772,7 +796,10 @@ class StreamClient(EnumEnforcer):
                 # was abandoned, so nothing else will ever say Schwab refused
                 # it. A caller who registered an error handler to replace
                 # scraping the log would otherwise stop seeing exactly that.
-                if code != 0:
+                # `is not None` as well: a response with no code at all is
+                # neither a late rejection nor a late success, and reporting it
+                # as a rejection pages someone over `code None, msg None`.
+                if code is not None and code != 0:
                     self._report_error(
                             UnexpectedResponseCode(
                                 response,
@@ -882,7 +909,19 @@ class StreamClient(EnumEnforcer):
             except Exception as exc:
                 self.logger.exception(
                         'Failed to close the stream connection after logout.')
-                self._report_error(exc)
+                try:
+                    self._report_error(exc)
+                except BaseException:
+                    # BaseException is deliberately left to propagate out of
+                    # _report_error everywhere else. Not here: this is the
+                    # finally clause whose whole point is that a close failure
+                    # must not replace whatever went wrong with the logout, and
+                    # an error handler raising SystemExit would do exactly
+                    # that. Reporting is the least important thing happening
+                    # here.
+                    self.logger.exception(
+                            'Error handler raised while reporting a close '
+                            'failure. Ignoring it.')
 
     async def close(self):
         '''
@@ -896,10 +935,31 @@ class StreamClient(EnumEnforcer):
         The client must be re-initialized with :meth:`login` to perform further
         operations.
         '''
+        # Drain scheduled error handlers first. A coroutine error handler that
+        # awaits anything -- publishing an alert, which is the documented
+        # example -- has not resumed yet when close() is called, and the event
+        # loop shutting down afterwards cancels it. That silently loses the
+        # report of the failure immediately before the process went down, which
+        # is the one most worth having.
+        await self._drain_error_handlers()
+
         socket, self._socket = self._socket, None
 
         if socket is not None:
             await socket.close()
+
+    async def _drain_error_handlers(self):
+        '''Waits for scheduled coroutine error handlers to finish.
+
+        Their exceptions are already logged by their done callback, so failures
+        here are not re-raised: draining is about not losing the report, not
+        about propagating whatever the reporter did with it.
+        '''
+        if not self._error_handler_tasks:
+            return
+
+        await asyncio.gather(*tuple(self._error_handler_tasks),
+                             return_exceptions=True)
 
     async def __aenter__(self):
         return self

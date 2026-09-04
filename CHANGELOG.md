@@ -55,7 +55,18 @@ weaker assertion while making "mark this subscription unhealthy" impossible.
 
 The handler may be a coroutine function, like every other handler on this class.
 Calling one without awaiting drops the coroutine and runs none of its body,
-which is the same quiet failure in a different place.
+which is the same quiet failure in a different place. `close()` waits for
+scheduled error handlers before shutting the socket, because one that awaits
+anything -- publishing an alert, which is the documented example -- has not
+resumed when the loop goes down, and the report of the failure immediately
+before shutdown is the one most worth having.
+
+A handler of the wrong shape is refused at registration rather than discovered
+at report time. Every other `add_*_handler` here takes a one-argument callback,
+so `add_error_handler(lambda exc: ...)` is the natural mistake -- and it would
+raise `TypeError` on every report, inside the `except` clause that exists to
+stop an error handler failing the stream, so it would never run and never say
+so.
 
 This matters most where a fallback covers for the stream. A subscription that
 quietly stops delivering costs nothing while a REST poll is authoritative, and

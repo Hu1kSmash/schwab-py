@@ -79,8 +79,8 @@ not in the postmortem.
 **Do not bundle.** This used to be about pull requests getting reviewed. It survives them for a
 better reason: a commit that fixes one thing and tidies another cannot be reverted, bisected to, or
 described in a changelog entry without dragging the tidying along. The 2.1.0 option-strike fix
-landed bundled with release changes and there is now a paragraph in the README explaining why,
-which is the kind of debt this rule prevents.
+landed bundled with release changes rather than on a branch of its own, and could not afterwards be
+separated from them, which is the kind of debt this rule prevents.
 
 **Say what the repository is actually keeping.** `stream-reader-routing` was branched from `main`
 rather than `upstream-main`, so it could never have been opened as a pull request, and it was
