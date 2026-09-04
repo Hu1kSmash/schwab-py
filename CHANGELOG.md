@@ -116,8 +116,13 @@ a field whose messages are labelled something else.
 **`Decimal` is for the price fields only, and is refused elsewhere at the
 setter.** `quantity`, `activationPrice`, `stopPriceOffset` and `priceOffset`
 are `number($double)` in Schwab's schema, so passing a `Decimal` to one raises
-where the field is still known, rather than producing a string of the wrong
-JSON type on a live order.
+where the field is still known.
+
+This is narrower than it may read: a plain `str` in those fields is still
+accepted and still produces a string where Schwab's schema says number.
+`Decimal` is refused because this library would be the one rendering it, which
+is a choice it should not make silently; a string is what the caller wrote.
+Whether to refuse that too is a separate question, not settled here.
 
 **`copy_price` and `copy_stop_price` could not take a `Decimal`.** They skip
 validation by design, so a `Decimal` reached the object builder raw -- and
@@ -140,14 +145,10 @@ positivity check and failed later inside `build()` as `cannot convert NaN to
 integer`, naming neither the strike nor the symbol. They are refused at
 construction now, next to the positivity check.
 
-**Option strike scaling no longer depends on the global decimal context.**
-`Decimal.__mul__` rounds to `decimal.getcontext().prec` significant digits,
-which is process-global and something a money-handling application may well
-have set. At `prec=5`, a strike of `1234.5678` encoded as `01234600` -- a
-different contract. The scaling runs in a local context now, since the point of
-doing it in `decimal` is that it is exact.
-
-**`OptionSymbol` accepted strikes it could not encode.** The symbol's strike
+**`OptionSymbol` accepted strikes it could not encode.** (The checks that
+enforce this are exact regardless of the process-wide `decimal` context. They
+read the parsed strike's own digits rather than scaling it first, because
+multiplying consults the context and no fixed precision covers every input.) The symbol's strike
 field is eight digits of thousandths, so it cannot carry more than three
 decimal places and stops just below `$100,000`. Neither limit was checked: a
 strike of `2.0019` was truncated to `00002001`, naming a `$2.001` contract, and

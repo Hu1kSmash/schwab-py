@@ -7,7 +7,7 @@ from schwab.orders.generic import OrderBuilder
 
 # The symbol encodes the strike as eight digits of thousandths, so the largest
 # it can carry is $99,999.999.
-_MAX_ENCODABLE_STRIKE_THOUSANDTHS = 99999999
+_MAX_ENCODABLE_STRIKE = decimal.Decimal('99999.999')
 
 
 def _scale_strike(strike_price):
@@ -146,8 +146,23 @@ class OptionSymbol:
         # one asked for, and '0.0005' became 00000000, a strike of zero. Both
         # name a different contract or none, and neither said so. Refused here
         # rather than in build(), where the strike is no longer in hand.
-        scaled = _scale_strike(strike_price_as_string)
-        if scaled != scaled.to_integral_value():
+        # Read off the parsed value's own digits rather than the scaled
+        # product. Multiplying consults the decimal context, and no fixed
+        # precision is enough: a strike carrying more significant digits than
+        # the context holds is rounded by the multiply, so the product comes
+        # out integral and the check passes something it should have caught --
+        # '1.0000000000000000000000000000004' encoded as $1.000 that way.
+        # Decimal(str) and as_tuple() consult nothing, so this is exact for any
+        # input.
+        #
+        # The zero-stripping above only rewrites the string when what is left
+        # ends in '.', so '2.0010' arrives here with four declared places and
+        # three real ones. Hence looking at whether the digits past the
+        # thousandths place are actually zero, rather than at the exponent.
+        as_decimal = decimal.Decimal(strike_price_as_string)
+        _, digits, exponent = as_decimal.as_tuple()
+        excess = -exponent - 3
+        if excess > 0 and any(digits[max(0, len(digits) - excess):]):
             raise ValueError(
                 'strike price {} is finer than a tenth of a cent, which an '
                 'option symbol cannot represent. Round it to at most three '
@@ -160,7 +175,9 @@ class OptionSymbol:
         # cents or thousandths -- '250000' meaning $250.00 -- which deserves
         # the same clear refusal as the too-fine case rather than a malformed
         # symbol.
-        if scaled > _MAX_ENCODABLE_STRIKE_THOUSANDTHS:
+        # Comparison, not multiplication: Decimal comparisons are exact and
+        # consult no context either.
+        if as_decimal > _MAX_ENCODABLE_STRIKE:
             raise ValueError(
                 'strike price {} does not fit an option symbol, whose strike '
                 'field is eight digits of thousandths and so stops just below '

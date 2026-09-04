@@ -64,6 +64,43 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_the_granularity_check_is_exact_at_any_precision(self):
+        # Testing the SCALED product consulted the decimal context, and no
+        # fixed precision is enough: a strike with more significant digits
+        # than the context holds is rounded by the multiply, so the product
+        # comes out integral and the check passes it.
+        # '1.0000000000000000000000000000004' encoded as $1.000 that way.
+        import decimal
+        original = decimal.getcontext()
+        try:
+            for ctx in (decimal.DefaultContext, decimal.Context(prec=5),
+                        decimal.Context(prec=28, Emax=3, Emin=-3)):
+                decimal.setcontext(ctx)
+                with self.assertRaises(ValueError, msg=str(ctx)):
+                    OptionSymbol(
+                            'AAPL', datetime.date(2024, 5, 10), 'C',
+                            '1.0000000000000000000000000000004')
+        finally:
+            decimal.setcontext(original)
+
+    def test_trailing_zeros_do_not_count_as_precision(self):
+        # The zero-stripping in the constructor only rewrites the string when
+        # what is left ends in '.', so '2.0010' arrives with four declared
+        # decimal places and three real ones. It is representable and must
+        # encode, not be refused.
+        #
+        # This passes against the product-based check it replaced too. It
+        # guards against the obvious simplification of the current one --
+        # testing as_tuple().exponent directly, which reads '2.0010' as four
+        # places and refuses a valid strike.
+        for strike in ('2.0010', '2.00100', '1.0000', '100.'):
+            op = OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', strike)
+            self.assertEqual(21, len(op.build()), strike)
+
+        self.assertTrue(OptionSymbol(
+                'AAPL', datetime.date(2024, 5, 10), 'C',
+                '2.0010').build().endswith('00002001'))
+
     def test_a_strike_too_large_for_the_symbol_is_refused(self):
         # The strike field is eight digits of thousandths, so it stops just
         # below $100,000. Past that the format silently widened: '700000' gave
