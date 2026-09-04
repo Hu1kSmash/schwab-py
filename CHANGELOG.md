@@ -21,6 +21,77 @@ inferred from the pull request list.
 
 ---
 
+## 2.1.0
+
+> **This is a breaking release despite the minor version.** It removes three
+> deprecated APIs and changes how `decimal.Decimal` prices are rendered. The
+> number is minor because this fork is installed from pinned tags rather than
+> version ranges -- nothing upgrades into it by accident -- but if you are
+> moving from 2.0.x by hand, read this section rather than skimming it.
+
+### Removed
+
+Three APIs which had been deprecated with warnings. All three are breaking for
+code still using them, and all three fail loudly at the point of use rather
+than changing what an order or a subscription means.
+
+**Prices must be strings.** `set_price` and `set_stop_price` used to accept a
+float and truncate it -- two decimal places, or four below one. Passing a float
+now raises `ValueError` naming the fix.
+
+The conversion was removed rather than kept because the library was choosing a
+rounding, for a value denominated in money, on behalf of a caller who knows
+what the order is for. Whether a limit should round up, down or to the nearest
+tick is a trading decision.
+
+**`'{:.2f}'.format(value)` is not an equivalent.** It rounds; the old code
+truncated toward zero, and used four decimal places below one. `19.9999999`
+became `19.99` rather than `20.00`, and `0.186992` became `0.1869` rather than
+`0.19`. On a buy limit that difference is a price one tick higher than the one
+asked for. The docs carry the exact `decimal.ROUND_DOWN` equivalent for anyone
+who wants to migrate without moving any prices.
+
+**`decimal.Decimal` now passes through exactly, where it used to be truncated.
+This one is a silent change and the only one in this release.** A `Decimal` was
+not a `str`, so it fell through to the same conversion floats did:
+`set_price(Decimal('12.129'))` sent `'12.12'` up to 2.0.1, and sends `'12.129'`
+now. If you compute prices as `Decimal` and relied on the library to round
+them, it no longer will, and a sub-penny equity limit is rejected by Schwab
+rather than caught here.
+
+That is the intended behaviour rather than an oversight -- a `Decimal` carries
+the precision its author chose, and silently discarding it was the bug -- but
+it is a change to what a previously correct call puts on the wire, so check
+your `Decimal` call sites. It is rendered with `format(d, 'f')` rather than
+`str(d)`, because `str(Decimal('1E+2'))` is `'1E+2'`, which is not a price.
+
+`copy_price` and `copy_stop_price` still set the field with no validation,
+which is what `contrib.orders` uses to reconstruct a historical order.
+
+**`websocket_connect_args['extra_headers']` is no longer translated.**
+websockets 14.0 renamed it to `additional_headers`; this library had been
+rewriting it silently and warning. Passing it now raises `ValueError` naming
+the replacement, as `create_protocol` and `read_limit` already did.
+
+The argument is documented as a passthrough to `websockets.connect()`. Quietly
+substituting one name for another on the way through is not a passthrough, and
+it meant the name a caller wrote was not the name the library called.
+
+**`LevelOneOptionFields.STRIKE_TYPE` is gone.** It was an alias of
+`STRIKE_PRICE`, kept when field 20 was renamed to what Schwab actually
+documents it as. Code naming it now raises `AttributeError` instead of reading
+a field whose messages are labelled something else.
+
+### Note
+
+The three removals convert a silent accommodation into an error, so code which
+already passed strings, used `additional_headers` and named `STRIKE_PRICE` is
+unaffected by them.
+
+The `Decimal` change above is the exception, and the only thing here that
+alters a working call without raising. If you pass `Decimal` prices, read that
+paragraph.
+
 ## 2.0.1
 
 ### Documented

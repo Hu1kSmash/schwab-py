@@ -1,3 +1,4 @@
+import decimal
 import httpx2
 import unittest
 
@@ -177,7 +178,7 @@ class OrderBuilderTest(unittest.TestCase):
 
     @no_duplicates
     def test_stop_price_success(self):
-        self.order_builder.set_stop_price(42.90)
+        self.order_builder.set_stop_price('42.90')
         self.assertFalse(has_diff({
             'stopPrice': '42.90'
         }, self.order_builder.build()))
@@ -194,31 +195,26 @@ class OrderBuilderTest(unittest.TestCase):
 
     @no_duplicates
     def test_stop_price_negative(self):
-        self.order_builder.set_stop_price(-1.31)
+        self.order_builder.set_stop_price('-1.31')
         self.assertFalse(has_diff({
             'stopPrice': '-1.31'
         }, self.order_builder.build()))
 
     @no_duplicates
     def test_stop_price_zero(self):
-        self.order_builder.set_stop_price(0)
+        self.order_builder.set_stop_price('0.00')
         self.assertFalse(has_diff({
             'stopPrice': '0.00'
         }, self.order_builder.build()))
 
     @no_duplicates
-    def test_stop_price_do_not_round_up(self):
-        self.order_builder.set_stop_price(1.99999)
-        self.assertFalse(has_diff({
-            'stopPrice': '1.99'
-        }, self.order_builder.build()))
-
-    @no_duplicates
-    def test_stop_price_do_round_down(self):
-        self.order_builder.set_stop_price(2.00001)
-        self.assertFalse(has_diff({
-            'stopPrice': '2.00'
-        }, self.order_builder.build()))
+    def test_stop_price_precision_is_not_second_guessed(self):
+        # These used to be truncated to two places. Now whatever precision the
+        # caller wrote is what Schwab is asked for.
+        for value in ('1.99999', '2.00001'):
+            builder = OrderBuilder()
+            builder.set_stop_price(value)
+            self.assertFalse(has_diff({'stopPrice': value}, builder.build()))
 
     @no_duplicates
     def test_copy_stop_price(self):
@@ -414,7 +410,7 @@ class OrderBuilderTest(unittest.TestCase):
 
     @no_duplicates
     def test_price_success(self):
-        self.order_builder.set_price(23.49)
+        self.order_builder.set_price('23.49')
         self.assertFalse(has_diff({
             'price': '23.49'
         }, self.order_builder.build()))
@@ -431,31 +427,25 @@ class OrderBuilderTest(unittest.TestCase):
 
     @no_duplicates
     def test_price_negative(self):
-        self.order_builder.set_price(-1.23)
+        self.order_builder.set_price('-1.23')
         self.assertFalse(has_diff({
             'price': '-1.23'
         }, self.order_builder.build()))
 
     @no_duplicates
     def test_price_zero(self):
-        self.order_builder.set_price(0.0)
+        self.order_builder.set_price('0.00')
         self.assertFalse(has_diff({
             'price': '0.00'
         }, self.order_builder.build()))
 
     @no_duplicates
-    def test_price_do_not_round_up(self):
-        self.order_builder.set_price(19.9999999)
-        self.assertFalse(has_diff({
-            'price': '19.99'
-        }, self.order_builder.build()))
-
-    @no_duplicates
-    def test_price_do_not_round_down(self):
-        self.order_builder.set_price(20.00000001)
-        self.assertFalse(has_diff({
-            'price': '20.00'
-        }, self.order_builder.build()))
+    def test_price_precision_is_not_second_guessed(self):
+        # See test_stop_price_precision_is_not_second_guessed.
+        for value in ('19.9999999', '20.00000001'):
+            builder = OrderBuilder()
+            builder.set_price(value)
+            self.assertFalse(has_diff({'price': value}, builder.build()))
 
     @no_duplicates
     def test_copy_price(self):
@@ -797,7 +787,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
             .set_complex_order_strategy_type(ComplexOrderStrategyType.NONE)
             .set_order_type(OrderType.LIMIT)
             .set_session(Session.NORMAL)
-            .set_price(6.45)
+            .set_price('6.45')
             .set_duration(Duration.DAY)
             .set_order_strategy_type(OrderStrategyType.SINGLE)
             .add_option_leg(OptionInstruction.BUY_TO_OPEN, 'XYZ_032015C49', 10))
@@ -829,7 +819,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
             OrderBuilder()
             .set_order_type(OrderType.NET_DEBIT)
             .set_session(Session.NORMAL)
-            .set_price(1.20)
+            .set_price('1.20')
             .set_duration(Duration.DAY)
             .set_order_strategy_type(OrderStrategyType.SINGLE)
             .add_option_leg(OptionInstruction.BUY_TO_OPEN, 'XYZ_011516C40', 10)
@@ -910,7 +900,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
             OrderBuilder()
             .set_order_type(OrderType.LIMIT)
             .set_session(Session.NORMAL)
-            .set_price(34.97)
+            .set_price('34.97')
             .set_duration(Duration.DAY)
             .set_order_strategy_type(OrderStrategyType.TRIGGER)
             .add_equity_leg(EquityInstruction.BUY, 'XYZ', 10)
@@ -918,7 +908,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
                 OrderBuilder()
                 .set_order_type(OrderType.LIMIT)
                 .set_session(Session.NORMAL)
-                .set_price(42.03)
+                .set_price('42.03')
                 .set_duration(Duration.DAY)
                 .set_order_strategy_type(OrderStrategyType.SINGLE)
                 .add_equity_leg(EquityInstruction.SELL, 'XYZ', 10)))
@@ -971,7 +961,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
                 OrderBuilder()
                 .set_order_type(OrderType.LIMIT)
                 .set_session(Session.NORMAL)
-                .set_price(45.97)
+                .set_price('45.97')
                 .set_duration(Duration.DAY)
                 .set_order_strategy_type(OrderStrategyType.SINGLE)
                 .add_equity_leg(EquityInstruction.SELL, 'XYZ', 2)
@@ -980,8 +970,8 @@ class OrderBuilderExamplesTest(unittest.TestCase):
                 OrderBuilder()
                 .set_order_type(OrderType.STOP_LIMIT)
                 .set_session(Session.NORMAL)
-                .set_price(37.00)
-                .set_stop_price(37.03)
+                .set_price('37.00')
+                .set_stop_price('37.03')
                 .set_duration(Duration.DAY)
                 .set_order_strategy_type(OrderStrategyType.SINGLE)
                 .add_equity_leg(EquityInstruction.SELL, 'XYZ', 2)))
@@ -1037,7 +1027,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
             .set_session(Session.NORMAL)
             .set_duration(Duration.DAY)
             .set_order_type(OrderType.LIMIT)
-            .set_price(14.97)
+            .set_price('14.97')
             .add_equity_leg(EquityInstruction.BUY, 'XYZ', 5)
             .add_child_order_strategy(
                 OrderBuilder()
@@ -1048,7 +1038,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
                     .set_session(Session.NORMAL)
                     .set_duration(Duration.GOOD_TILL_CANCEL)
                     .set_order_type(OrderType.LIMIT)
-                    .set_price(15.27)
+                    .set_price('15.27')
                     .add_equity_leg(EquityInstruction.SELL, 'XYZ', 5))
                 .add_child_order_strategy(
                     OrderBuilder()
@@ -1056,7 +1046,7 @@ class OrderBuilderExamplesTest(unittest.TestCase):
                     .set_session(Session.NORMAL)
                     .set_duration(Duration.GOOD_TILL_CANCEL)
                     .set_order_type(OrderType.STOP)
-                    .set_stop_price(11.27)
+                    .set_stop_price('11.27')
                     .add_equity_leg(EquityInstruction.SELL, 'XYZ', 5))))
 
         expected = {
@@ -1158,76 +1148,83 @@ class OrderBuilderExamplesTest(unittest.TestCase):
         self.assertFalse(has_diff(expected, builder.build()))
 
 
-class TruncateFloatTest(unittest.TestCase):
+class PricesAreStringsTest(unittest.TestCase):
+    '''Prices used to be accepted as floats and converted here, truncating to
+    the venue's tick size. That conversion is gone.
 
-    def test_zero(self):
-        self.assertEqual('0.00', truncate_float(0))
+    It was removed rather than fixed because even done correctly -- and it was
+    not, for a while: truncating the binary value sent roughly one in twenty
+    cent-granular prices a tick low, silently -- the library was choosing a
+    rounding on the caller's behalf for a value denominated in money. The
+    caller knows whether their price should round up, down or to the nearest
+    tick, and this cannot.'''
 
-    def test_zero_float(self):
-        self.assertEqual('0.00', truncate_float(0.0))
+    def setUp(self):
+        self.order_builder = OrderBuilder()
 
-    # positive numbers
+    @no_duplicates
+    def test_a_float_price_is_refused(self):
+        for setter in ('set_price', 'set_stop_price'):
+            for value in (12.34, 0, 199, 8.2):
+                builder = OrderBuilder()
+                with self.assertRaises(ValueError, msg='{}({!r})'.format(
+                        setter, value)) as cm:
+                    getattr(builder, setter)(value)
+                self.assertIn('must be a string', str(cm.exception))
 
-    def test_integer(self):
-        self.assertEqual('12.00', truncate_float(12))
+    @no_duplicates
+    def test_the_error_says_what_to_do_instead(self):
+        # A caller hitting this is mid-migration and wants the fix, not a
+        # restatement of the type.
+        with self.assertRaises(ValueError) as cm:
+            self.order_builder.set_price(8.2)
+        message = str(cm.exception)
+        self.assertIn('format', message)
+        self.assertIn('copy_price', message)
 
-    def test_integer_as_float(self):
-        self.assertEqual('12.00', truncate_float(12.0))
+    @no_duplicates
+    def test_a_string_price_is_stored_exactly_as_given(self):
+        # The whole point: what the caller wrote is what Schwab receives. 8.2
+        # is the value the old binary truncation turned into '8.19'.
+        for value in ('8.20', '8.2', '0.1869', '199.99', '0.00'):
+            builder = OrderBuilder()
+            builder.set_price(value)
+            self.assertEqual(value, builder.build()['price'])
 
-    def test_three_digits(self):
-        self.assertEqual('12.12', truncate_float(12.123))
+    @no_duplicates
+    def test_a_decimal_price_is_accepted_exactly(self):
+        # Decimal is the type that avoids the float problem rather than hiding
+        # it, so it is taken as given -- rendering it decides nothing.
+        for value, expected in (('19.99', '19.99'), ('0.1869', '0.1869'),
+                                ('-5.00', '-5.00'), ('0.00', '0.00')):
+            builder = OrderBuilder()
+            builder.set_price(decimal.Decimal(value))
+            self.assertEqual(expected, builder.build()['price'])
 
-    def test_three_digits_truncate_not_round(self):
-        self.assertEqual('12.12', truncate_float(12.129))
+    @no_duplicates
+    def test_a_decimal_never_renders_in_scientific_notation(self):
+        # str(Decimal('1E+2')) is '1E+2', which is not a price. format(d, 'f')
+        # is what keeps that out of an order.
+        builder = OrderBuilder()
+        builder.set_price(decimal.Decimal('1E+2'))
+        self.assertEqual('100', builder.build()['price'])
 
-    def test_less_than_one(self):
-        self.assertEqual('0.1212', truncate_float(.12121))
+    @no_duplicates
+    def test_the_error_does_not_recommend_a_rounding_conversion(self):
+        # '{:.2f}'.format rounds where the removed conversion truncated, so
+        # recommending it as a drop-in would move prices by a tick. The message
+        # has to say so rather than suggest it bare.
+        with self.assertRaises(ValueError) as cm:
+            OrderBuilder().set_price(8.2)
+        self.assertIn('rounds', str(cm.exception))
+        self.assertIn('truncate', str(cm.exception))
 
-    # same as above, except with negative numbers
-
-    def test_negative_integer(self):
-        self.assertEqual('-12.00', truncate_float(-12))
-
-    def test_negative_integer_as_float(self):
-        self.assertEqual('-12.00', truncate_float(-12.0))
-
-    def test_negative_three_digits(self):
-        self.assertEqual('-12.12', truncate_float(-12.123))
-
-    def test_negative_three_digits_truncate_not_round(self):
-        self.assertEqual('-12.12', truncate_float(-12.129))
-
-    def test_negative_less_than_one(self):
-        self.assertEqual('-0.1212', truncate_float(-.12121))
-
-    # A price which is already at the target precision must survive truncation
-    # unchanged. Scaling a binary float and taking int() does not manage this:
-    # 8.2 * 100 is 819.9999999999999, so int() yields 819 and the price comes
-    # back a cent low.
-
-    def test_already_two_decimal_places_is_unchanged(self):
-        self.assertEqual('8.20', truncate_float(8.20))
-        self.assertEqual('78.60', truncate_float(78.60))
-        self.assertEqual('2.30', truncate_float(2.30))
-        self.assertEqual('1.13', truncate_float(1.13))
-
-    def test_already_four_decimal_places_is_unchanged(self):
-        self.assertEqual('0.1150', truncate_float(0.115))
-        self.assertEqual('0.8230', truncate_float(0.823))
-
-    def test_every_cent_survives_truncation(self):
-        # Exhaustive over a range wide enough to catch the representation
-        # error, which is not evenly distributed.
-        for cents in range(100, 20001):
-            price = cents / 100.0
-            expected = '{}.{:02d}'.format(cents // 100, cents % 100)
-            self.assertEqual(
-                    expected, truncate_float(price),
-                    'truncating {!r} lost precision'.format(price))
-
-    def test_documented_truncation_example(self):
-        # The example given in the docs' note on truncation.
-        self.assertEqual('0.1869', truncate_float(0.186992))
+    @no_duplicates
+    def test_copy_price_still_takes_anything(self):
+        # The documented escape hatch, used by contrib.orders to rebuild a
+        # historical order exactly as the venue reported it.
+        self.order_builder.copy_price(12.34)
+        self.assertEqual(12.34, self.order_builder.build()['price'])
 
 
 class NonFinitePriceTest(unittest.TestCase):
@@ -1241,23 +1238,16 @@ class NonFinitePriceTest(unittest.TestCase):
         self.order_builder = OrderBuilder()
 
     @no_duplicates
-    def test_nan_price_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            self.order_builder.set_price(float('nan'))
-        self.assertIn('finite', str(cm.exception))
-
-    @no_duplicates
-    def test_infinite_price_rejected(self):
-        for value in (float('inf'), float('-inf')):
-            with self.assertRaises(ValueError) as cm:
-                self.order_builder.set_price(value)
-            self.assertIn('finite', str(cm.exception))
-
-    @no_duplicates
-    def test_nan_stop_price_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            self.order_builder.set_stop_price(float('nan'))
-        self.assertIn('finite', str(cm.exception))
+    def test_non_finite_price_is_refused_whichever_check_catches_it(self):
+        # As a float it is refused for being a float; as a string it is refused
+        # for not naming a finite number of dollars. Neither reaches an order.
+        for setter in ('set_price', 'set_stop_price'):
+            for value in (float('nan'), float('inf'), float('-inf'),
+                          'nan', 'inf', '-inf'):
+                builder = OrderBuilder()
+                with self.assertRaises(ValueError, msg='{}({!r})'.format(
+                        setter, value)):
+                    getattr(builder, setter)(value)
 
     @no_duplicates
     def test_non_finite_price_as_string_rejected(self):
@@ -1287,12 +1277,22 @@ class NonFinitePriceTest(unittest.TestCase):
         # A price is not the only number in an order which can arrive by
         # computation. A trailing stop offset derived from a quote that came
         # back empty reaches set_stop_price_offset the same way.
-        setters = ('set_price', 'set_stop_price', 'set_activation_price',
-                   'set_stop_price_offset', 'set_price_offset',
-                   'set_quantity')
+        # set_price and set_stop_price take strings, so a non-finite float
+        # trips the type check first; they are swept as strings instead.
+        numeric_setters = ('set_activation_price', 'set_stop_price_offset',
+                           'set_price_offset', 'set_quantity')
+        string_setters = ('set_price', 'set_stop_price')
 
-        for name in setters:
+        for name in numeric_setters:
             for value in (float('nan'), float('inf'), float('-inf')):
+                builder = OrderBuilder()
+                with self.assertRaises(ValueError, msg='{}({!r})'.format(
+                        name, value)) as cm:
+                    getattr(builder, name)(value)
+                self.assertIn('finite', str(cm.exception))
+
+        for name in string_setters:
+            for value in ('nan', 'inf', '-inf'):
                 builder = OrderBuilder()
                 with self.assertRaises(ValueError, msg='{}({!r})'.format(
                         name, value)) as cm:

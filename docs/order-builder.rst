@@ -161,17 +161,18 @@ orders easy:
 
 .. code-block:: python
 
-  from schwab.orders.common import OrderType
-  from schwab.orders.generic import OrderBuilder
+  from schwab.orders.common import (
+      OrderType, first_triggers_second, one_cancels_other)
+  from schwab.orders.equities import equity_buy_limit, equity_sell_limit
 
-  one_triggers_other(
-      equity_buy_limit('GOOG', 1, 1310),
+  first_triggers_second(
+      equity_buy_limit('GOOG', 1, '1310.00'),
       one_cancels_other(
-          equity_sell_limit('GOOG', 1, 1400),
-          equity_sell_limit('GOOG', 1, 1240)
+          equity_sell_limit('GOOG', 1, '1400.00'),
+          equity_sell_limit('GOOG', 1, '1240.00')
               .set_order_type(OrderType.STOP_LIMIT)
               .clear_price()
-              .set_stop_price(1250)
+              .set_stop_price('1250.00')
       ))
 
 You can find the full listing of order templates and utility functions 
@@ -298,38 +299,76 @@ position reaches certain levels. In those cases, the price of an order can drop
 below the specified price as a result of movements in multiple legs of the 
 trade. 
 
-.. _number_truncation:
+.. _price_strings:
 
-~~~~~~~~~~~~~~~~~~
-Note on Truncation
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+Note on Prices
+~~~~~~~~~~~~~~~~
 
-**Important Note:** Under the hood, the Schwab API expects price as a string, 
-whereas ``schwab-py`` allows setting prices as a floating point number for 
-convenience.  The passed value is then converted to a string under the hood, 
-which involves some truncation logic:
+The Schwab API expects prices as strings, and so does ``schwab-py``. Whatever
+you pass is what Schwab is asked for:
 
- * If the price has absolute value less than one, truncate  (not round!) to 
-   four decimal places. For example, `0.186992` will become `0.1869`.
- * For all other values, truncate to two decimal places. The above example would 
-   become `0.18`. 
+.. code-block:: python
 
-This behavior is meant as a sane heuristic, and there are almost certainly
-situations where it is not the correct thing to do. You can sidestep this entire
-process by passing your price as a string, although be forewarned that Schwab
-may reject your order or even interpret it in unexpected ways.
+   order.set_price('199.99')
+   order.set_price('0.1869')
 
-Passing prices as strings is also the supported path: passing floats is
-deprecated and will eventually be removed.
+``decimal.Decimal`` is also accepted, and is the better choice if you are
+computing prices rather than writing them down -- it carries the precision you
+chose, and rendering it here decides nothing:
+
+.. code-block:: python
+
+   order.set_price(decimal.Decimal('199.99'))
+
+Passing a float raises ``ValueError``. Earlier versions accepted one and
+converted it here, truncating to two decimal places, or to four for values
+below one. That conversion has been removed.
+
+It was removed rather than repaired because the library was picking a rounding,
+for a value denominated in money, on behalf of a caller who knows better what
+the order is for. Whether a limit price should round up, down or to the nearest
+tick is a trading decision, not a formatting one. Formatting it yourself is how
+you keep that decision.
+
+.. warning::
+
+   ``'{:.2f}'.format(value)`` is **not** what the old conversion did. It
+   rounds; the old code truncated toward zero. ``19.9999999`` became ``19.99``,
+   not ``20.00``, and ``12.129`` became ``12.12``, not ``12.13``. On a buy
+   limit the difference is a price one tick higher than the one you asked for.
+
+   If you want the old behaviour exactly, it was:
+
+   .. code-block:: python
+
+      import decimal
+
+      def truncate(value):
+          places = (decimal.Decimal('0.0001')
+                    if abs(value) < 1 and value != 0.0
+                    else decimal.Decimal('0.01'))
+          return str(decimal.Decimal(str(value)).quantize(
+              places, rounding=decimal.ROUND_DOWN))
+
+   Note the four decimal places below one: ``0.186992`` truncated to
+   ``0.1869``, where ``'{:.2f}'`` gives ``0.19``.
+
+   Copying that in is a reasonable way to migrate without changing any prices.
+   Deciding the rounding deliberately is the better one.
+
+:meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field with
+no validation of any kind, which is what :ref:`order_templates` uses to rebuild
+an order exactly as Schwab reported it.
 
 .. note::
 
-   The truncation is done in decimal, so a price already at the target precision
-   survives it unchanged. Earlier versions scaled the float and truncated the
-   result, which truncated the representation error along with the value -- 8.2
-   became ``8.19``, because ``8.2 * 100`` is ``819.9999999999999``. Roughly 4.6%
-   of cent-granular prices were affected, always one tick low and silently. See
-   the changelog for detail.
+   The conversion was also wrong for a time, in a way worth knowing about if you
+   have orders in your history from before it was fixed. It scaled the float and
+   truncated the result, which truncated the representation error along with the
+   value: ``8.2 * 100`` is ``819.9999999999999``, so ``8.2`` became ``8.19``.
+   Roughly 4.6% of cent-granular prices were affected, always one tick low and
+   silently. See the changelog for detail.
 
 .. automethod:: schwab.orders.generic.OrderBuilder.set_price
 .. automethod:: schwab.orders.generic.OrderBuilder.copy_price

@@ -9,7 +9,6 @@ import inspect
 import json
 import logging
 import schwab
-import warnings
 
 import websockets.asyncio.client as ws_client
 
@@ -110,48 +109,41 @@ _RENAMED_CONNECT_ARGS = {
 _REMOVED_CONNECT_ARGS = ('create_protocol', 'read_limit')
 
 
-def _adapt_connect_args(websocket_connect_args):
+def _prepare_connect_args(websocket_connect_args):
     '''
-    Adapts user-provided ``websocket_connect_args`` to the ``websockets``
-    asyncio client.
+    Checks user-provided ``websocket_connect_args`` against the ``websockets``
+    asyncio client, and returns a copy for this library to add to.
 
     ``StreamClient.login`` documents ``websocket_connect_args`` as a
-    passthrough to the ``websockets`` ``connect()`` call, so users may be
-    passing kwargs which were valid under the legacy implementation. websockets
-    14.0 renamed some of those and removed others. Translate the renames so
-    existing code keeps working, and raise an actionable error for the removals
-    rather than letting an opaque ``TypeError`` surface from deep inside this
-    library.
+    passthrough to ``connect()``, so a caller may still be passing a name which
+    was valid before websockets 14.0. Both the renamed and the removed names
+    are refused here with a message naming the replacement, rather than being
+    left to surface as an opaque ``TypeError`` from inside ``websockets``.
+
+    Earlier versions translated the renames automatically and warned. That kept
+    working code working, but it also meant the passthrough this argument
+    promises was not a passthrough: the name the caller wrote was not the name
+    ``websockets`` received, which is a confusing thing for a library to do to
+    an argument documented as going straight through.
+
+    The copy matters -- ``login`` adds ``ssl`` to what it gets back, and the
+    dict belongs to the caller.
     '''
-    adapted = dict(websocket_connect_args)
-
     for old_name, new_name in _RENAMED_CONNECT_ARGS.items():
-        if old_name not in adapted:
-            continue
-
-        if new_name in adapted:
+        if old_name in websocket_connect_args:
             raise ValueError(
-                'websocket_connect_args contains both {!r} and {!r}. {!r} is '
-                'the name used by websockets 14.0 and later; please pass only '
-                'that one.'.format(old_name, new_name, new_name))
-
-        warnings.warn(
-            'websocket_connect_args[{!r}] was renamed to {!r} in websockets '
-            '14.0. It is being translated automatically, but please update '
-            'your code as this shim will be removed in a future '
-            'release.'.format(old_name, new_name),
-            DeprecationWarning, stacklevel=4)
-
-        adapted[new_name] = adapted.pop(old_name)
+                'websocket_connect_args[{!r}] was renamed to {!r} in '
+                'websockets 14.0. Please pass {!r} instead.'.format(
+                    old_name, new_name, new_name))
 
     for removed in _REMOVED_CONNECT_ARGS:
-        if removed in adapted:
+        if removed in websocket_connect_args:
             raise ValueError(
                 'websocket_connect_args[{!r}] was removed in websockets 14.0 '
                 'and has no equivalent in the asyncio implementation. Please '
                 'remove it.'.format(removed))
 
-    return adapted
+    return dict(websocket_connect_args)
 
 
 class ResponseTimeoutError(Exception):
@@ -308,7 +300,7 @@ class StreamClient(EnumEnforcer):
         # Initialize socket
         wss_url = stream_info['streamerSocketUrl']
 
-        websocket_connect_args = _adapt_connect_args(websocket_connect_args)
+        websocket_connect_args = _prepare_connect_args(websocket_connect_args)
 
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
@@ -692,9 +684,8 @@ class StreamClient(EnumEnforcer):
                                        ``extra_headers`` to
                                        ``additional_headers`` and removed
                                        ``create_protocol`` and ``read_limit``.
-                                       ``extra_headers`` is still accepted and
-                                       translated, but emits a
-                                       ``DeprecationWarning``.
+                                       Passing any of the three raises
+                                       ``ValueError`` naming the replacement.
         '''
 
         # Fetch required data and initialize the client
@@ -1258,12 +1249,6 @@ class StreamClient(EnumEnforcer):
 
         #: Contract strike price
         STRIKE_PRICE = 20
-
-        #: Deprecated spelling of :attr:`STRIKE_PRICE`. Field 20 is the
-        #: contract strike price; it was never a "type". Kept so existing code
-        #: referring to it keeps working, but messages are now labeled
-        #: ``STRIKE_PRICE``.
-        STRIKE_TYPE = 20
 
         #: Contract type
         CONTRACT_TYPE = 21

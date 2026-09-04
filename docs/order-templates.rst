@@ -49,7 +49,7 @@ any time in the next six months:
 
   client.place_order(
       1000,  # account_id
-      equity_buy_limit('GOOG', 1, 1250.0)
+      equity_buy_limit('GOOG', 1, '1250.00')
           .set_duration(Duration.GOOD_TILL_CANCEL)
           .set_session(Session.SEAMLESS)
           .build())
