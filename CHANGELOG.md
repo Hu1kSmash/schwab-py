@@ -72,6 +72,15 @@ it is a change to what a previously correct call puts on the wire, so check
 your `Decimal` call sites. It is rendered with `format(d, 'f')` rather than
 `str(d)`, because `str(Decimal('1E+2'))` is `'1E+2'`, which is not a price.
 
+**Build a `Decimal` from a string, not a float.** `Decimal(0.1)` is that
+float's binary expansion to 55 decimal places, and rendering it exactly -- the
+point of accepting `Decimal` at all -- would put all 57 characters on the wire.
+Up to 2.0.1 the truncation hid this. A price carrying more than eight decimal
+places is now refused with an error naming `Decimal(str(value))` as the fix.
+Eight is far beyond any real venue precision (Schwab's sub-penny prices and
+option strikes stop at four); the guard exists only to catch a float that got
+in through `Decimal`.
+
 `copy_price` and `copy_stop_price` still set the field with no validation,
 which is what `contrib.orders` uses to reconstruct a historical order.
 

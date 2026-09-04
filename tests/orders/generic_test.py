@@ -1210,6 +1210,30 @@ class PricesAreStringsTest(unittest.TestCase):
         self.assertEqual('100', builder.build()['price'])
 
     @no_duplicates
+    def test_a_decimal_built_from_a_float_is_refused(self):
+        # Decimal(0.1) is not 0.1, it is the float's binary expansion to 55
+        # places. Rendering a Decimal exactly is the whole point of accepting
+        # one, so this would put all 57 characters on the wire. Up to 2.0.1 the
+        # truncation hid it. Decimal(str(x)) is what the caller meant.
+        for value in (0.1, 19.99, 8.2):
+            builder = OrderBuilder()
+            with self.assertRaises(ValueError, msg=repr(value)) as cm:
+                builder.set_price(decimal.Decimal(value))
+            self.assertIn('decimal places', str(cm.exception))
+            self.assertIn('Decimal(str(value))', str(cm.exception))
+
+    @no_duplicates
+    def test_a_decimal_with_real_price_precision_is_kept(self):
+        # The guard must not catch prices anyone actually sends. Schwab's
+        # sub-penny prices and option strikes stop at four places.
+        for value in ('19.99', '0.1869', '1234.5678', '0.00012345', '100'):
+            builder = OrderBuilder()
+            builder.set_price(decimal.Decimal(value))
+            self.assertEqual(
+                    value if value != '100' else '100',
+                    builder.build()['price'])
+
+    @no_duplicates
     def test_the_error_does_not_recommend_a_rounding_conversion(self):
         # '{:.2f}'.format rounds where the removed conversion truncated, so
         # recommending it as a drop-in would move prices by a tick. The message

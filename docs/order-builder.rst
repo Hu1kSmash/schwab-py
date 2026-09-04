@@ -321,6 +321,14 @@ chose, and rendering it here decides nothing:
 
    order.set_price(decimal.Decimal('199.99'))
 
+**Build it from a string, not from a float.** ``decimal.Decimal(0.1)`` is not
+``0.1``; it is that float's binary expansion, ``0.1000000000000000055511...``,
+to 55 decimal places. Since the whole point of accepting ``Decimal`` is to
+render it exactly, all 57 characters would reach Schwab. A price that deep is
+refused with an error saying this, but the habit to keep is
+``decimal.Decimal(str(value))`` -- particularly when the value came from parsed
+JSON, where a quote field is already a float.
+
 Passing a number raises ``ValueError`` -- integers included, so
 ``set_price(1250)`` raises just as ``set_price(1250.0)`` does. Earlier versions accepted one and
 converted it here, truncating to two decimal places, or to four for values
@@ -359,8 +367,12 @@ you keep that decision.
    Deciding the rounding deliberately is the better one.
 
 :meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field with
-no validation of any kind, which is what :ref:`order_templates` uses to rebuild
-an order exactly as Schwab reported it.
+no validation of any kind. That is what
+:func:`schwab.contrib.orders.construct_repeat_order` uses to rebuild an order
+exactly as Schwab reported it. The prebuilt templates on the
+:ref:`order_templates` page are not an exception to any of this -- they call
+:meth:`~schwab.orders.generic.OrderBuilder.set_price` and take the same string
+it does.
 
 .. note::
 

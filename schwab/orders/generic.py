@@ -77,6 +77,13 @@ def _assert_finite(name, price):
                 '{} must be a finite number, got {!r}'.format(name, price))
 
 
+# No venue quotes to this many places. Schwab's own sub-penny prices and option
+# strikes stop at four, so this is generous by a wide margin and exists only to
+# catch a Decimal carrying a float's binary expansion, which runs to 17 places
+# and beyond.
+_MAX_PRICE_DECIMAL_PLACES = 8
+
+
 def _require_price_string(name, price):
     '''
     Prices are strings, or ``decimal.Decimal``. See :ref:`price_strings`.
@@ -93,6 +100,24 @@ def _require_price_string(name, price):
     and rendering it here decides nothing.
     '''
     if isinstance(price, decimal.Decimal):
+        # A Decimal built from a float carries the binary expansion, not the
+        # value the caller thinks they wrote: Decimal(0.1) is
+        # 0.1000000000000000055511151231257827021181583404541015625, and
+        # rendering it exactly -- which is the point of taking Decimal at all
+        # -- would put all 57 characters on the wire. Up to 2.0.1 the
+        # truncation hid this. Nothing that deep is a price, so it is refused
+        # here rather than sent. Decimal(str(x)) is the fix, and is what the
+        # caller meant.
+        exponent = price.as_tuple().exponent
+        if isinstance(exponent, int) and -exponent > _MAX_PRICE_DECIMAL_PLACES:
+            raise ValueError(
+                    '{} has {} decimal places, which is not a price. This is '
+                    'what decimal.Decimal(some_float) produces -- it captures '
+                    "the float's binary expansion rather than the value you "
+                    'wrote. Use decimal.Decimal(str(value)), or format the '
+                    'price as a string yourself. Got: {}'.format(
+                        name, -exponent, format(price, 'f')))
+
         # format(d, 'f') rather than str(d): str(Decimal('1E+2')) is '1E+2',
         # which is not a price. Neither form loses anything.
         price = format(price, 'f')

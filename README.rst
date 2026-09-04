@@ -23,8 +23,13 @@
    and cannot be opened as pull requests. The same is true of the 2.1.0 documentation and
    tooling cleanup, two hunks of which -- a cross-reference to the predecessor project and a
    docstring describing code that raises -- are plain bugs upstream still has and would
-   probably take; re-cutting those against a mirror of upstream is outstanding work.
-   Everything else has been sent.
+   probably take; re-cutting those against a mirror of upstream is outstanding work. The same
+   applies to the 2.1.0 fix for option strike encoding, which is a plain upstream bug but landed
+   here bundled with release changes rather than on a topic branch of its own.
+
+   Everything else has been sent. Where that sentence has been wrong before, it was because a
+   change reached ``main`` without a branch that could be offered; the list above is maintained
+   against that failure rather than assumed.
    This is not a competing project and it is not a criticism of the original author, who wrote
    essentially all of the code below. If upstream merges those changes, the fork's divergence
    shrinks; if upstream resumes active maintenance, using it again is the better choice.
