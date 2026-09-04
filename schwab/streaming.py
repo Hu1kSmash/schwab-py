@@ -217,6 +217,17 @@ class StreamClient(EnumEnforcer):
         # list before they are read from the stream.
         self._overflow_items = deque()
 
+        # Rejections found riding along in a frame which answered an
+        # outstanding request, waiting to be reported. They are found while the
+        # read lock is held -- on the request path, the request lock and the
+        # response deadline too -- which is no place to run a user handler, so
+        # they are set aside and reported from handle_message the way an
+        # overflow frame is. Bounded because nothing guarantees handle_message
+        # is ever called again; the log line written when each is found is the
+        # durable record, and the callback is the convenience, so dropping the
+        # oldest loses nothing that was not already written down.
+        self._pending_reports = deque(maxlen=64)
+
         # Logging-related fields
         self.logger = get_logger()
         self.request_number = 0
@@ -434,32 +445,74 @@ class StreamClient(EnumEnforcer):
         # and _validate_response reads only that one, so a frame carrying a
         # second response has always handed it to the waiter unexamined.
         #
-        # Logged rather than reported through add_error_handler. This runs
-        # holding the read lock, on the request path holding the request lock
-        # too, and inside the response deadline -- so calling a user handler
-        # here would let a slow one turn a subscription that SUCCEEDED into a
+        # Logged here, but NOT reported here. This runs holding the read
+        # lock, on the request path holding the request lock too, and inside
+        # the response deadline -- so calling a user handler here would let a
+        # slow one turn a subscription that SUCCEEDED into a
         # ResponseTimeoutError, and a handler that re-subscribed would block on
-        # a lock its own caller holds. The orphan path reports because it runs
-        # after the read lock is released; this one cannot, so it does not.
+        # a lock its own caller holds. The report is queued and delivered from
+        # handle_message, which holds neither lock and runs under no deadline.
         self._log_extra_responses(frame)
 
         return None
 
     def _log_extra_responses(self, frame):
+        '''Logs every response past the first, and queues the rejections.
+
+        Because _request_lock keeps one request outstanding at a time, a second
+        response in the same frame cannot be an answer to anything this client
+        is currently waiting on. It is a late answer to a request which was
+        abandoned -- exactly what the orphan path in handle_message reports.
+        Whether Schwab sends that in a frame of its own or batches it behind
+        the answer to a live request is the server's choice, so reporting only
+        the first would make add_error_handler fire or stay silent for the same
+        event depending on framing the caller cannot see or predict.
+        '''
         for response in frame.get('response', [])[1:]:
             content = response.get('content', {})
             code = content.get('code')
 
-            if code is None or code == 0:
-                continue
+            # Matches the orphan path: a late acknowledgement of something that
+            # worked is routine and logs at INFO, a late rejection warns.
+            log = self.logger.info if code == 0 else self.logger.warning
+            log('Response frame carried an additional %s/%s response: code %s, '
+                'msg %r. It answers no request this client is waiting on.',
+                response.get('service'), response.get('command'),
+                code, content.get('msg'))
 
-            self.logger.warning(
-                    'Response frame carried an additional %s/%s response which '
-                    'was a rejection: code %s, msg %r. It answers no request '
-                    'this client is waiting on, and nothing else will report '
-                    'it.',
-                    response.get('service'), response.get('command'),
-                    code, content.get('msg'))
+            # `is not None` as well, for the same reason as the orphan path: a
+            # response with no code at all is neither a rejection nor a
+            # success, and reporting it would page someone over `code None`.
+            if code is not None and code != 0:
+                self._pending_reports.append((
+                        UnexpectedResponseCode(
+                            frame,
+                            'Schwab rejected a request which had already '
+                            'been abandoned: code {}, msg {!r}'.format(
+                                code, content.get('msg'))),
+                        response.get('service'),
+                        response))
+
+    async def _drain_pending_reports(self):
+        '''Delivers reports queued by _log_extra_responses.
+
+        Called from handle_message with the read lock released, no request
+        lock held and no deadline running. Each entry is popped before it is
+        awaited, so a handler which re-enters handle_message finds an empty
+        queue rather than reporting the same rejection twice.
+
+        Returns how many were delivered, which is how the caller tells a
+        handler having closed the stream from its never having been open.
+        '''
+        delivered = 0
+
+        while self._pending_reports:
+            exception, service, message = self._pending_reports.popleft()
+            await self._report_error(
+                    exception, service=service, message=message)
+            delivered += 1
+
+        return delivered
 
     def _fail_pending_request(self, exception):
         '''Hands an exception to the operation waiting on a response, if any.
@@ -619,15 +672,24 @@ class StreamClient(EnumEnforcer):
         Each is logged as it was before. The callback is what makes them
         something other than a log record.
 
-        That list is exhaustive on purpose, and one near-miss is worth naming:
-        a rejection riding along in a frame which *did* answer a request you
-        are waiting on is logged and does not reach here. Routing that frame
-        happens holding the read lock, holding the request lock, and inside
-        the response deadline, so a slow handler there would turn a
-        subscription that succeeded into a ``ResponseTimeoutError``, and a
-        handler which re-subscribed would block on a lock its own caller
-        holds. The abandoned-request case above reports because it runs after
-        the read lock is released.
+        The second of those covers a rejection however Schwab frames it. It
+        may arrive in a frame of its own, or riding along behind the answer to
+        a request you are waiting on -- only one request is outstanding at a
+        time, so anything past the first response in a frame is a late answer
+        to an abandoned one either way. Which framing you get is the server's
+        choice, and both report identically.
+
+        The batched one is reported from :meth:`handle_message` rather than
+        where it is found. Routing a frame happens holding the read lock, on
+        the request path holding the request lock too, and inside the response
+        deadline: a slow handler called there would turn a subscription that
+        succeeded into a ``ResponseTimeoutError``, and one which re-subscribed
+        would block on a lock its own caller holds. So the report is queued and
+        delivered on the next pass through :meth:`handle_message`, which holds
+        neither lock and runs under no deadline. **A program which never calls**
+        :meth:`handle_message` **never receives these**, and the queue is
+        bounded -- the log line written when each rejection is found is the
+        complete record, and this callback is the convenience.
 
         That matters most where a fallback covers for the stream. If a
         subscription quietly stops delivering, and a REST poll is authoritative
@@ -813,6 +875,26 @@ class StreamClient(EnumEnforcer):
         # is not a message to be handled, so keep reading in that case rather
         # than returning nothing.
         while True:
+            # Before the read, not after it. No lock is held here and no
+            # deadline is running, which is what makes it safe to call user
+            # code -- and draining after the read would hold every queued
+            # report until the *next* message arrived, which on a quiet stream
+            # is indefinitely. A matched frame carrying an extra rejection
+            # returns None and comes back round, so its report goes out on the
+            # following iteration without waiting for anything.
+            delivered = await self._drain_pending_reports()
+
+            # An error handler is allowed to tear the stream down -- that is a
+            # reasonable reaction to a rejection, and every other path which
+            # calls a handler returns rather than reading again afterwards.
+            # Without this, closing from a queued report would be the one place
+            # it raised "Socket not open" out of the call the handler was
+            # running in. Conditioned on having delivered something, so
+            # handle_message on a client which was never logged in still raises
+            # that error rather than returning quietly.
+            if delivered and self._socket is None:
+                return
+
             async with self._read_lock:
                 try:
                     msg = await self._read_and_route()

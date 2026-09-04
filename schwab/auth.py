@@ -921,9 +921,9 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
     any way. If ``token_path`` refers to an existing file, this method will
     assume that file is valid token and will attempt to parse it.
 
-    **Requires the** ``login`` **extra, even when a token file already
-    exists.** ``max_token_age`` defaults to 6.5 days, and a token older than
-    that is discarded here and replaced through
+    **Outside a notebook, requires the** ``login`` **extra -- even when a token
+    file already exists.** ``max_token_age`` defaults to 6.5 days, and a token
+    older than that is discarded here and replaced through
     :func:`client_from_login_flow`, which needs the extra. Without it a program
     runs for 6.5 days and then fails on a routine re-authentication rather than
     at startup. Setting ``max_token_age=0`` skips the proactive refresh, but
@@ -931,6 +931,10 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
     so a long-running program still needs some way to log in again. If you want
     an install without the extra, use :func:`client_from_token_file` and handle
     re-authentication yourself.
+
+    In a Jupyter or Colab notebook this routes to
+    :func:`client_from_manual_flow` instead, which starts no callback server
+    and needs no extra.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret provided upon :ref:`app approval 

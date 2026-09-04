@@ -236,6 +236,10 @@ and the command to install it, rather than a bare "No module named 'flask'".
   authorization whatever you do, so anything long-running needs some way to
   log in again.
 
+  In a Jupyter or Colab notebook this does not apply: there ``easy_client``
+  uses :func:`~schwab.auth.client_from_manual_flow`, which starts no callback
+  server and needs no extra.
+
 A daemon which authenticates with :func:`~schwab.auth.client_from_token_file`
 and streams needs neither extra. So does one built on
 :func:`~schwab.auth.client_from_access_functions`.

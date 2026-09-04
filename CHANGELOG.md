@@ -39,6 +39,9 @@ which on an unattended machine is the worst shape this break can take. Pass
 from authorization regardless, so anything long-running needs a way to log in
 again either way.
 
+In a Jupyter or Colab notebook `easy_client` routes to `client_from_manual_flow`
+instead, which starts no callback server, so notebook users need no extra.
+
 Not affected: `client_from_token_file`, `client_from_access_functions`,
 `client_from_received_url`, `client_from_manual_flow`, and the streaming client.
 None of them touch the callback server.
@@ -62,19 +65,32 @@ nothing.** `_validate_response` reads `response[0]`, which is the answer to the
 outstanding request; a frame carrying a second response handed it to the waiter
 unexamined. If that one was a rejection, nothing mentioned it -- the same gap
 the late-rejection reporting closed in 2.2.0, one element along. Additional
-responses are now checked, and a non-zero code is logged with its service,
-command, code and message. A success alongside the answer stays quiet, as on the
-orphan path.
+responses are now checked. A rejection logs a warning and is reported to
+`add_error_handler`; a success alongside the answer logs at INFO and is not
+reported, exactly as on the orphan path.
 
-This one is logged only, and deliberately does not reach `add_error_handler`,
-which is otherwise the mechanism for exactly this kind of absorbed failure. The
-frame is routed while the read lock and the request lock are both held and the
-response deadline is running. A user handler called from there would let a slow
-one turn a subscription that *succeeded* into a `ResponseTimeoutError`, and a
-handler which re-subscribed would block on a lock its own caller holds. The
-late-rejection path added in 2.2.0 reports because it runs after those locks are
-released; this one cannot, so it does not. The distinction is stated in
-`add_error_handler`'s docstring and in `docs/streaming.rst`.
+Reporting it matters more than it might look. `_request_lock` keeps one request
+outstanding, so a second response in a frame cannot answer anything the client
+is waiting on — it is a late answer to an abandoned request, the same class the
+orphan path has reported since 2.2.0. Whether Schwab sends it in its own frame
+or batches it behind the answer to a live request is the server's choice. Had
+only the orphan framing reported, a consumer who replaced log-scraping with
+`add_error_handler` would see a rejection one day and silently miss the
+identical one the next, for a reason invisible to them.
+
+**But not from where it is found.** That code runs holding the read lock, on the
+request path the request lock too, and inside the response deadline — a user
+handler called there let a slow one turn a subscription that *succeeded* into a
+`ResponseTimeoutError`, and one that re-subscribed blocked on a lock its own
+caller held. Both were real, and both have tests. The report is queued and
+delivered from `handle_message`, which holds neither lock and runs under no
+deadline.
+
+The consequence to know: **a program that never calls `handle_message` never
+receives these.** The queue is bounded and drops the oldest when full. The log
+line written when each rejection is found is the complete record; the callback
+is the convenience. This is stated in `add_error_handler`'s docstring and in
+`docs/streaming.rst`.
 
 ## 2.2.0
 

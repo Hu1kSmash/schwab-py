@@ -241,14 +241,28 @@ frame — which can hold several responses — so read the rejected one from
 and ``message`` are ``None`` where they do not apply. Registering none keeps the
 existing behaviour exactly, and the log line is written either way.
 
-Those three are the whole list, and one case which looks like it belongs is
-deliberately not on it: a rejection carried in a frame which *did* answer a
-request you were waiting on is logged only. That frame is routed while the read
-lock and the request lock are both held and the response deadline is running, so
-a slow handler there would turn a subscription that succeeded into a
-``ResponseTimeoutError``, and a handler which re-subscribed would block on a lock
-its own caller holds. The late-rejection case above can report precisely because
-it runs after those locks are released.
+The late rejection reaches you however Schwab frames it. Only one request is
+outstanding at a time, so a second response in a frame cannot be an answer to
+anything you are waiting on — it is a late answer to an abandoned request,
+whether the server sends it alone or batches it behind the answer to a live one.
+Both report the same ``UnexpectedResponseCode`` with the same ``service`` and
+``message``, because the framing is the server's choice and you cannot predict
+which you will get.
+
+The batched one is delivered from ``handle_message`` rather than from the code
+that finds it. That code runs while the read lock and the request lock are both
+held and the response deadline is running, so a slow handler there would turn a
+subscription that *succeeded* into a ``ResponseTimeoutError``, and one that
+re-subscribed would block on a lock its own caller holds. The report is queued
+instead and goes out on the next pass through ``handle_message``, which holds
+neither lock. Two consequences:
+
+* **A program that never calls** ``handle_message`` **never sees these.** If you
+  subscribe and then only place orders, nothing drains the queue. The log line
+  is written either way and is the complete record.
+* The queue is bounded, and drops the oldest when full. That only happens when
+  reports are being produced faster than ``handle_message`` runs, which means
+  something is already wrong — and again, nothing is lost that was not logged.
 
 The handler may be a coroutine function, like every other handler on this class:
 
