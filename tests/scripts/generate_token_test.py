@@ -40,23 +40,42 @@ class GenerateTokenTest(unittest.TestCase):
     @no_duplicates
     @patch('schwab.auth.client_from_manual_flow')
     @patch('schwab.auth.client_from_login_flow')
-    def test_a_missing_extra_is_reported_not_turned_into_the_manual_flow(
+    def test_a_missing_extra_is_named_and_the_manual_flow_still_runs(
             self, login_flow, manual_flow):
         login_flow.side_effect = ImportError(
                 "The interactive login flow requires the 'login' extra, which "
                 "is not installed.")
 
         with patch('builtins.print') as mock_print:
-            self.assertEqual(1, self.main())
+            self.assertEqual(0, self.main())
 
-        # The message the user needs is the one that reaches them.
+        # The message the user needs is the one that reaches them. Reported as
+        # a generic browser failure, they would take the manual flow on every
+        # run without ever learning why.
         printed = ' '.join(str(c) for c in mock_print.call_args_list)
         self.assertIn("'login' extra", printed)
-        self.assertNotIn('falling back', printed)
 
-        # And they are not dropped into a flow they did not ask for, which
-        # would happen on every run and never mention the real cause.
-        manual_flow.assert_not_called()
+        # And they still get a token: the manual flow needs no optional
+        # package, so refusing here would withhold the one thing that works.
+        manual_flow.assert_called_once()
+
+    @no_duplicates
+    @patch('schwab.auth.client_from_manual_flow')
+    @patch('schwab.auth.client_from_login_flow')
+    def test_a_broken_package_is_named_and_the_manual_flow_still_runs(
+            self, login_flow, manual_flow):
+        # import_optional re-raises unchanged when a package is installed but
+        # fails to import itself. That is an ImportError too, and it is no more
+        # a reason to refuse the manual flow than a missing package is.
+        login_flow.side_effect = ModuleNotFoundError(
+                "No module named 'werkzeug'", name='werkzeug')
+
+        with patch('builtins.print') as mock_print:
+            self.assertEqual(0, self.main())
+
+        printed = ' '.join(str(c) for c in mock_print.call_args_list)
+        self.assertIn('werkzeug', printed)
+        manual_flow.assert_called_once()
 
     @no_duplicates
     @patch('schwab.auth.client_from_manual_flow')

@@ -440,10 +440,23 @@ class StreamClient(EnumEnforcer):
             else:
                 future.set_exception(error)
 
-        # Everything past the first response is logged but not routed. The
-        # protocol treats element 0 as the answer to the outstanding request,
-        # and _validate_response reads only that one, so a frame carrying a
-        # second response has always handed it to the waiter unexamined.
+            # Element 0 went to the waiter, so it is accounted for.
+            first_unclaimed = 1
+        else:
+            # The future was already resolved -- the waiter timed out, or was
+            # cancelled, and this frame arrived in the window before the
+            # pending slot was cleared. Nothing is waiting for element 0
+            # either, so it is as unclaimed as the rest. Without this, a
+            # rejection at element 0 would be dropped in silence while a
+            # rejection at element 1 of the same frame was reported, which is
+            # the inverse of the framing-independence this exists for.
+            first_unclaimed = 0
+
+        # Everything not claimed above is logged and, if it is a rejection,
+        # queued for report. The protocol treats element 0 as the answer to the
+        # outstanding request, and _validate_response reads only that one, so a
+        # frame carrying a second response has always handed it to the waiter
+        # unexamined.
         #
         # Logged here, but NOT reported here. This runs holding the read
         # lock, on the request path holding the request lock too, and inside
@@ -452,11 +465,11 @@ class StreamClient(EnumEnforcer):
         # ResponseTimeoutError, and a handler that re-subscribed would block on
         # a lock its own caller holds. The report is queued and delivered from
         # handle_message, which holds neither lock and runs under no deadline.
-        self._log_extra_responses(frame)
+        self._log_extra_responses(frame, first_unclaimed)
 
         return None
 
-    def _log_extra_responses(self, frame):
+    def _log_extra_responses(self, frame, start=1):
         '''Logs every response past the first, and queues the rejections.
 
         Because _request_lock keeps one request outstanding at a time, a second
@@ -468,7 +481,7 @@ class StreamClient(EnumEnforcer):
         the first would make add_error_handler fire or stay silent for the same
         event depending on framing the caller cannot see or predict.
         '''
-        for response in frame.get('response', [])[1:]:
+        for response in frame.get('response', [])[start:]:
             content = response.get('content', {})
             code = content.get('code')
 

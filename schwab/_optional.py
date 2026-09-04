@@ -29,9 +29,13 @@ def import_optional(module_name, extra, needed_for):
         # would otherwise be reported as missing, and the caller would be told
         # to install something they already have. Let that one through as
         # itself, which at least names the module that actually failed.
-        missing = getattr(exc, 'name', None) or ''
+        #
+        # Compared exactly, not by top-level package. A truncated install can
+        # raise ModuleNotFoundError for 'flask.json', and treating that as
+        # 'flask' being absent is the same misdirection one level down: the
+        # extra is installed, so installing it again fixes nothing.
         if (not isinstance(exc, ModuleNotFoundError)
-                or missing.split('.')[0] != module_name.split('.')[0]):
+                or getattr(exc, 'name', None) != module_name):
             raise
 
         raise ImportError(

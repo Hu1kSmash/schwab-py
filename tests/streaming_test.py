@@ -7159,6 +7159,63 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         socket.close.assert_called_once()
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_rejection_at_element_zero_is_reported_once_nobody_waits(
+            self, ws_connect):
+        # If the waiter already timed out or was cancelled, its future is
+        # resolved but the pending slot is not yet cleared. A frame arriving in
+        # that window has no claimant for element 0 either, so it must be
+        # treated like the rest -- otherwise a rejection at element 0 is
+        # dropped in silence while one at element 1 of the same frame is
+        # reported, the inverse of what the contract promises.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        future = asyncio.get_running_loop().create_future()
+        future.set_result(None)
+        self.client._pending_request = (
+                1, 'LEVELONE_EQUITIES', 'SUBS', future)
+
+        frame = {'response': [
+            {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+             'requestid': '1',
+             'content': {'code': 21, 'msg': 'first was rejected'}},
+            {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+             'requestid': '1',
+             'content': {'code': 22, 'msg': 'second was rejected'}},
+        ]}
+        self.client._overflow_items.appendleft(frame)
+
+        self.assertIsNone(await self.client._read_and_route())
+
+        queued = [str(exc) for exc, _, _ in self.client._pending_reports]
+        self.assertEqual(2, len(queued))
+        self.assertIn('21', queued[0])
+        self.assertIn('22', queued[1])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_element_zero_stays_with_its_waiter(self, ws_connect):
+        # The mirror of the above: while somebody *is* waiting, element 0 is
+        # theirs and must not also be queued as an unclaimed rejection.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        rejected = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        rejected['response'][0]['content'] = {
+                'code': 21, 'msg': 'subscribe rejected'}
+        socket.recv.side_effect = [json.dumps(rejected)]
+
+        with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
+            await self.client.level_one_equity_subs(['GOOG'])
+
+        # Raised to the caller, so it is not an absorbed failure.
+        self.assertEqual([], list(self.client._pending_reports))
+        self.assertEqual([], errors)
+
+    @no_duplicates
     def test_the_report_queue_is_bounded(self):
         # Nothing guarantees handle_message is ever called again. The log line
         # written when each rejection is found is the durable record, so

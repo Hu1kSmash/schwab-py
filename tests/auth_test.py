@@ -1502,6 +1502,22 @@ class ImportOptionalTest(unittest.TestCase):
         self.assertNotIn('extra', str(cm.exception))
 
     @no_duplicates
+    def test_a_missing_submodule_is_not_reported_as_a_missing_package(self):
+        # A truncated install can raise ModuleNotFoundError for 'flask.json'.
+        # The extra is installed, so telling the caller to install it is the
+        # same misdirection one level down.
+        missing = ModuleNotFoundError(
+                "No module named 'flask.json'", name='flask.json')
+
+        with patch('schwab._optional.importlib.import_module',
+                   side_effect=missing):
+            with self.assertRaises(ModuleNotFoundError) as cm:
+                import_optional('flask', 'login', 'The interactive login flow')
+
+        self.assertIs(missing, cm.exception)
+        self.assertNotIn('extra', str(cm.exception))
+
+    @no_duplicates
     def test_a_non_modulenotfound_import_error_propagates_unchanged(self):
         sentinel = ImportError('cannot import name something from flask')
 

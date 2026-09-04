@@ -69,6 +69,11 @@ responses are now checked. A rejection logs a warning and is reported to
 `add_error_handler`; a success alongside the answer logs at INFO and is not
 reported, exactly as on the orphan path.
 
+The rule is that every response no waiter claimed is checked, which is usually
+everything past element 0. In the window where a waiter has already timed out
+but the pending slot is not yet cleared, nobody claims element 0 either, and it
+is checked too.
+
 Reporting it matters more than it might look. `_request_lock` keeps one request
 outstanding, so a second response in a frame cannot answer anything the client
 is waiting on — it is a late answer to an abandoned request, the same class the
