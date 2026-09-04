@@ -77,7 +77,10 @@ float's binary expansion to 55 decimal places, and rendering it exactly -- the
 point of accepting `Decimal` at all -- would put all 57 characters on the wire.
 Up to 2.0.1 the truncation hid this. A price carrying more than eight decimal
 places is now refused. Eight is far beyond any real venue precision (Schwab's
-sub-penny prices and option strikes stop at four).
+sub-penny prices and option strikes stop at four). Significant places, not the
+declared exponent: `Decimal('100.00') * Decimal('1.0500') ** 2` is
+`Decimal('110.2500000000')`, which is exactly $110.25 reached by applying two
+four-place factors, and counting its exponent would refuse a valid price.
 
 The guard catches two different mistakes and the error names both, because
 they need different fixes: a `Decimal` built from a float wants

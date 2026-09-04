@@ -122,7 +122,31 @@ def _assert_finite(name, price):
 _MAX_PRICE_DECIMAL_PLACES = 8
 
 
-def _render_decimal(value):
+def _decimal_places(value):
+    '''How many decimal places ``value`` actually carries, or ``None`` if it
+    has no finite exponent.
+
+    Counts significant places rather than the declared exponent, because the
+    two differ on trailing zeros and the difference is a price this library
+    would otherwise refuse. ``Decimal('100.00') * Decimal('1.0500') ** 2`` is
+    ``Decimal('110.2500000000')`` -- exactly $110.25, reached by applying two
+    four-place factors, which is an ordinary way to compute a limit. Its
+    declared exponent says ten places; it carries two.
+
+    ``normalize()`` rounds to the ambient context precision, so this pins one.
+    At ``prec=9`` the ambient answer for ``Decimal(0.1)`` is one place, and the
+    guard would wave through the binary expansion it exists to catch.
+    '''
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        exponent = value.normalize().as_tuple().exponent
+
+    if not isinstance(exponent, int):
+        return None
+    return max(0, -exponent)
+
+
+def _render_decimal(name, value):
     '''Renders a ``Decimal`` to the string a price field holds, and passes
     anything else through untouched.
 
@@ -140,7 +164,7 @@ def _render_decimal(value):
         # skipping validation is supposed to buy.
         if value.is_nan() or value.is_infinite():
             raise ValueError(
-                    'price must be a finite number, got {!r}'.format(value))
+                    '{} must be a finite number, got {!r}'.format(name, value))
         return format(value, 'f')
     return value
 
@@ -178,8 +202,8 @@ def _require_price_string(name, price):
             raise ValueError(
                     '{} must be a finite number, got {!r}'.format(name, price))
 
-        exponent = price.as_tuple().exponent
-        if isinstance(exponent, int) and -exponent > _MAX_PRICE_DECIMAL_PLACES:
+        places = _decimal_places(price)
+        if places is not None and places > _MAX_PRICE_DECIMAL_PLACES:
             raise ValueError(
                     '{} has {} decimal places, which is not a price: {}. Two '
                     'things produce this. decimal.Decimal(some_float) captures '
@@ -189,7 +213,7 @@ def _require_price_string(name, price):
                     'fix is to round it deliberately -- '
                     "value.quantize(decimal.Decimal('0.01')) or whatever "
                     'precision the order wants.'.format(
-                        name, -exponent, format(price, 'f')))
+                        name, places, format(price, 'f')))
 
         # format(d, 'f') rather than str(d): str(Decimal('1E+2')) is '1E+2',
         # which is not a price. Neither form loses anything.
@@ -363,7 +387,7 @@ class OrderBuilder(EnumEnforcer):
         :func:`set_stop_price` applies -- no type check and no finiteness
         check.
         '''
-        self._stopPrice = _render_decimal(stop_price)
+        self._stopPrice = _render_decimal('stop price', stop_price)
         return self
 
     def clear_stop_price(self):
@@ -520,7 +544,7 @@ class OrderBuilder(EnumEnforcer):
         to reconstruct an order exactly as Schwab reported it. The prebuilt
         templates use :func:`set_price` and take the same string it does.
         '''
-        self._price = _render_decimal(price)
+        self._price = _render_decimal('price', price)
         return self
 
     def clear_price(self):

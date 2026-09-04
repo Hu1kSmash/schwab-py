@@ -1312,6 +1312,41 @@ class PricesAreStringsTest(unittest.TestCase):
                     getattr(builder, setter)(decimal.Decimal(spelling))
 
     @no_duplicates
+    def test_trailing_zeros_are_not_counted_as_precision(self):
+        # Decimal('100.00') * Decimal('1.0500') ** 2 is Decimal('110.2500000000')
+        # -- exactly $110.25, reached by applying two four-place factors, which
+        # is an ordinary way to compute a limit. Its declared exponent says ten
+        # places; it carries two. Counting the exponent refused a valid price
+        # at order-placement time and told the caller it was not one.
+        value = decimal.Decimal('100.00') * decimal.Decimal('1.0500') \
+                * decimal.Decimal('1.0500')
+        builder = OrderBuilder()
+        builder.set_price(value)
+        self.assertEqual('110.2500000000', builder.build()['price'])
+
+    @no_duplicates
+    def test_the_places_guard_ignores_the_global_decimal_context(self):
+        # normalize() rounds to the ambient context precision. At prec=9 the
+        # ambient answer for Decimal(0.1) is one decimal place, and the guard
+        # would wave through the binary expansion it exists to catch.
+        original = decimal.getcontext().prec
+        try:
+            for prec in (3, 5, 9, 28):
+                decimal.getcontext().prec = prec
+                with self.assertRaises(ValueError, msg='prec={}'.format(prec)):
+                    OrderBuilder().set_price(decimal.Decimal(0.1))
+        finally:
+            decimal.getcontext().prec = original
+
+    @no_duplicates
+    def test_copy_stop_price_names_its_own_field(self):
+        # Both copy_ setters share a renderer. It hardcoded 'price', so an
+        # order setting both told the caller the wrong one had been rejected.
+        with self.assertRaises(ValueError) as cm:
+            OrderBuilder().copy_stop_price(decimal.Decimal('NaN'))
+        self.assertIn('stop price', str(cm.exception))
+
+    @no_duplicates
     def test_the_places_guard_names_both_ways_of_reaching_it(self):
         # A Decimal too deep to be a price arrives two ways, and they need
         # different fixes: from a float, where Decimal(str(x)) is the answer,
