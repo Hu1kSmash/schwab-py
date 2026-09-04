@@ -7592,23 +7592,39 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # was hardened and the other was not, so an identical payload was
         # skipped with a warning in one framing and ended the caller's receive
         # loop with an AttributeError in the other.
-        broken = {'service': 'X', 'command': 'SUBS', 'requestid': '99',
-                  'content': None}
+        #
+        # The element chosen matters. An earlier version of this test used
+        # {'content': None}, which does not raise -- `or {}` turns it into a
+        # code of None and it is skipped as neither a rejection nor a success.
+        # So the except clause it meant to exercise never ran, and reporting
+        # malformed elements instead of skipping them left the test green. A
+        # bare string raises on .get, which is the path that matters.
+        raises = 'not a dict at all'
+        rejection = {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                     'requestid': '99',
+                     'content': {'code': 21, 'msg': 'a real rejection'}}
 
         socket = await self.login_and_get_socket(ws_connect)
-        self.client.add_level_one_equity_handler(lambda msg: None)
 
         # Standalone framing, through handle_message's orphan path.
+        standalone = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: standalone.append((service, msg)))
         socket.recv.side_effect = [
-                json.dumps({'response': [broken]}),
-                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')),
-        ]
-        await self.client.handle_message()
+                json.dumps({'response': [raises, rejection]})]
         await self.client.handle_message()
 
-        # Batched framing, through the routing path. Must not raise either.
-        self.client._log_extra_responses({'response': [{}, broken]}, 1)
-        self.assertEqual(0, len(self.client._pending_reports))
+        # Batched framing, through the routing path. Element 0 stands in for
+        # the answer a waiter took, so the same two elements follow it.
+        self.client._log_extra_responses(
+                {'response': [{}, raises, rejection]}, 1)
+        batched = [(service, message) for _, service, message
+                   in self.client._pending_reports]
+
+        # The positive control: the good element reports in both framings, so
+        # neither list is empty for want of the input ever arriving.
+        self.assertEqual([('ACCT_ACTIVITY', rejection)], standalone)
+        self.assertEqual(standalone, batched)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
