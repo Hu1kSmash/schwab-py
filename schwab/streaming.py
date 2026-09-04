@@ -333,11 +333,13 @@ class StreamClient(EnumEnforcer):
 
         # Anything still queued belongs to the connection being replaced. Its
         # exception carries a frame from that session, so reporting it now
-        # would attribute a dead session's rejection to this one. close()
-        # clears these too, but a caller reconnecting after a ConnectionClosed
+        # would attribute a dead session's rejection to this one, and a stale
+        # data frame would reach handlers as though it were live. close()
+        # clears both too, but a caller reconnecting after a ConnectionClosed
         # may call login() again without closing first, and the guarantee has
         # to hold whichever teardown they used.
         self._pending_reports.clear()
+        self._overflow_items.clear()
 
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
@@ -489,9 +491,24 @@ class StreamClient(EnumEnforcer):
         the first would make add_error_handler fire or stay silent for the same
         event depending on framing the caller cannot see or predict.
         '''
-        for response in frame.get('response', [])[start:]:
-            content = response.get('content', {})
-            code = content.get('code')
+        responses = frame.get('response')
+        if not isinstance(responses, list):
+            return
+
+        for response in responses[start:]:
+            # Nothing parsed here may raise. This runs on the routing path,
+            # after the waiter's future has already been resolved, so an
+            # exception escaping would reach the caller of a subscribe which
+            # SUCCEEDED -- the same failure the queue-don't-call design exists
+            # to prevent, arriving through parsing instead of a user callback.
+            try:
+                content = response.get('content') or {}
+                code = content.get('code')
+            except AttributeError:
+                self.logger.warning(
+                        'Ignoring an unparseable additional response in a '
+                        'matched frame: %r', response)
+                continue
 
             # Matches the orphan path: a late acknowledgement of something that
             # worked is routine and logs at INFO, a late rejection warns.
@@ -517,10 +534,15 @@ class StreamClient(EnumEnforcer):
     async def _drain_pending_reports(self):
         '''Delivers reports queued by _log_extra_responses.
 
-        Called from handle_message with the read lock released, no request
-        lock held and no deadline running. Each entry is popped before it is
-        awaited, so a handler which re-enters handle_message finds an empty
-        queue rather than reporting the same rejection twice.
+        Called from two places, both with the read lock released, no request
+        lock held and no deadline running: the top of handle_message's loop,
+        and the end of _request_response. Whichever coroutine read the frame
+        delivers what it queued, so a report is not stranded behind a reader
+        parked in recv(). A user handler can therefore run inside a subscribe.
+
+        Each entry is popped before it is awaited, so a handler which re-enters
+        handle_message finds an empty queue rather than reporting the same
+        rejection twice.
 
         '''
         while self._pending_reports:
@@ -1154,7 +1176,15 @@ class StreamClient(EnumEnforcer):
         # after a later login() would report a dead session's rejection against
         # a live one. Each was logged when it was found, so nothing unwritten
         # is lost.
+        #
+        # _overflow_items for the same reason, and it is the older half of the
+        # problem: it holds frames read but not yet handled, including the late
+        # rejections the orphan path reports and data frames handlers would be
+        # given. Clearing only the reports would have left the standalone
+        # framing leaking across sessions while the batched one did not, which
+        # is the asymmetry this whole change exists to remove.
         self._pending_reports.clear()
+        self._overflow_items.clear()
 
         if socket is not None:
             await socket.close()

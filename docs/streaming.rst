@@ -255,7 +255,7 @@ is running, so a slow handler there would turn a subscription that *succeeded*
 into a ``ResponseTimeoutError``, and one that re-subscribed would block on a lock
 its own caller holds. The report is queued instead, and delivered by whichever
 coroutine read the frame once it has released its locks — before
-``handle_message`` returns, or before the subscribe that read it returns. Three
+``handle_message`` returns, or before the subscribe that read it returns. Four
 consequences:
 
 * **Your handler can be called from inside a subscribe.** A slow one delays that
@@ -264,10 +264,11 @@ consequences:
 * A failed request still delivers what it read. The exception you get describes
   the response that answered *your* request and says nothing about the others
   in the frame.
-* The queue is cleared by ``close()`` and by a fresh ``login()``. A rejection
-  that arrived on a connection you have since replaced is not reported against
-  the new one, since the exception carries a frame from the old session — and
-  that holds whether you closed first or simply logged in again.
+* The queue is cleared by ``close()`` and by a fresh ``login()``, along with any
+  frames read but not yet handled. Nothing that arrived on a connection you have
+  since replaced reaches you afterwards — not a rejection reported against the
+  new session, and not a stale quote delivered to a handler as though it were
+  live. That holds whether you closed first or simply logged in again.
 * The queue is bounded and drops the oldest when full. That needs reports to
   arrive faster than they are drained, which means something is already wrong —
   and the log line is written either way, so nothing unwritten is lost.

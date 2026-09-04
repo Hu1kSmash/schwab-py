@@ -7385,6 +7385,101 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual([], errors)
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_discards_unhandled_frames_from_the_dead_session(
+            self, ws_connect):
+        # _overflow_items holds frames read but not yet handled -- including
+        # the late rejections the orphan path reports and data frames handlers
+        # would be given. Clearing only _pending_reports would leave the
+        # standalone framing leaking across sessions while the batched one did
+        # not, which is the asymmetry this change exists to remove.
+        await self.login_and_get_socket(ws_connect)
+
+        self.client._overflow_items.appendleft(
+                {'response': [{'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                               'requestid': '77',
+                               'content': {'code': 21, 'msg': 'dead session'}}]})
+        self.client._overflow_items.appendleft(
+                {'data': [self.streaming_entry('LEVELONE_EQUITIES', 'SUBS')]})
+
+        await self.client.close()
+
+        self.assertEqual(0, len(self.client._overflow_items))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_discards_unhandled_frames_from_the_dead_session(
+            self, ws_connect):
+        # Same guarantee for a caller who reconnects with login() rather than
+        # closing first.
+        await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        self.client._overflow_items.appendleft(
+                {'response': [{'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                               'requestid': '77',
+                               'content': {'code': 21, 'msg': 'dead session'}}]})
+
+        ws_connect.return_value = AsyncMock()
+        await self.client._init_from_preferences(
+                account_preferences(), {})
+
+        self.assertEqual(0, len(self.client._overflow_items))
+        self.assertEqual([], errors)
+        self.assertEqual([], handled)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_malformed_extra_cannot_fail_a_successful_subscribe(
+            self, ws_connect):
+        # The parsing counterpart of
+        # test_a_slow_handler_cannot_fail_a_successful_subscribe. Nothing on
+        # the routing path may raise once the waiter's future is resolved.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        ok['response'].append({
+            'service': 'ACCT_ACTIVITY',
+            'command': 'SUBS',
+            'requestid': '77',
+            'content': None,
+        })
+        socket.recv.side_effect = [json.dumps(ok)]
+
+        # Must not raise: the subscribe succeeded.
+        await self.client.level_one_equity_subs(['GOOG'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_response_field_of_the_wrong_shape_is_ignored(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        for broken in ('not a list', {'nope': 1}, None):
+            with self.subTest(broken=broken):
+                self.client._pending_reports.clear()
+                # Must not raise, and must queue nothing.
+                self.client._log_extra_responses({'response': broken}, 0)
+                self.assertEqual(0, len(self.client._pending_reports))
+
+        # A list whose elements are the wrong shape is skipped per element,
+        # and the well-formed ones beside them still report.
+        self.client._pending_reports.clear()
+        self.client._log_extra_responses({'response': [
+            'a string, not a dict',
+            {'service': 'Y', 'command': 'SUBS',
+             'content': {'code': 21, 'msg': 'this one is fine'}},
+        ]}, 0)
+        self.assertEqual(1, len(self.client._pending_reports))
+        self.assertIn('this one is fine',
+                      str(self.client._pending_reports[0][0]))
+
+    @no_duplicates
     def test_the_report_queue_is_bounded(self):
         # Nothing guarantees handle_message is ever called again. The log line
         # written when each rejection is found is the durable record, so

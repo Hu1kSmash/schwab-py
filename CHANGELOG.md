@@ -101,7 +101,10 @@ request delivers what it read even when it fails, since the exception the caller
 gets describes only the response that answered their own request. The queue is
 bounded, and is cleared by `close()` and by a fresh `login()`, so a torn-down
 session's rejection is never reported against a new one whichever way the caller
-reconnects. The log line written when each
+reconnects. Frames read but not yet handled are cleared with it — that deque
+predates this change and had the same leak, which would have left the standalone
+framing crossing sessions while the batched one did not, and could hand a
+handler a quote from a dead connection. The log line written when each
 rejection is found is the complete record; the callback is the convenience. All
 of this is stated in `add_error_handler`'s docstring and in `docs/streaming.rst`.
 
