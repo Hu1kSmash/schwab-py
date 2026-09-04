@@ -78,9 +78,11 @@ project from PyPI instead:
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
 
-That installs the three packages the library always needs. The interactive
+``[login]`` is there because the example below calls ``easy_client``, which
+opens a browser login flow the first time it runs. Without it, the plain
+``schwab-py`` install is the three packages the library always needs. The interactive
 login flow and the order-code generator each need an extra ---
 ``schwab-py[login]`` and ``schwab-py[codegen]`` --- because neither is used by a
 program that loads its token from a file, and a bare install is twelve fewer

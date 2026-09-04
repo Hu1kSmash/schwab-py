@@ -429,18 +429,23 @@ class StreamClient(EnumEnforcer):
             else:
                 future.set_exception(error)
 
-        # Everything past the first response is checked but not routed. The
+        # Everything past the first response is logged but not routed. The
         # protocol treats element 0 as the answer to the outstanding request,
-        # and _validate_response reads only that one -- so a frame carrying a
-        # second response has always handed it to the waiter unexamined, and a
-        # rejection sitting there was reported by nothing. This is the same
-        # reasoning as the orphan path below: a late success is routine, a late
-        # rejection is the one thing nothing else will mention.
-        await self._report_extra_responses(frame)
+        # and _validate_response reads only that one, so a frame carrying a
+        # second response has always handed it to the waiter unexamined.
+        #
+        # Logged rather than reported through add_error_handler. This runs
+        # holding the read lock, on the request path holding the request lock
+        # too, and inside the response deadline -- so calling a user handler
+        # here would let a slow one turn a subscription that SUCCEEDED into a
+        # ResponseTimeoutError, and a handler that re-subscribed would block on
+        # a lock its own caller holds. The orphan path reports because it runs
+        # after the read lock is released; this one cannot, so it does not.
+        self._log_extra_responses(frame)
 
         return None
 
-    async def _report_extra_responses(self, frame):
+    def _log_extra_responses(self, frame):
         for response in frame.get('response', [])[1:]:
             content = response.get('content', {})
             code = content.get('code')
@@ -451,19 +456,10 @@ class StreamClient(EnumEnforcer):
             self.logger.warning(
                     'Response frame carried an additional %s/%s response which '
                     'was a rejection: code %s, msg %r. It answers no request '
-                    'this client is waiting on.',
+                    'this client is waiting on, and nothing else will report '
+                    'it.',
                     response.get('service'), response.get('command'),
                     code, content.get('msg'))
-
-            await self._report_error(
-                    UnexpectedResponseCode(
-                        frame,
-                        'Schwab rejected {}/{} in a frame answering another '
-                        'request: code {}, msg {!r}'.format(
-                            response.get('service'), response.get('command'),
-                            code, content.get('msg'))),
-                    service=response.get('service'),
-                    message=response)
 
     def _fail_pending_request(self, exception):
         '''Hands an exception to the operation waiting on a response, if any.
@@ -623,6 +619,16 @@ class StreamClient(EnumEnforcer):
         Each is logged as it was before. The callback is what makes them
         something other than a log record.
 
+        That list is exhaustive on purpose, and one near-miss is worth naming:
+        a rejection riding along in a frame which *did* answer a request you
+        are waiting on is logged and does not reach here. Routing that frame
+        happens holding the read lock, holding the request lock, and inside
+        the response deadline, so a slow handler there would turn a
+        subscription that succeeded into a ``ResponseTimeoutError``, and a
+        handler which re-subscribed would block on a lock its own caller
+        holds. The abandoned-request case above reports because it runs after
+        the read lock is released.
+
         That matters most where a fallback covers for the stream. If a
         subscription quietly stops delivering, and a REST poll is authoritative
         anyway, nothing is wrong until something the poll does not cover
@@ -638,8 +644,12 @@ class StreamClient(EnumEnforcer):
         * ``exception`` is the exception that was raised.
         * ``message`` is the message being handled, or ``None``.
 
-        It may be a coroutine function, in which case it is scheduled the same
-        way a coroutine stream handler is.
+        It may be a coroutine function, in which case it is awaited before the
+        call which reported the failure continues. Unlike a coroutine stream
+        handler, it is not scheduled as a task: a report which is awaited needs
+        nothing keeping it alive at shutdown. The cost is that a slow error
+        handler delays whatever was reporting to it, so keep it short --
+        enqueue and return rather than doing work inline.
 
         If it raises an ``Exception``, that is logged and swallowed: a callback
         for absorbed failures must not become a way to fail. A ``BaseException``

@@ -180,6 +180,24 @@ from a file never uses them, so a plain install leaves them out --- it is
 twelve fewer packages on a machine that places trades. See
 :ref:`optional_extras` if you would rather install the smaller set.
 
+That's it! You're done! You can verify the install succeeded by importing the
+package:
+
+.. code-block:: python
+
+  import schwab
+
+If this succeeded, you're ready to move on to :ref:`auth`.
+
+Note that if you are using a virtual environment and switch to a new terminal
+your virtual environment will not be active in the new terminal, and you need to
+run the activate command again. If you want to disable the loaded virtual
+environment in the same terminal window, use the command:
+
+.. code-block:: shell
+
+  deactivate
+
 .. _optional_extras:
 
 ~~~~~~~~~~~~~~~
@@ -208,24 +226,6 @@ those entry points without its extra raises an ``ImportError`` naming the extra
 and the command to install it, rather than a bare "No module named 'flask'".
 
 A daemon that authenticates from a stored token and streams needs neither.
-
-That's it! You're done! You can verify the install succeeded by importing the 
-package:
-
-.. code-block:: python
-
-  import schwab
-
-If this succeeded, you're ready to move on to :ref:`auth`.
-
-Note that if you are using a virtual environment and switch to a new terminal
-your virtual environment will not be active in the new terminal, and you need to 
-run the activate command again. If you want to disable the loaded virtual 
-environment in the same terminal window, use the command:
-
-.. code-block:: shell
-
-  deactivate
 
 ++++++++++++
 Getting Help

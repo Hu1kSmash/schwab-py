@@ -2,6 +2,7 @@ import schwab
 import urllib.parse
 import asyncio
 import json
+import logging
 import copy
 import warnings
 from .utils import account_preferences, has_diff, MockResponse, no_duplicates
@@ -6827,18 +6828,57 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_an_extra_rejection_in_a_matched_frame_is_reported(
+    async def test_an_extra_rejection_in_a_matched_frame_is_logged(
             self, ws_connect):
         # _validate_response reads element 0 only, because that is the answer
-        # to the outstanding request. A frame carrying a second response handed
-        # it to the waiter unexamined, so a rejection sitting there was
-        # reported by nothing -- the same gap the orphan path exists to close,
-        # one element along.
+        # to the outstanding request. A frame carrying a second response hands
+        # it to the waiter unexamined, so a rejection sitting there went
+        # unmentioned by anything.
+        #
+        # Logged, not reported: this runs holding the read lock, on the request
+        # path the request lock too, and inside the response deadline. A user
+        # handler called here could turn a subscription that succeeded into a
+        # ResponseTimeoutError.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        handler = Capture()
+        logging.getLogger('schwab.streaming').addHandler(handler)
+        try:
+            ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+            ok['response'].append({
+                'service': 'ACCT_ACTIVITY',
+                'command': 'SUBS',
+                'requestid': '77',
+                'content': {'code': 21, 'msg': 'SUBS command failed'},
+            })
+            socket.recv.side_effect = [json.dumps(ok)]
+
+            # The subscription itself must still succeed.
+            await self.client.level_one_equity_subs(['GOOG'])
+        finally:
+            logging.getLogger('schwab.streaming').removeHandler(handler)
+
+        self.assertTrue(
+                any('ACCT_ACTIVITY' in r and '21' in r for r in records),
+                'the extra rejection was dropped: {}'.format(records))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_extra_response_never_reaches_an_error_handler(
+            self, ws_connect):
+        # The guarantee that keeps a slow handler from failing a successful
+        # subscribe: nothing on the routing path calls user code.
         socket = await self.login_and_get_socket(ws_connect)
 
         errors = []
         self.client.add_error_handler(
-                lambda service, exc, msg: errors.append((service, exc, msg)))
+                lambda service, exc, msg: errors.append(exc))
 
         ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
         ok['response'].append({
@@ -6851,35 +6891,36 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         await self.client.level_one_equity_subs(['GOOG'])
 
-        self.assertEqual(1, len(errors), 'the extra rejection was dropped')
-        service, exc, msg = errors[0]
-        self.assertEqual('ACCT_ACTIVITY', service)
-        self.assertEqual(21, msg['content']['code'])
+        self.assertEqual([], errors)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_an_extra_success_in_a_matched_frame_is_not_reported(
+    async def test_a_slow_handler_cannot_fail_a_successful_subscribe(
             self, ws_connect):
-        # The other half, as on the orphan path: a success alongside the answer
-        # is routine and must not wake anyone up.
+        # The reason the extra-response check logs rather than reports. It runs
+        # inside the response deadline and holding the read lock, so calling a
+        # user handler there let a slow one cancel the wait -- and the
+        # subscription came back as ResponseTimeoutError even though element 0
+        # was code 0 and the future had already been resolved.
         socket = await self.login_and_get_socket(ws_connect)
+        self.client._response_timeout = 0.2
 
-        errors = []
-        self.client.add_error_handler(
-                lambda service, exc, msg: errors.append(exc))
+        async def slow(service, exc, msg):
+            await asyncio.sleep(1.0)
+
+        self.client.add_error_handler(slow)
 
         ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
         ok['response'].append({
             'service': 'ACCT_ACTIVITY',
             'command': 'SUBS',
             'requestid': '77',
-            'content': {'code': 0, 'msg': 'SUBS command succeeded'},
+            'content': {'code': 21, 'msg': 'SUBS command failed'},
         })
         socket.recv.side_effect = [json.dumps(ok)]
 
+        # Must not raise: the subscribe succeeded.
         await self.client.level_one_equity_subs(['GOOG'])
-
-        self.assertEqual([], errors)
 
     @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):

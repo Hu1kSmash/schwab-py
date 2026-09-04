@@ -34,13 +34,15 @@ def _import_optional(module_name, extra, needed_for):
     try:
         return importlib.import_module(module_name)
     except ImportError as exc:
+        from schwab.version import version
+
         raise ImportError(
                 '{} requires the {!r} extra, which is not installed. Install '
                 'it with:\n\n'
                 '    pip install "schwab-py[{}] @ '
-                'git+https://github.com/Hu1kSmash/schwab-py@<tag>"\n\n'
+                'git+https://github.com/Hu1kSmash/schwab-py@v{}"\n\n'
                 '(missing module: {})'.format(
-                    needed_for, extra, extra, module_name)) from exc
+                    needed_for, extra, extra, version, module_name)) from exc
 
 
 def get_logger():
@@ -460,6 +462,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
             'multiprocess', 'login', 'The interactive login flow')
     psutil = _import_optional(
             'psutil', 'login', 'The interactive login flow')
+
+    # flask is imported by the server, which runs in a child process -- so its
+    # ImportError would surface as child stderr and the parent would report
+    # RedirectServerExitedError, blaming the callback port for a missing
+    # package. Checked here, in the parent, where it can actually be raised.
+    _import_optional('flask', 'login', 'The interactive login flow')
 
     output_queue = multiprocess.Queue()
 

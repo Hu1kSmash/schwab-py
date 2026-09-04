@@ -48,9 +48,19 @@ nothing.** `_validate_response` reads `response[0]`, which is the answer to the
 outstanding request; a frame carrying a second response handed it to the waiter
 unexamined. If that one was a rejection, nothing mentioned it -- the same gap
 the late-rejection reporting closed in 2.2.0, one element along. Additional
-responses are now checked, and a non-zero code is logged and passed to
-`add_error_handler`. A success alongside the answer stays quiet, as on the
+responses are now checked, and a non-zero code is logged with its service,
+command, code and message. A success alongside the answer stays quiet, as on the
 orphan path.
+
+This one is logged only, and deliberately does not reach `add_error_handler`,
+which is otherwise the mechanism for exactly this kind of absorbed failure. The
+frame is routed while the read lock and the request lock are both held and the
+response deadline is running. A user handler called from there would let a slow
+one turn a subscription that *succeeded* into a `ResponseTimeoutError`, and a
+handler which re-subscribed would block on a lock its own caller holds. The
+late-rejection path added in 2.2.0 reports because it runs after those locks are
+released; this one cannot, so it does not. The distinction is stated in
+`add_error_handler`'s docstring and in `docs/streaming.rst`.
 
 ## 2.2.0
 

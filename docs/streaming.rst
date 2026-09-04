@@ -237,9 +237,18 @@ It is called for three things: a stream handler which raised, a late rejection
 of a request nobody was waiting on, and a connection which failed to close after
 logout. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
-``message`` rather than from ``exception.response['response'][0]``. ``service`` and ``message`` are ``None`` where they do not apply.
-Registering none keeps the existing behaviour exactly, and the log line is
-written either way.
+``message`` rather than from ``exception.response['response'][0]``. ``service``
+and ``message`` are ``None`` where they do not apply. Registering none keeps the
+existing behaviour exactly, and the log line is written either way.
+
+Those three are the whole list, and one case which looks like it belongs is
+deliberately not on it: a rejection carried in a frame which *did* answer a
+request you were waiting on is logged only. That frame is routed while the read
+lock and the request lock are both held and the response deadline is running, so
+a slow handler there would turn a subscription that succeeded into a
+``ResponseTimeoutError``, and a handler which re-subscribed would block on a lock
+its own caller holds. The late-rejection case above can report precisely because
+it runs after those locks are released.
 
 The handler may be a coroutine function, like every other handler on this class:
 
