@@ -15,6 +15,18 @@ current model.
 
 ---
 
+## Unreleased
+
+### Documentation
+
+**`pip freeze` drops the extra from a pinned line, and says nothing.** A
+requirements file carrying `schwab-py[login] @ git+...@v2.3.0` installs
+correctly, but freezing that environment writes `schwab-py @ git+...@<sha>`
+back out, and installing from *that* silently omits `flask`, `multiprocess` and
+`psutil`. The failure surfaces later, when something first calls the login flow.
+Documented in `docs/getting-started.rst`. This is a `pip` limitation with direct
+URL requirements, not something this package can fix.
+
 ## 2.3.0
 
 ### Changed

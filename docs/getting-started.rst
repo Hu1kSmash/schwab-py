@@ -245,6 +245,26 @@ A daemon which authenticates with :func:`~schwab.auth.client_from_token_file`
 and streams needs neither extra. So does one built on
 :func:`~schwab.auth.client_from_access_functions`.
 
+.. warning::
+
+  **Do not regenerate a pinned line with** ``pip freeze``. It drops the extra.
+  A requirements file containing
+
+  .. code-block:: text
+
+    schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.3.0
+
+  installs correctly with ``pip install -r``, but ``pip freeze`` writes it back
+  out as ``schwab-py @ git+...@<commit sha>`` --- no ``[login]``, and no
+  warning from either command. Installing from that frozen line gives you a
+  working-looking environment which is missing ``flask``, ``multiprocess`` and
+  ``psutil``, and the failure appears later, the first time something calls the
+  login flow.
+
+  This is a long-standing ``pip`` limitation with direct URL requirements
+  rather than anything specific to this package. Pin the literal line and keep
+  it, rather than deriving it from the installed environment.
+
 ++++++++++++
 Getting Help
 ++++++++++++
