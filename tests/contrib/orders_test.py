@@ -845,6 +845,47 @@ class UnrepeatableOrderTest(unittest.TestCase):
         self.assertEqual('LIMIT', builder.build()['orderType'])
 
 
+class GeneratedCodeFidelityTest(unittest.TestCase):
+    '''The generated code has to rebuild the order it was generated from.
+    A price is the case where that can fail quietly: as of 2.1.0 the builder
+    holds it as a string, and rendering it bare emitted a float literal, so
+    running the generated code produced a different order from the one it
+    described.'''
+
+    def builder(self):
+        from schwab.orders.common import (
+                Duration, EquityInstruction, OrderStrategyType, OrderType,
+                Session)
+        from schwab.orders.generic import OrderBuilder
+
+        return (OrderBuilder()
+                .set_session(Session.NORMAL)
+                .set_duration(Duration.DAY)
+                .set_order_type(OrderType.LIMIT)
+                .set_order_strategy_type(OrderStrategyType.SINGLE)
+                .add_equity_leg(EquityInstruction.BUY, 'GOOG', 1)
+                .set_price('19.99'))
+
+    def test_a_string_price_stays_a_string(self):
+        code = code_for_builder(self.builder())
+        self.assertIn(".copy_price('19.99')", code)
+        self.assertNotIn('.copy_price(19.99)', code)
+
+    def test_the_generated_code_rebuilds_the_same_order(self):
+        original = self.builder().build()
+        code = code_for_builder(self.builder())
+
+        # The generated code is imports followed by a bare builder
+        # expression, so bind it to run it.
+        namespace = {}
+        exec(code.replace('OrderBuilder() \\', 'order = OrderBuilder() \\', 1),
+             namespace)
+        rebuilt = namespace['order'].build()
+
+        self.assertEqual(original['price'], rebuilt['price'])
+        self.assertIsInstance(rebuilt['price'], str)
+
+
 class PriceLinkedOrderRoundTripTest(unittest.TestCase):
     '''A price-linked order expresses its price as an offset from something
     else, so the offset is the number that decides what it costs. Dropping it

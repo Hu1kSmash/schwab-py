@@ -217,6 +217,13 @@ class FieldAST:
         if self.enum_type:
             imports[self.enum_type.__module__].add(self.enum_type.__qualname__)
             value = self.enum_type.__qualname__ + '.' + value
+        elif isinstance(value, str):
+            # repr, so a string stays a string in the generated code. Without
+            # it a price read back as '19.99' rendered as .copy_price(19.99),
+            # and running the generated code produced a different order from
+            # the one it was generated from -- which is the one thing this
+            # module exists not to do.
+            value = repr(value)
 
         lines.append(f'.{self.setter_name}({value})')
 

@@ -341,9 +341,9 @@ class OrderBuilder(EnumEnforcer):
 
     def copy_stop_price(self, stop_price):
         '''
-        Directly set the stop price, with none of the validation
-        :func:`set_stop_price` applies -- no type check and no finiteness
-        check.
+        Directly set the stop price, skipping the type check
+        :func:`set_stop_price` applies. As with :func:`copy_price`, a
+        non-finite ``decimal.Decimal`` is still refused.
         '''
         self._stopPrice = _render_decimal('stop price', stop_price)
         return self
@@ -496,11 +496,18 @@ class OrderBuilder(EnumEnforcer):
 
     def copy_price(self, price):
         '''
-        Directly set the price, with none of the validation
-        :func:`set_price` applies -- no type check and no finiteness check.
-        This is what :func:`schwab.contrib.orders.construct_repeat_order` uses
-        to reconstruct an order exactly as Schwab reported it. The prebuilt
+        Directly set the price, skipping the type check
+        :func:`set_price` applies -- a float, an int or a string all pass
+        through as given. This is what
+        :func:`schwab.contrib.orders.construct_repeat_order` uses to
+        reconstruct an order exactly as Schwab reported it. The prebuilt
         templates use :func:`set_price` and take the same string it does.
+
+        One thing is still refused: a non-finite ``decimal.Decimal``. Rendering
+        one produces the string ``"NaN"``, which is well-formed JSON and
+        transmits. ``float('nan')`` is accepted here because it does not --
+        ``json.dumps`` emits a bare ``NaN`` that a strict parser rejects, so it
+        cannot quietly become an order.
         '''
         self._price = _render_decimal('price', price)
         return self

@@ -382,8 +382,10 @@ you keep that decision.
    Copying that in is a reasonable way to migrate without changing any prices.
    Deciding the rounding deliberately is the better one.
 
-:meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field with
-no validation of any kind. That is what
+:meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field
+without the type check, so a float or an int passes through as given. The one
+thing it refuses is a non-finite ``decimal.Decimal``, which would render as the
+transmittable string ``"NaN"``. That is what
 :func:`schwab.contrib.orders.construct_repeat_order` uses to rebuild an order
 exactly as Schwab reported it. The prebuilt templates on the
 :ref:`order_templates` page are not an exception to any of this -- they call

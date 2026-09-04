@@ -130,6 +130,19 @@ class OptionSymbol:
         if strike_copy[-1] == '.':
             strike_price_as_string = strike_copy[:-1]
 
+        # The symbol encodes the strike in thousandths, so anything finer than
+        # a tenth of a cent cannot be represented. int() used to drop it
+        # silently: '2.0019' became 00002001, a $2.001 contract rather than the
+        # one asked for, and '0.0005' became 00000000, a strike of zero. Both
+        # name a different contract or none, and neither said so. Refused here
+        # rather than in build(), where the strike is no longer in hand.
+        scaled = _scale_strike(strike_price_as_string)
+        if scaled != scaled.to_integral_value():
+            raise ValueError(
+                'strike price {} is finer than a tenth of a cent, which an '
+                'option symbol cannot represent. Round it to at most three '
+                'decimal places.'.format(strike_price_as_string))
+
         self.strike_price = strike_price_as_string
 
     @classmethod

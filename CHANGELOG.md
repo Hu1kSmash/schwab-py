@@ -91,8 +91,11 @@ So `Decimal(str(value))` is a habit this library recommends and does not
 enforce, and rounding a computed price stays your decision:
 `value.quantize(Decimal('0.01'))`.
 
-`copy_price` and `copy_stop_price` still set the field with no validation,
-which is what `contrib.orders` uses to reconstruct a historical order.
+`copy_price` and `copy_stop_price` still skip the type check, which is what
+`contrib.orders` uses to reconstruct a historical order. They do refuse a
+non-finite `Decimal`, since rendering one produces the transmittable string
+`"NaN"`; `float('nan')` is still accepted there because `json.dumps` refuses to
+serialize it.
 
 **`websocket_connect_args['extra_headers']` is no longer translated.**
 websockets 14.0 renamed it to `additional_headers`; this library had been

@@ -64,6 +64,18 @@ class OptionSymbolTest(unittest.TestCase):
 
         self.assertEqual('BKNG  240510C02400000', op.build())
 
+    def test_a_strike_finer_than_a_tenth_of_a_cent_is_refused(self):
+        # The symbol encodes thousandths, so int() used to drop the rest
+        # silently: '2.0019' became 00002001, a $2.001 contract, and '0.0005'
+        # became a strike of zero. Both name a different contract or none.
+        for strike in ('2.0019', '0.0005', '1234.5678', '0.00001'):
+            with self.assertRaises(ValueError, msg=strike):
+                OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', strike)
+
+        # Three places is exactly representable and must still work.
+        op = OptionSymbol('AAPL', datetime.date(2024, 5, 10), 'C', '2.001')
+        self.assertTrue(op.build().endswith('00002001'))
+
     def test_strike_scaling_ignores_the_global_decimal_context(self):
         # Decimal.__mul__ rounds to decimal.getcontext().prec significant
         # digits, which is process-global. At prec=5, '1234.5678' * 1000 comes
@@ -76,7 +88,7 @@ class OptionSymbolTest(unittest.TestCase):
             for prec in (2, 5, 9, 28):
                 decimal.getcontext().prec = prec
                 op = OptionSymbol(
-                        'AAPL', datetime.date(2024, 5, 10), 'C', '1234.5678')
+                        'AAPL', datetime.date(2024, 5, 10), 'C', '1234.567')
                 self.assertTrue(
                         op.build().endswith('01234567'),
                         'prec={} gave {}'.format(prec, op.build()))
