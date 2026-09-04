@@ -33,8 +33,12 @@ def latest_order_main(sys_args):
     # calls to learn something knowable at startup.
     import_optional('autopep8', 'codegen', 'Generating order-builder code')
 
+    # (token_path, api_key, app_secret). These were transposed, which works
+    # until the token needs refreshing and then fails with invalid_client --
+    # the tests mocked this call without asserting its arguments, so nothing
+    # caught it.
     client = client_from_token_file(
-            args.token_file, args.app_secret, args.api_key)
+            args.token_file, args.api_key, args.app_secret)
 
     # If the account ID is specified, find the corresponding account hash
     if args.account_id is not None:

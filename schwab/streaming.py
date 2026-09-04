@@ -514,18 +514,11 @@ class StreamClient(EnumEnforcer):
         awaited, so a handler which re-enters handle_message finds an empty
         queue rather than reporting the same rejection twice.
 
-        Returns how many were delivered, which is how the caller tells a
-        handler having closed the stream from its never having been open.
         '''
-        delivered = 0
-
         while self._pending_reports:
             exception, service, message = self._pending_reports.popleft()
             await self._report_error(
                     exception, service=service, message=message)
-            delivered += 1
-
-        return delivered
 
     def _fail_pending_request(self, exception):
         '''Hands an exception to the operation waiting on a response, if any.
@@ -642,6 +635,15 @@ class StreamClient(EnumEnforcer):
                 elif not future.cancelled():
                     future.exception()
 
+        # Outside the `async with`, so neither lock is held and the response
+        # deadline has passed. Whoever read the frame delivers what it queued:
+        # when this coroutine was the reader, handle_message may be parked in
+        # recv() having already drained for its iteration, and the report would
+        # otherwise wait for the next inbound message -- unbounded on a quiet
+        # stream. Reached only when the request succeeded; if it raised, the
+        # caller has an exception to act on and handle_message drains the rest.
+        await self._drain_pending_reports()
+
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
         parameters = {
@@ -692,17 +694,25 @@ class StreamClient(EnumEnforcer):
         to an abandoned one either way. Which framing you get is the server's
         choice, and both report identically.
 
-        The batched one is reported from :meth:`handle_message` rather than
-        where it is found. Routing a frame happens holding the read lock, on
-        the request path holding the request lock too, and inside the response
-        deadline: a slow handler called there would turn a subscription that
-        succeeded into a ``ResponseTimeoutError``, and one which re-subscribed
-        would block on a lock its own caller holds. So the report is queued and
-        delivered on the next pass through :meth:`handle_message`, which holds
-        neither lock and runs under no deadline. **A program which never calls**
-        :meth:`handle_message` **never receives these**, and the queue is
-        bounded -- the log line written when each rejection is found is the
-        complete record, and this callback is the convenience.
+        The batched one is not reported from where it is found. Routing a
+        frame happens holding the read lock, on the request path holding the
+        request lock too, and inside the response deadline: a slow handler
+        called there would turn a subscription that succeeded into a
+        ``ResponseTimeoutError``, and one which re-subscribed would block on a
+        lock its own caller holds. The report is queued instead, and delivered
+        by whichever coroutine read the frame once it has released its locks --
+        before :meth:`handle_message` returns, or before the request which read
+        it returns. Both run with neither lock held and no deadline.
+
+        That means a handler can be called from inside a subscribe, so a slow
+        one delays that call returning. It cannot fail it: by then the response
+        has already been matched.
+
+        The queue is bounded and is cleared by :meth:`close`, so a rejection
+        from a torn-down session is not reported against a new one. If a
+        request fails, its queued reports wait for the next
+        :meth:`handle_message`. The log line written when each rejection is
+        found is the complete record; this callback is the convenience.
 
         That matters most where a fallback covers for the stream. If a
         subscription quietly stops delivering, and a REST poll is authoritative
@@ -892,20 +902,28 @@ class StreamClient(EnumEnforcer):
             # deadline is running, which is what makes it safe to call user
             # code -- and draining after the read would hold every queued
             # report until the *next* message arrived, which on a quiet stream
-            # is indefinitely. A matched frame carrying an extra rejection
-            # returns None and comes back round, so its report goes out on the
-            # following iteration without waiting for anything.
-            delivered = await self._drain_pending_reports()
+            # is indefinitely. A matched frame read here returns None and comes
+            # back round, so its report goes out on the following iteration.
+            #
+            # This is not the only drain. When a request is the reader, it
+            # queues the report and this loop may already be parked in recv(),
+            # so _request_response drains once it has released its locks.
+            was_open = self._socket is not None
+            await self._drain_pending_reports()
 
             # An error handler is allowed to tear the stream down -- that is a
             # reasonable reaction to a rejection, and every other path which
             # calls a handler returns rather than reading again afterwards.
             # Without this, closing from a queued report would be the one place
             # it raised "Socket not open" out of the call the handler was
-            # running in. Conditioned on having delivered something, so
-            # handle_message on a client which was never logged in still raises
-            # that error rather than returning quietly.
-            if delivered and self._socket is None:
+            # running in.
+            #
+            # Conditioned on the socket having been open *before* the drain, so
+            # this covers only a handler closing it. A client which was never
+            # logged in, or which the caller closed itself, still raises
+            # "Socket not open" from the read below rather than returning
+            # quietly for one iteration.
+            if was_open and self._socket is None:
                 return
 
             async with self._read_lock:
@@ -1112,6 +1130,13 @@ class StreamClient(EnumEnforcer):
         operations.
         '''
         socket, self._socket = self._socket, None
+
+        # Anything still queued belongs to the session being torn down. Its
+        # exception carries a frame from that connection, so delivering it
+        # after a later login() would report a dead session's rejection against
+        # a live one. Each was logged when it was found, so nothing unwritten
+        # is lost.
+        self._pending_reports.clear()
 
         if socket is not None:
             await socket.close()

@@ -1,6 +1,7 @@
 import schwab
 import urllib.parse
 import asyncio
+import contextlib
 import json
 import os
 import logging
@@ -6874,18 +6875,25 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_an_extra_response_is_not_reported_on_the_request_path(
+    async def test_an_extra_response_is_not_reported_while_routing(
             self, ws_connect):
         # The guarantee that keeps a slow handler from failing a successful
-        # subscribe: nothing on the routing path calls user code. The report
-        # itself is not lost -- it is queued, and
-        # test_an_extra_rejection_is_reported_from_handle_message covers its
-        # delivery. What must not happen is delivery *here*.
+        # subscribe and stops a re-subscribing one deadlocking: nothing called
+        # from the routing path is user code. The report is queued there and
+        # delivered afterwards, so what this pins is the ordering -- the
+        # pending request is cleared and both locks are free before any handler
+        # runs.
         socket = await self.login_and_get_socket(ws_connect)
 
-        errors = []
-        self.client.add_error_handler(
-                lambda service, exc, msg: errors.append(exc))
+        seen = []
+
+        def record(service, exc, msg):
+            seen.append((
+                self.client._pending_request,
+                self.client._read_lock.locked(),
+                self.client._request_lock.locked()))
+
+        self.client.add_error_handler(record)
 
         ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
         ok['response'].append({
@@ -6898,7 +6906,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         await self.client.level_one_equity_subs(['GOOG'])
 
-        self.assertEqual([], errors)
+        self.assertEqual([(None, False, False)], seen)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -6932,7 +6940,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_an_extra_rejection_is_reported_from_handle_message(
+    async def test_an_extra_rejection_is_reported_by_whoever_read_it(
             self, ws_connect):
         # The delivery half of the contract. _request_lock keeps one request
         # outstanding, so a second response in a frame cannot answer anything
@@ -6955,18 +6963,13 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
         ok['response'].append(rejected)
 
-        socket.recv.side_effect = [
-                json.dumps(ok),
-                json.dumps({'data': [self.streaming_entry(
-                    'LEVELONE_EQUITIES', 'SUBS')]}),
-        ]
+        socket.recv.side_effect = [json.dumps(ok)]
 
-        # Nothing reported while the request is in flight.
+        # Delivered by whoever read the frame. Here that is the subscribe: it
+        # won the read lock, so handle_message may be parked in recv() with its
+        # own drain already behind it, and waiting for the next inbound message
+        # would be unbounded on a quiet stream.
         await self.client.level_one_equity_subs(['GOOG'])
-        self.assertEqual([], errors)
-
-        self.client.add_level_one_equity_handler(lambda msg: None)
-        await self.client.handle_message()
 
         self.assertEqual(1, len(errors))
         service, exception, message = errors[0]
@@ -7125,8 +7128,8 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_a_handler_may_close_from_a_queued_report(self, ws_connect):
         # Tearing the stream down is a reasonable reaction to a rejection, and
-        # it is safe here for the same reason: nothing is held and nothing is
-        # waiting on the report.
+        # it is safe because the report runs with both locks released and
+        # nothing waiting on it.
         socket = await self.login_and_get_socket(ws_connect)
 
         closed = []
@@ -7144,76 +7147,126 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             'requestid': '77',
             'content': {'code': 21, 'msg': 'SUBS command failed'},
         })
-        socket.recv.side_effect = [
-                json.dumps(ok),
-                json.dumps({'data': [self.streaming_entry(
-                    'LEVELONE_EQUITIES', 'SUBS')]}),
-        ]
+        socket.recv.side_effect = [json.dumps(ok)]
 
-        await self.client.level_one_equity_subs(['GOOG'])
-        self.client.add_level_one_equity_handler(lambda msg: None)
-
-        await asyncio.wait_for(self.client.handle_message(), timeout=5)
+        # The subscribe read the frame, so the subscribe delivers the report.
+        # It must succeed even though its own handler closed the stream.
+        await asyncio.wait_for(
+                self.client.level_one_equity_subs(['GOOG']), timeout=5)
 
         self.assertEqual(['ACCT_ACTIVITY'], closed)
         socket.close.assert_called_once()
 
+        # And afterwards the client is closed, like any other closed client.
+        with self.assertRaises(ValueError):
+            await self.client.handle_message()
+
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_a_rejection_at_element_zero_is_reported_once_nobody_waits(
+    async def test_handle_message_returns_when_a_report_closes_the_stream(
             self, ws_connect):
-        # If the waiter already timed out or was cancelled, its future is
-        # resolved but the pending slot is not yet cleared. A frame arriving in
-        # that window has no claimant for element 0 either, so it must be
-        # treated like the rest -- otherwise a rejection at element 0 is
-        # dropped in silence while one at element 1 of the same frame is
-        # reported, the inverse of what the contract promises.
-        socket = await self.login_and_get_socket(ws_connect)
+        # The other drain site. A handler which closes from here must not make
+        # handle_message go on to read a socket its own handler just removed.
+        await self.login_and_get_socket(ws_connect)
 
-        future = asyncio.get_running_loop().create_future()
-        future.set_result(None)
-        self.client._pending_request = (
-                1, 'LEVELONE_EQUITIES', 'SUBS', future)
+        async def close_it(service, exc, msg):
+            await self.client.close()
 
-        frame = {'response': [
-            {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
-             'requestid': '1',
-             'content': {'code': 21, 'msg': 'first was rejected'}},
-            {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
-             'requestid': '1',
-             'content': {'code': 22, 'msg': 'second was rejected'}},
-        ]}
-        self.client._overflow_items.appendleft(frame)
+        self.client.add_error_handler(close_it)
+        self.client._pending_reports.append(
+                (schwab.streaming.UnexpectedResponseCode({}, 'nope'),
+                 'ACCT_ACTIVITY', {}))
 
-        self.assertIsNone(await self.client._read_and_route())
+        # Returns rather than raising "Socket not open" out of the very call
+        # the handler was running in.
+        await asyncio.wait_for(self.client.handle_message(), timeout=5)
 
-        queued = [str(exc) for exc, _, _ in self.client._pending_reports]
-        self.assertEqual(2, len(queued))
-        self.assertIn('21', queued[0])
-        self.assertIn('22', queued[1])
+        # The next call is an ordinary use of a closed client, and does raise.
+        with self.assertRaises(ValueError):
+            await self.client.handle_message()
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_element_zero_stays_with_its_waiter(self, ws_connect):
-        # The mirror of the above: while somebody *is* waiting, element 0 is
-        # theirs and must not also be queued as an unclaimed rejection.
+    async def test_close_discards_reports_from_the_dead_session(
+            self, ws_connect):
+        # A queued report carries a frame from the connection it arrived on.
+        # Delivering it after a later login() would report a dead session's
+        # rejection against a live one.
+        await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+        self.client._pending_reports.append(
+                (schwab.streaming.UnexpectedResponseCode({}, 'old session'),
+                 'ACCT_ACTIVITY', {}))
+
+        await self.client.close()
+
+        # Discarded, not carried into the next session. Each was logged when it
+        # was found, so nothing unwritten is lost.
+        self.assertEqual(0, len(self.client._pending_reports))
+        self.assertEqual([], errors)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_report_is_not_stranded_behind_a_parked_reader(
+            self, ws_connect):
+        # The reason _request_response drains as well as handle_message. If the
+        # request wins the read lock, it reads the frame and queues the report
+        # -- but handle_message has already drained for its iteration and is
+        # parked in recv(). Draining only there would hold the report until the
+        # next inbound message, which on a quiet stream is unbounded.
         socket = await self.login_and_get_socket(ws_connect)
 
         errors = []
         self.client.add_error_handler(
                 lambda service, exc, msg: errors.append(exc))
 
-        rejected = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
-        rejected['response'][0]['content'] = {
-                'code': 21, 'msg': 'subscribe rejected'}
-        socket.recv.side_effect = [json.dumps(rejected)]
+        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        ok['response'].append({
+            'service': 'ACCT_ACTIVITY',
+            'command': 'SUBS',
+            'requestid': '77',
+            'content': {'code': 21, 'msg': 'SUBS command failed'},
+        })
 
-        with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
-            await self.client.level_one_equity_subs(['GOOG'])
+        calls = []
+        quiet = asyncio.Event()
 
-        # Raised to the caller, so it is not an absorbed failure.
-        self.assertEqual([], list(self.client._pending_reports))
-        self.assertEqual([], errors)
+        async def recv():
+            calls.append(1)
+            if len(calls) == 1:
+                return json.dumps(ok)
+            # Nothing more ever arrives.
+            await quiet.wait()
+            return json.dumps({'data': []})
+
+        socket.recv = recv
+
+        # Hold the lock so the subscribe queues on it first and wins it, then
+        # park handle_message behind it.
+        await self.client._read_lock.acquire()
+        subscribe = asyncio.create_task(
+                self.client.level_one_equity_subs(['GOOG']))
+        await asyncio.sleep(0)
+        handling = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+        self.client._read_lock.release()
+
+        try:
+            await asyncio.wait_for(subscribe, timeout=5)
+            await asyncio.sleep(0)
+
+            self.assertEqual(1, len(errors))
+            self.assertEqual(0, len(self.client._pending_reports))
+            # The point of the test: delivered with the reader still parked.
+            self.assertFalse(handling.done())
+        finally:
+            quiet.set()
+            handling.cancel()
+            with contextlib.suppress(BaseException):
+                await handling
 
     @no_duplicates
     def test_the_report_queue_is_bounded(self):

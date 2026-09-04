@@ -249,20 +249,24 @@ Both report the same ``UnexpectedResponseCode`` with the same ``service`` and
 ``message``, because the framing is the server's choice and you cannot predict
 which you will get.
 
-The batched one is delivered from ``handle_message`` rather than from the code
-that finds it. That code runs while the read lock and the request lock are both
-held and the response deadline is running, so a slow handler there would turn a
-subscription that *succeeded* into a ``ResponseTimeoutError``, and one that
-re-subscribed would block on a lock its own caller holds. The report is queued
-instead and goes out on the next pass through ``handle_message``, which holds
-neither lock. Two consequences:
+The batched one is not delivered from the code that finds it. That code runs
+while the read lock and the request lock are both held and the response deadline
+is running, so a slow handler there would turn a subscription that *succeeded*
+into a ``ResponseTimeoutError``, and one that re-subscribed would block on a lock
+its own caller holds. The report is queued instead, and delivered by whichever
+coroutine read the frame once it has released its locks — before
+``handle_message`` returns, or before the subscribe that read it returns. Three
+consequences:
 
-* **A program that never calls** ``handle_message`` **never sees these.** If you
-  subscribe and then only place orders, nothing drains the queue. The log line
-  is written either way and is the complete record.
-* The queue is bounded, and drops the oldest when full. That only happens when
-  reports are being produced faster than ``handle_message`` runs, which means
-  something is already wrong — and again, nothing is lost that was not logged.
+* **Your handler can be called from inside a subscribe.** A slow one delays that
+  call returning; it cannot make it fail, because the response has already been
+  matched by then. Either way, keep it short.
+* The queue is cleared by ``close()``. A rejection that arrived on a connection
+  you have since torn down is not reported against a new one, since the
+  exception carries a frame from the old session.
+* The queue is bounded and drops the oldest when full. That needs reports to
+  arrive faster than they are drained, which means something is already wrong —
+  and the log line is written either way, so nothing unwritten is lost.
 
 The handler may be a coroutine function, like every other handler on this class:
 

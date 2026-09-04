@@ -87,15 +87,20 @@ identical one the next, for a reason invisible to them.
 request path the request lock too, and inside the response deadline — a user
 handler called there let a slow one turn a subscription that *succeeded* into a
 `ResponseTimeoutError`, and one that re-subscribed blocked on a lock its own
-caller held. Both were real, and both have tests. The report is queued and
-delivered from `handle_message`, which holds neither lock and runs under no
-deadline.
+caller held. Both were real, and both have tests. The report is queued instead,
+and delivered by whichever coroutine read the frame once it has released its
+locks: before `handle_message` returns, or before the request that read it
+returns. Draining only in `handle_message` was not enough — when a subscribe
+wins the read lock, `handle_message` can be parked in `recv()` with its own
+drain already behind it, and the report would then wait for the next inbound
+message, which on a quiet stream is unbounded.
 
-The consequence to know: **a program that never calls `handle_message` never
-receives these.** The queue is bounded and drops the oldest when full. The log
-line written when each rejection is found is the complete record; the callback
-is the convenience. This is stated in `add_error_handler`'s docstring and in
-`docs/streaming.rst`.
+The consequence to know: **your error handler can be called from inside a
+subscribe.** A slow one delays that call returning; it cannot make it fail. The
+queue is cleared by `close()`, so a torn-down session's rejection is never
+reported against a new one, and it is bounded. The log line written when each
+rejection is found is the complete record; the callback is the convenience. All
+of this is stated in `add_error_handler`'s docstring and in `docs/streaming.rst`.
 
 ## 2.2.0
 
