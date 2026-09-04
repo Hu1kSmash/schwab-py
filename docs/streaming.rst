@@ -255,7 +255,7 @@ is running, so a slow handler there would turn a subscription that *succeeded*
 into a ``ResponseTimeoutError``, and one that re-subscribed would block on a lock
 its own caller holds. The report is queued instead, and delivered by whichever
 coroutine read the frame once it has released its locks — before
-``handle_message`` returns, or before the subscribe that read it returns. Four
+``handle_message`` returns, or before the subscribe that read it returns. Five
 consequences:
 
 * **Your handler can be called from inside a subscribe.** A slow one delays that
@@ -263,7 +263,13 @@ consequences:
   matched by then. Either way, keep it short.
 * A failed request still delivers what it read. The exception you get describes
   the response that answered *your* request and says nothing about the others
-  in the frame.
+  in the frame. Your handler cannot replace that exception: a ``BaseException``
+  raised there is logged and swallowed, because the reason Schwab refused your
+  request is far more useful than the reason your handler fell over.
+* A **cancelled** request reports nothing. Draining while unwinding a cancel
+  would make ``close()``, a ``wait_for`` or a ``TaskGroup`` shutdown block for
+  as long as your handler takes. Whatever was queued waits for
+  ``handle_message``, or is discarded with the session.
 * The queue is cleared by ``close()`` and by a fresh ``login()``, along with any
   frames read but not yet handled. Nothing that arrived on a connection you have
   since replaced reaches you afterwards — not a rejection reported against the

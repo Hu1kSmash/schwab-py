@@ -341,6 +341,21 @@ class StreamClient(EnumEnforcer):
         self._pending_reports.clear()
         self._overflow_items.clear()
 
+        # Close whatever is being replaced. After a ConnectionClosed the old
+        # socket is already gone and this is a no-op, but a caller who calls
+        # login() on a healthy client -- a re-auth, a preferences refresh --
+        # would otherwise drop a live websocket and its reader on the floor
+        # with nothing closing it. Failure to close is logged, not raised: the
+        # login is the operation the caller asked for.
+        previous, self._socket = self._socket, None
+        if previous is not None:
+            try:
+                await previous.close()
+            except Exception:
+                self.logger.exception(
+                        'Failed to close the previous stream connection while '
+                        'logging in again. Continuing with the new one.')
+
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
 
@@ -647,6 +662,8 @@ class StreamClient(EnumEnforcer):
         unambiguous. Note it does not cover reading, so message handling
         continues while a request is in flight.
         '''
+        cancelled = False
+
         try:
             async with self._request_lock:
                 future = asyncio.get_running_loop().create_future()
@@ -665,6 +682,16 @@ class StreamClient(EnumEnforcer):
                         future.cancel()
                     elif not future.cancelled():
                         future.exception()
+        except asyncio.CancelledError:
+            # Noted so the finally can skip the drain. Running a user handler
+            # to completion while unwinding a cancellation makes close(), a
+            # wait_for, or a TaskGroup shutdown block for as long as that
+            # handler takes -- measured at the handler's full duration. The
+            # reports stay queued for handle_message, and are discarded by
+            # close() or a fresh login() like anything else from a session
+            # being torn down.
+            cancelled = True
+            raise
         finally:
             # Outside the `async with`, so neither lock is held and the
             # response deadline has passed. Whoever read the frame delivers
@@ -679,7 +706,25 @@ class StreamClient(EnumEnforcer):
             # followed by tearing the client down rather than reading it again
             # -- so draining only on success dropped the batched rejection
             # exactly when it was least likely to be reported another way.
-            await self._drain_pending_reports()
+            if not cancelled:
+                try:
+                    await self._drain_pending_reports()
+                except asyncio.CancelledError:
+                    # Not swallowed with the rest, for the reason logout()
+                    # gives: discarding a cancellation makes this refuse to
+                    # die.
+                    raise
+                except BaseException:
+                    # BaseException is deliberately left to propagate out of
+                    # _report_error everywhere else. Not here. This is a
+                    # finally clause, so a handler raising SystemExit would
+                    # replace the request's own exception -- the caller would
+                    # never learn that Schwab refused their subscribe, which is
+                    # the more useful error by far. Same guard, same reason, as
+                    # the one in logout().
+                    self.logger.exception(
+                            'Error handler raised while reporting a rejection '
+                            'carried alongside a response. Ignoring it.')
 
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
@@ -747,7 +792,12 @@ class StreamClient(EnumEnforcer):
 
         A request delivers what it read even when it fails, since the
         exception the caller gets describes the response which answered *their*
-        request and says nothing about the others in the frame.
+        request and says nothing about the others in the frame. Two limits
+        there: a handler's ``BaseException`` is logged and swallowed rather
+        than replacing that exception, and a request which is *cancelled*
+        skips the report entirely, so a shutdown is not delayed by the length
+        of a handler. Anything skipped stays queued for
+        :meth:`handle_message`.
 
         The queue is bounded, and is cleared both by :meth:`close` and by a
         fresh :meth:`login`, so a rejection from a torn-down session is never

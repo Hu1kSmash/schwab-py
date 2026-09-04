@@ -214,8 +214,9 @@ Only three packages are always required: ``authlib``, ``httpx2`` and
      - Install when you
      - Pulls in
    * - ``login``
-     - use :func:`~schwab.auth.client_from_login_flow` or
-       :func:`~schwab.auth.easy_client` without an existing token
+     - call :func:`~schwab.auth.client_from_login_flow`, or
+       :func:`~schwab.auth.easy_client` at all --- see the warning below,
+       which applies even when you have a token file
      - ``flask``, ``multiprocess``, ``psutil``
    * - ``codegen``
      - use :func:`schwab.contrib.orders.code_for_builder`

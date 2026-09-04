@@ -7480,6 +7480,114 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                       str(self.client._pending_reports[0][0]))
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_handler_cannot_replace_the_requests_own_exception(
+            self, ws_connect):
+        # The drain is in a finally, so a handler raising a BaseException there
+        # would surface instead of the rejection saying Schwab refused the
+        # request -- and the caller would never learn why their subscribe
+        # failed. Same guard, same reason, as the one in logout().
+        socket = await self.login_and_get_socket(ws_connect)
+
+        def explode(service, exc, msg):
+            raise SystemExit('handler exit')
+
+        self.client.add_error_handler(explode)
+
+        frame = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        frame['response'][0]['content'] = {
+                'code': 21, 'msg': 'this request failed'}
+        frame['response'].append({
+            'service': 'ACCT_ACTIVITY', 'command': 'SUBS', 'requestid': '77',
+            'content': {'code': 22, 'msg': 'the abandoned one'}})
+        socket.recv.side_effect = [json.dumps(frame)]
+
+        with self.assertRaises(
+                schwab.streaming.UnexpectedResponseCode) as cm:
+            await self.client.level_one_equity_subs(['GOOG'])
+
+        # The useful error, not the handler's.
+        self.assertIn('this request failed', str(cm.exception))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_slow_handler_does_not_delay_a_cancellation(
+            self, ws_connect):
+        # Running a handler to completion while unwinding a cancel makes
+        # close(), a wait_for, or a TaskGroup shutdown block on user code --
+        # the shape that produced a high finding four rounds running.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        async def slow(service, exc, msg):
+            await asyncio.sleep(5)
+
+        self.client.add_error_handler(slow)
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
+        ok['response'].append({
+            'service': 'ACCT_ACTIVITY', 'command': 'SUBS', 'requestid': '77',
+            'content': {'code': 21, 'msg': 'SUBS command failed'}})
+
+        calls = []
+
+        async def recv():
+            calls.append(1)
+            if len(calls) == 1:
+                # Queue the report, then park so the cancel lands with it
+                # pending.
+                self.client._log_extra_responses(ok, 1)
+                started.set()
+                await release.wait()
+            return json.dumps(ok)
+
+        socket.recv = recv
+
+        task = asyncio.create_task(self.client.level_one_equity_subs(['GOOG']))
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        task.cancel()
+        began = asyncio.get_running_loop().time()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        elapsed = asyncio.get_running_loop().time() - began
+
+        # Would be ~5s if the finally awaited the handler.
+        self.assertLess(elapsed, 1.0)
+        release.set()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logging_in_again_closes_the_socket_it_replaces(
+            self, ws_connect):
+        # A caller who logs in again on a healthy client -- a re-auth, a
+        # preferences refresh -- would otherwise drop a live websocket and its
+        # reader with nothing closing it.
+        first = await self.login_and_get_socket(ws_connect)
+
+        ws_connect.return_value = AsyncMock()
+        await self.client._init_from_preferences(account_preferences(), {})
+
+        first.close.assert_called_once()
+        self.assertIsNot(first, self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_failed_close_does_not_stop_logging_in_again(
+            self, ws_connect):
+        first = await self.login_and_get_socket(ws_connect)
+        first.close.side_effect = Exception('socket already gone')
+
+        ws_connect.return_value = AsyncMock()
+        await self.client._init_from_preferences(account_preferences(), {})
+
+        # The login is what the caller asked for.
+        self.assertIsNotNone(self.client._socket)
+        self.assertIsNot(first, self.client._socket)
+
+    @no_duplicates
     def test_the_report_queue_is_bounded(self):
         # Nothing guarantees handle_message is ever called again. The log line
         # written when each rejection is found is the durable record, so

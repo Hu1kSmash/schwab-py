@@ -60,6 +60,13 @@ upgrade.
 
 ### Fixed
 
+**`login()` did not close the connection it replaced.** Calling it on a healthy
+client — a re-authentication, a preferences refresh — dropped a live websocket
+and its reader with nothing closing it. After a `ConnectionClosed` the old
+socket is already gone and this is a no-op, which is why it went unnoticed. A
+failure to close is logged rather than raised, since the login is the operation
+the caller asked for.
+
 **A rejection riding along in a matched response frame was reported by
 nothing.** `_validate_response` reads `response[0]`, which is the answer to the
 outstanding request; a frame carrying a second response handed it to the waiter
@@ -98,7 +105,9 @@ message, which on a quiet stream is unbounded.
 The consequence to know: **your error handler can be called from inside a
 subscribe.** A slow one delays that call returning; it cannot make it fail. A
 request delivers what it read even when it fails, since the exception the caller
-gets describes only the response that answered their own request. The queue is
+gets describes only the response that answered their own request — though a
+handler's `BaseException` is logged rather than allowed to replace it, and a
+*cancelled* request skips the report so a shutdown never waits on user code. The queue is
 bounded, and is cleared by `close()` and by a fresh `login()`, so a torn-down
 session's rejection is never reported against a new one whichever way the caller
 reconnects. Frames read but not yet handled are cleared with it — that deque
