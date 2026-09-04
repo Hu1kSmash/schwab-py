@@ -56,10 +56,13 @@ weaker assertion while making "mark this subscription unhealthy" impossible.
 The handler may be a coroutine function, like every other handler on this class.
 Calling one without awaiting drops the coroutine and runs none of its body,
 which is the same quiet failure in a different place. `close()` waits for
-scheduled error handlers before shutting the socket, because one that awaits
-anything -- publishing an alert, which is the documented example -- has not
-resumed when the loop goes down, and the report of the failure immediately
-before shutdown is the one most worth having.
+scheduled error handlers, because one that awaits anything -- publishing an
+alert, which is the documented example -- has not resumed when the loop goes
+down, and the report of the failure immediately before shutdown is the one most
+worth having. It closes the socket first and drains afterwards, so a
+cancellation mid-drain cannot leave the connection open, and it never waits on
+the task doing the waiting -- an error handler that reacts by calling `close()`
+is a natural thing to write and would otherwise deadlock permanently.
 
 A handler of the wrong shape is refused at registration rather than discovered
 at report time. Every other `add_*_handler` here takes a one-argument callback,
@@ -87,10 +90,10 @@ never mentioned the exception.
 three top-level fields and nothing inside `MESSAGE_DATA`, so every consumer
 reverse-engineers it privately. The order identifier appears under seven
 spellings, the symbol under four, and both `CANCELED` and `CANCELLED` occur in
-Schwab's own status tokens. That is now written down, contributed from about a
-year of one fleet's production traffic and labelled as an observation log rather
-than a contract -- nothing in it is validated by this library, and a shape that
-fleet never saw is not thereby impossible.
+Schwab's own status tokens. That is now written down, collected by watching a
+live feed over roughly a year, and labelled as an observation log rather than a
+contract -- nothing in it is validated by this library, and a shape that has not
+been seen is not thereby impossible.
 
 ### Changed
 

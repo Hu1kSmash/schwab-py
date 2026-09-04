@@ -669,11 +669,11 @@ The three fields above are relabeled for you. What is *inside* ``MESSAGE_DATA``
 is not documented by Schwab, so every consumer ends up reverse-engineering it
 and keeping the results privately.
 
-What follows was contributed from roughly a year of one fleet's production
-traffic on funded accounts. **It is an observation log, not a contract.** Schwab
-publishes none of this, nothing here is validated by this library, and a shape
-that never appeared in that fleet's traffic is not thereby impossible. Treat it
-as a map drawn by someone who has been there, not as a specification.
+What follows was collected by watching a live ``ACCT_ACTIVITY`` feed over
+roughly a year. **It is an observation log, not a contract.** Schwab publishes
+none of this, nothing here is validated by this library, and a shape that has
+not been seen is not thereby impossible. Treat it as a map drawn by someone who
+has been there, not as a specification.
 
 **The order identifier appears under at least seven spellings**, and which one
 you get depends on the message:

@@ -61,6 +61,11 @@ class _BaseFieldEnum(Enum):
                 new_msg[new_key] = new_msg.pop(old_key)
 
 
+# How many times close() will wait for scheduled error handlers before giving
+# up. Each pass can schedule more, so this is a bound rather than a count.
+_MAX_ERROR_DRAIN_PASSES = 8
+
+
 class UnexpectedResponse(Exception):
     def __init__(self, response, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -625,12 +630,22 @@ class StreamClient(EnumEnforcer):
         # runs, forever, with nothing but a log line to say so: the exact state
         # this callback is meant to replace.
         try:
-            inspect.signature(error_handler).bind(None, None, None)
-        except TypeError as exc:
-            raise ValueError(
-                    'error handler must accept three positional arguments '
-                    '(service, exception, message); {!r} does not: {}'.format(
-                        error_handler, exc)) from None
+            signature = inspect.signature(error_handler)
+        except ValueError:
+            # Some C-implemented callables and proxies have no retrievable
+            # signature. Accepted rather than refused: the check exists to
+            # catch a wrong-arity Python function, not to exclude anything it
+            # cannot introspect.
+            signature = None
+
+        if signature is not None:
+            try:
+                signature.bind(None, None, None)
+            except TypeError as exc:
+                raise ValueError(
+                        'error handler must accept three positional arguments '
+                        '(service, exception, message); {!r} does not: '
+                        '{}'.format(error_handler, exc)) from None
 
         self._error_handlers.append(error_handler)
 
@@ -923,6 +938,17 @@ class StreamClient(EnumEnforcer):
                             'Error handler raised while reporting a close '
                             'failure. Ignoring it.')
 
+                # This report is scheduled after close() has already drained,
+                # so without draining again a coroutine handler for it is never
+                # awaited -- losing the report at one of the three documented
+                # sites, which is what the drain exists to prevent.
+                try:
+                    await self._drain_error_handlers()
+                except Exception:
+                    self.logger.exception(
+                            'Failed to drain error handlers after reporting a '
+                            'close failure. Ignoring it.')
+
     async def close(self):
         '''
         Closes the connection to the streaming server without logging out.
@@ -935,18 +961,24 @@ class StreamClient(EnumEnforcer):
         The client must be re-initialized with :meth:`login` to perform further
         operations.
         '''
-        # Drain scheduled error handlers first. A coroutine error handler that
-        # awaits anything -- publishing an alert, which is the documented
-        # example -- has not resumed yet when close() is called, and the event
-        # loop shutting down afterwards cancels it. That silently loses the
-        # report of the failure immediately before the process went down, which
-        # is the one most worth having.
-        await self._drain_error_handlers()
-
+        # The socket goes first, and the drain runs in a finally. Draining
+        # first meant a cancellation during the drain -- gather re-raises
+        # CancelledError -- left the socket open and self._socket still set,
+        # and logout's finally catches Exception, which does not catch
+        # CancelledError. The connection leaked on exactly the shutdown path
+        # that finally exists to cover.
         socket, self._socket = self._socket, None
 
-        if socket is not None:
-            await socket.close()
+        try:
+            if socket is not None:
+                await socket.close()
+        finally:
+            # A coroutine error handler that awaits anything -- publishing an
+            # alert, which is the documented example -- has not resumed when
+            # close() is called, and the loop shutting down afterwards cancels
+            # it. That loses the report of the failure immediately before the
+            # process went down, which is the one most worth having.
+            await self._drain_error_handlers()
 
     async def _drain_error_handlers(self):
         '''Waits for scheduled coroutine error handlers to finish.
@@ -955,11 +987,30 @@ class StreamClient(EnumEnforcer):
         here are not re-raised: draining is about not losing the report, not
         about propagating whatever the reporter did with it.
         '''
-        if not self._error_handler_tasks:
-            return
+        # Never wait on the task doing the waiting. An error handler which
+        # reacts to a failure by tearing the stream down -- `await
+        # client.close()`, a natural reaction to this signal -- would otherwise
+        # be gathered along with everything else and wait on itself forever,
+        # not even cancellable.
+        current = asyncio.current_task()
 
-        await asyncio.gather(*tuple(self._error_handler_tasks),
-                             return_exceptions=True)
+        # Bounded loop rather than one pass: a report scheduled *during* the
+        # drain (a concurrent handle_message, or an error handler that triggers
+        # another report) lands after a snapshot would have been taken. The
+        # bound stops an error handler which reports on every call from
+        # spinning here forever.
+        for _ in range(_MAX_ERROR_DRAIN_PASSES):
+            pending = tuple(task for task in self._error_handler_tasks
+                            if task is not current)
+            if not pending:
+                return
+
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        self.logger.warning(
+                'Error handlers were still scheduling more reports after %d '
+                'drain passes. Giving up on the rest.',
+                _MAX_ERROR_DRAIN_PASSES)
 
     async def __aenter__(self):
         return self

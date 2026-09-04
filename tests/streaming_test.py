@@ -6680,6 +6680,81 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                          'the last report before shutdown was lost')
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_still_closes_if_the_drain_is_cancelled(
+            self, ws_connect):
+        # gather re-raises CancelledError, so draining before closing meant a
+        # cancellation during the drain left the socket open and _socket set --
+        # and logout's finally catches Exception, which does not catch
+        # CancelledError, so the connection leaked on exactly the shutdown path
+        # that finally exists to cover.
+        async def never_finishes(service, exc, msg):
+            await asyncio.sleep(30)
+
+        self.client.add_error_handler(never_finishes)
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        socket = self.client._socket
+        closing = asyncio.ensure_future(self.client.close())
+        await asyncio.sleep(0)
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+
+        socket.close.assert_awaited()
+        self.assertIsNone(self.client._socket)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_error_handler_may_close_the_stream(self, ws_connect):
+        # Tearing the stream down is a natural reaction to this signal. The
+        # handler runs as a task in _error_handler_tasks, so a drain which
+        # gathered that whole set would include the handler's own task and wait
+        # on itself -- permanently, and not cancellable.
+        closed = []
+
+        async def close_on_error(service, exc, msg):
+            await self.client.close()
+            closed.append(True)
+
+        self.client.add_error_handler(close_on_error)
+        await self.subscribe_and_deliver(
+                ws_connect, Mock(side_effect=ValueError('handler blew up')))
+
+        await asyncio.wait_for(
+                asyncio.gather(*self.client._error_handler_tasks,
+                               return_exceptions=True),
+                timeout=5.0)
+
+        self.assertEqual([True], closed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_close_failure_report_reaches_a_coroutine_handler(
+            self, ws_connect):
+        # logout reports the close failure after close() has already drained,
+        # so without draining again the report is scheduled with nothing left
+        # to await it -- losing it at one of the three documented sites.
+        delivered = []
+
+        async def on_stream_error(service, exc, msg):
+            await asyncio.sleep(0)
+            delivered.append(exc)
+
+        socket = await self.login_and_get_socket(ws_connect)
+        self.client.add_error_handler(on_stream_error)
+
+        socket.close.side_effect = ValueError('close blew up')
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ADMIN', 'LOGOUT'))]
+
+        await self.client.logout()
+
+        self.assertEqual(1, len(delivered),
+                         'the close-failure report was never awaited')
+
+    @no_duplicates
     def test_an_error_handler_of_the_wrong_arity_is_refused(self):
         # Every other add_*_handler on this class takes a one-argument
         # callback, so passing one here is the natural mistake. Discovered at
