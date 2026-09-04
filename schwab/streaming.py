@@ -217,6 +217,17 @@ class StreamClient(EnumEnforcer):
         # list before they are read from the stream.
         self._overflow_items = deque()
 
+        # Rejections found riding along in a frame which answered an
+        # outstanding request, waiting to be reported. They are found while the
+        # read lock is held -- on the request path, the request lock and the
+        # response deadline too -- which is no place to run a user handler, so
+        # they are set aside and reported from handle_message the way an
+        # overflow frame is. Bounded because nothing guarantees handle_message
+        # is ever called again; the log line written when each is found is the
+        # durable record, and the callback is the convenience, so dropping the
+        # oldest loses nothing that was not already written down.
+        self._pending_reports = deque(maxlen=64)
+
         # Logging-related fields
         self.logger = get_logger()
         self.request_number = 0
@@ -320,8 +331,37 @@ class StreamClient(EnumEnforcer):
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
 
+        # Close whatever is being replaced. After a ConnectionClosed the old
+        # socket is already gone and this is a no-op, but a caller who calls
+        # login() on a healthy client -- a re-auth, a preferences refresh --
+        # would otherwise drop a live websocket and its reader on the floor
+        # with nothing closing it. Failure to close is logged, not raised: the
+        # login is the operation the caller asked for.
+        previous, self._socket = self._socket, None
+        if previous is not None:
+            try:
+                await previous.close()
+            except Exception:
+                self.logger.exception(
+                        'Failed to close the previous stream connection while '
+                        'logging in again. Continuing with the new one.')
+
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
+
+        # Cleared *after* the new socket is in place, not before. Anything
+        # still queued belongs to the connection being replaced: its exception
+        # carries a frame from that session, and a stale data frame would reach
+        # handlers as though it were live. Clearing first left a hole -- a
+        # concurrent reader on the old socket appends to _overflow_items while
+        # this coroutine is suspended in close() or connect(), and that frame
+        # would survive into the new session.
+        #
+        # close() clears both too, but a caller reconnecting after a
+        # ConnectionClosed may call login() again without closing first, and
+        # the guarantee has to hold whichever teardown they used.
+        self._pending_reports.clear()
+        self._overflow_items.clear()
 
 
     def _make_request(self, *, service, command, parameters):
@@ -418,7 +458,27 @@ class StreamClient(EnumEnforcer):
         # lateness, it is the server and this client disagreeing about what was
         # asked, and the request being waited on has no better prospect than
         # the one which just arrived. Let that fail below, as it always has.
-        response_id = int(frame['response'][0]['requestid'])
+        # Read defensively. Everything downstream of here parses through
+        # _iter_responses, which logs a malformed element and skips it -- but
+        # that guard is unreachable if reading the id raises first. A frame
+        # whose `response` is not a list, or whose element 0 has no usable
+        # requestid, would take out the in-flight request through
+        # _fail_pending_request and end the caller's receive loop, while the
+        # identical frame arriving with nothing pending was logged and
+        # harmless. That is the framing dependence this whole change exists to
+        # remove, one level below where it was fixed.
+        #
+        # Handed back rather than raised: handle_message logs and skips it,
+        # which is what it does with the same frame today when no request is
+        # outstanding.
+        try:
+            response_id = int(frame['response'][0]['requestid'])
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            self.logger.warning(
+                    'Received a response frame with no usable request id. '
+                    'Leaving it for handle_message: %r', frame.get('response'))
+            return frame
+
         if response_id != request_id and response_id < self._request_id:
             return frame
 
@@ -429,7 +489,125 @@ class StreamClient(EnumEnforcer):
             else:
                 future.set_exception(error)
 
+            # Element 0 went to the waiter, so it is accounted for.
+            first_unclaimed = 1
+        else:
+            # The future was already resolved -- the waiter timed out, or was
+            # cancelled, and this frame arrived in the window before the
+            # pending slot was cleared. Nothing is waiting for element 0
+            # either, so it is as unclaimed as the rest. Without this, a
+            # rejection at element 0 would be dropped in silence while a
+            # rejection at element 1 of the same frame was reported, which is
+            # the inverse of the framing-independence this exists for.
+            first_unclaimed = 0
+
+        # Everything not claimed above is logged and, if it is a rejection,
+        # queued for report. The protocol treats element 0 as the answer to the
+        # outstanding request, and _validate_response reads only that one, so a
+        # frame carrying a second response has always handed it to the waiter
+        # unexamined.
+        #
+        # Logged here, but NOT reported here. This runs holding the read
+        # lock, on the request path holding the request lock too, and inside
+        # the response deadline -- so calling a user handler here would let a
+        # slow one turn a subscription that SUCCEEDED into a
+        # ResponseTimeoutError, and a handler that re-subscribed would block on
+        # a lock its own caller holds. The report is queued and delivered from
+        # handle_message, which holds neither lock and runs under no deadline.
+        self._log_extra_responses(frame, first_unclaimed)
+
         return None
+
+    def _iter_responses(self, frame, start=0):
+        '''Yields ``(response, code, content)`` for the responses in a frame.
+
+        Shared by both framings of the same event -- a late rejection in a
+        frame of its own, and one batched behind the answer to a live request
+        -- because the contract is that they behave alike, and two loops
+        parsing the same JSON drift. One was hardened against a malformed
+        element and the other was not, so an identical payload was skipped with
+        a warning in one framing and ended the caller's receive loop with an
+        AttributeError in the other.
+
+        Nothing here raises. On the routing path this runs after the waiter's
+        future is resolved, so an exception escaping would reach the caller of
+        a request which SUCCEEDED; in handle_message it would end the receive
+        loop over one bad element among many.
+        '''
+        responses = frame.get('response')
+        if not isinstance(responses, list):
+            self.logger.warning(
+                    'Ignoring a response frame whose "response" is not a '
+                    'list: %r', responses)
+            return
+
+        for response in responses[start:]:
+            try:
+                # `or {}` rather than a default: the key is often present with
+                # a JSON null, which .get(key, {}) returns as None.
+                content = response.get('content') or {}
+                code = content.get('code')
+            except AttributeError:
+                self.logger.warning(
+                        'Ignoring an unparseable response element: %r',
+                        response)
+                continue
+
+            yield response, code, content
+
+    def _log_extra_responses(self, frame, start=1):
+        '''Logs every response past the first, and queues the rejections.
+
+        Because _request_lock keeps one request outstanding at a time, a second
+        response in the same frame cannot be an answer to anything this client
+        is currently waiting on. It is a late answer to a request which was
+        abandoned -- exactly what the orphan path in handle_message reports.
+        Whether Schwab sends that in a frame of its own or batches it behind
+        the answer to a live request is the server's choice, so reporting only
+        the first would make add_error_handler fire or stay silent for the same
+        event depending on framing the caller cannot see or predict.
+        '''
+        for response, code, content in self._iter_responses(frame, start):
+
+            # Matches the orphan path: a late acknowledgement of something that
+            # worked is routine and logs at INFO, a late rejection warns.
+            log = self.logger.info if code == 0 else self.logger.warning
+            log('Response frame carried an additional %s/%s response: code %s, '
+                'msg %r. It answers no request this client is waiting on.',
+                response.get('service'), response.get('command'),
+                code, content.get('msg'))
+
+            # `is not None` as well, for the same reason as the orphan path: a
+            # response with no code at all is neither a rejection nor a
+            # success, and reporting it would page someone over `code None`.
+            if code is not None and code != 0:
+                self._pending_reports.append((
+                        UnexpectedResponseCode(
+                            frame,
+                            'Schwab rejected a request which had already '
+                            'been abandoned: code {}, msg {!r}'.format(
+                                code, content.get('msg'))),
+                        response.get('service'),
+                        response))
+
+    async def _drain_pending_reports(self):
+        '''Delivers reports queued by _log_extra_responses.
+
+        Called from two places, both with the read lock released, no request
+        lock held and no deadline running: the top of handle_message's loop,
+        and the end of _request_response. Whichever coroutine read the frame
+        delivers what it queued, so a report is not stranded behind a reader
+        parked in recv(). A user handler can therefore run inside a subscribe.
+
+        Each entry is popped before it is awaited, so a handler which re-enters
+        handle_message finds an empty queue rather than reporting the same
+        rejection twice.
+
+        '''
+        while self._pending_reports:
+            exception, service, message = self._pending_reports.popleft()
+            await self._report_error(
+                    exception, service=service, message=message)
 
     def _fail_pending_request(self, exception):
         '''Hands an exception to the operation waiting on a response, if any.
@@ -528,23 +706,69 @@ class StreamClient(EnumEnforcer):
         unambiguous. Note it does not cover reading, so message handling
         continues while a request is in flight.
         '''
-        async with self._request_lock:
-            future = asyncio.get_running_loop().create_future()
-            self._pending_request = (request_id, service, command, future)
-            try:
-                await self._send({'requests': [request]})
-                await self._await_response(request_id, service, command)
-            finally:
-                self._pending_request = None
-                # Nobody will look at this future again. Cancel it if it is
-                # still open, so a reader which grabbed a reference to it just
-                # before it was cleared cannot complete it into the void, and
-                # retrieve any exception so asyncio does not report it as never
-                # having been retrieved.
-                if not future.done():
-                    future.cancel()
-                elif not future.cancelled():
-                    future.exception()
+        cancelled = False
+
+        try:
+            async with self._request_lock:
+                future = asyncio.get_running_loop().create_future()
+                self._pending_request = (request_id, service, command, future)
+                try:
+                    await self._send({'requests': [request]})
+                    await self._await_response(request_id, service, command)
+                finally:
+                    self._pending_request = None
+                    # Nobody will look at this future again. Cancel it if it is
+                    # still open, so a reader which grabbed a reference to it
+                    # just before it was cleared cannot complete it into the
+                    # void, and retrieve any exception so asyncio does not
+                    # report it as never having been retrieved.
+                    if not future.done():
+                        future.cancel()
+                    elif not future.cancelled():
+                        future.exception()
+        except asyncio.CancelledError:
+            # Noted so the finally can skip the drain. Running a user handler
+            # to completion while unwinding a cancellation makes close(), a
+            # wait_for, or a TaskGroup shutdown block for as long as that
+            # handler takes -- measured at the handler's full duration. The
+            # reports stay queued for handle_message, and are discarded by
+            # close() or a fresh login() like anything else from a session
+            # being torn down.
+            cancelled = True
+            raise
+        finally:
+            # Outside the `async with`, so neither lock is held and the
+            # response deadline has passed. Whoever read the frame delivers
+            # what it queued: when this coroutine was the reader,
+            # handle_message may be parked in recv() having already drained for
+            # its iteration, and the report would otherwise wait for the next
+            # inbound message -- unbounded on a quiet stream.
+            #
+            # In a `finally`, so a request which *failed* still delivers what
+            # it read. The caller's exception is element 0's rejection and says
+            # nothing about element 1, and a failed subscribe is usually
+            # followed by tearing the client down rather than reading it again
+            # -- so draining only on success dropped the batched rejection
+            # exactly when it was least likely to be reported another way.
+            if not cancelled:
+                try:
+                    await self._drain_pending_reports()
+                except asyncio.CancelledError:
+                    # Not swallowed with the rest, for the reason logout()
+                    # gives: discarding a cancellation makes this refuse to
+                    # die.
+                    raise
+                except BaseException:
+                    # BaseException is deliberately left to propagate out of
+                    # _report_error everywhere else. Not here. This is a
+                    # finally clause, so a handler raising SystemExit would
+                    # replace the request's own exception -- the caller would
+                    # never learn that Schwab refused their subscribe, which is
+                    # the more useful error by far. Same guard, same reason, as
+                    # the one in logout().
+                    self.logger.exception(
+                            'Error handler raised while reporting a rejection '
+                            'carried alongside a response. Ignoring it.')
 
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
@@ -589,6 +813,41 @@ class StreamClient(EnumEnforcer):
         Each is logged as it was before. The callback is what makes them
         something other than a log record.
 
+        The second of those covers a rejection however Schwab frames it. It
+        may arrive in a frame of its own, or riding along behind the answer to
+        a request you are waiting on -- only one request is outstanding at a
+        time, so anything past the first response in a frame is a late answer
+        to an abandoned one either way. Which framing you get is the server's
+        choice, and both report identically.
+
+        The batched one is not reported from where it is found. Routing a
+        frame happens holding the read lock, on the request path holding the
+        request lock too, and inside the response deadline: a slow handler
+        called there would turn a subscription that succeeded into a
+        ``ResponseTimeoutError``, and one which re-subscribed would block on a
+        lock its own caller holds. The report is queued instead, and delivered
+        by whichever coroutine read the frame once it has released its locks --
+        before :meth:`handle_message` returns, or before the request which read
+        it returns. Both run with neither lock held and no deadline.
+
+        That means a handler can be called from inside a subscribe, so a slow
+        one delays that call returning. It cannot fail it: by then the response
+        has already been matched.
+
+        A request delivers what it read even when it fails, since the
+        exception the caller gets describes the response which answered *their*
+        request and says nothing about the others in the frame. Two limits
+        there: a handler's ``BaseException`` is logged and swallowed rather
+        than replacing that exception, and a request which is *cancelled*
+        skips the report entirely, so a shutdown is not delayed by the length
+        of a handler. Anything skipped stays queued for
+        :meth:`handle_message`.
+
+        The queue is bounded, and is cleared both by :meth:`close` and by a
+        fresh :meth:`login`, so a rejection from a torn-down session is never
+        reported against a new one. The log line written when each rejection is
+        found is the complete record; this callback is the convenience.
+
         That matters most where a fallback covers for the stream. If a
         subscription quietly stops delivering, and a REST poll is authoritative
         anyway, nothing is wrong until something the poll does not cover
@@ -604,8 +863,12 @@ class StreamClient(EnumEnforcer):
         * ``exception`` is the exception that was raised.
         * ``message`` is the message being handled, or ``None``.
 
-        It may be a coroutine function, in which case it is scheduled the same
-        way a coroutine stream handler is.
+        It may be a coroutine function, in which case it is awaited before the
+        call which reported the failure continues. Unlike a coroutine stream
+        handler, it is not scheduled as a task: a report which is awaited needs
+        nothing keeping it alive at shutdown. The cost is that a slow error
+        handler delays whatever was reporting to it, so keep it short --
+        enqueue and return rather than doing work inline.
 
         If it raises an ``Exception``, that is logged and swallowed: a callback
         for absorbed failures must not become a way to fail. A ``BaseException``
@@ -769,6 +1032,34 @@ class StreamClient(EnumEnforcer):
         # is not a message to be handled, so keep reading in that case rather
         # than returning nothing.
         while True:
+            # Before the read, not after it. No lock is held here and no
+            # deadline is running, which is what makes it safe to call user
+            # code -- and draining after the read would hold every queued
+            # report until the *next* message arrived, which on a quiet stream
+            # is indefinitely. A matched frame read here returns None and comes
+            # back round, so its report goes out on the following iteration.
+            #
+            # This is not the only drain. When a request is the reader, it
+            # queues the report and this loop may already be parked in recv(),
+            # so _request_response drains once it has released its locks.
+            was_open = self._socket is not None
+            await self._drain_pending_reports()
+
+            # An error handler is allowed to tear the stream down -- that is a
+            # reasonable reaction to a rejection, and every other path which
+            # calls a handler returns rather than reading again afterwards.
+            # Without this, closing from a queued report would be the one place
+            # it raised "Socket not open" out of the call the handler was
+            # running in.
+            #
+            # Conditioned on the socket having been open *before* the drain, so
+            # this covers only a handler closing it. A client which was never
+            # logged in, or which the caller closed itself, still raises
+            # "Socket not open" from the read below rather than returning
+            # quietly for one iteration.
+            if was_open and self._socket is None:
+                return
+
             async with self._read_lock:
                 try:
                     msg = await self._read_and_route()
@@ -792,10 +1083,7 @@ class StreamClient(EnumEnforcer):
             # loses every message queued behind it, and does so precisely when
             # the server is slow, which is when a stream is least worth
             # dropping. Log it and carry on.
-            for response in msg['response']:
-                content = response.get('content', {})
-                code = content.get('code')
-
+            for response, code, content in self._iter_responses(msg):
                 # A late acknowledgement of something that worked is routine.
                 # A late *rejection* is not: the request was abandoned, so
                 # nothing else will ever report that Schwab refused it, and at
@@ -973,6 +1261,21 @@ class StreamClient(EnumEnforcer):
         operations.
         '''
         socket, self._socket = self._socket, None
+
+        # Anything still queued belongs to the session being torn down. Its
+        # exception carries a frame from that connection, so delivering it
+        # after a later login() would report a dead session's rejection against
+        # a live one. Each was logged when it was found, so nothing unwritten
+        # is lost.
+        #
+        # _overflow_items for the same reason, and it is the older half of the
+        # problem: it holds frames read but not yet handled, including the late
+        # rejections the orphan path reports and data frames handlers would be
+        # given. Clearing only the reports would have left the standalone
+        # framing leaking across sessions while the batched one did not, which
+        # is the asymmetry this whole change exists to remove.
+        self._pending_reports.clear()
+        self._overflow_items.clear()
 
         if socket is not None:
             await socket.close()

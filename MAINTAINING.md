@@ -112,12 +112,34 @@ fail together. It costs four seconds.
    reader following a stale one installs the wrong release without any sign
    that they have.
 
+   `schwab/_optional.py` prints the same pin in the ImportError for a missing
+   extra, but interpolates `schwab.version.version` rather than hardcoding it,
+   so step 2 fixes it and the grep above does not need to find it.
+
+   It is wrong for the whole of any release which adds or renames an extra:
+   from the merge until the tag, `version.py` still names the previous release,
+   whose tag does not carry the new extra — `pip` says `does not provide the
+   extra 'login'` and installs the pre-split version. That window closes at
+   step 4 and cannot be closed earlier, since the tag does not exist yet. Do
+   steps 2 through 5 together rather than leaving a bumped `main` untagged,
+   and do not hand anyone the pre-release pin.
+
+   Prose which names a version is worse than a pin, because the grep above does
+   not match it and the release may land under a different number than the one
+   written. Say what changed, not which release changed it, and let
+   `CHANGELOG.md` carry the number.
+
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
 6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
 
 Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
 `python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
+
+`python -m build --sdist` earns its place here: `setup.py` is not imported by
+the suite, so an edit which leaves it unparseable is invisible to `pytest`.
+`tests/packaging_test.py` now covers the common cases, but the build is what
+proves the artifact.
 
 Never write a bare `pip install schwab-py` anywhere. That installs the original
 project from PyPI, which is not this code — and it will appear to work, since

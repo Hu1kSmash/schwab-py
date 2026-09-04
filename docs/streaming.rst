@@ -237,9 +237,47 @@ It is called for three things: a stream handler which raised, a late rejection
 of a request nobody was waiting on, and a connection which failed to close after
 logout. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
-``message`` rather than from ``exception.response['response'][0]``. ``service`` and ``message`` are ``None`` where they do not apply.
-Registering none keeps the existing behaviour exactly, and the log line is
-written either way.
+``message`` rather than from ``exception.response['response'][0]``. ``service``
+and ``message`` are ``None`` where they do not apply. Registering none keeps the
+existing behaviour exactly, and the log line is written either way.
+
+The late rejection reaches you however Schwab frames it. Only one request is
+outstanding at a time, so a second response in a frame cannot be an answer to
+anything you are waiting on — it is a late answer to an abandoned request,
+whether the server sends it alone or batches it behind the answer to a live one.
+Both report the same ``UnexpectedResponseCode`` with the same ``service`` and
+``message``, because the framing is the server's choice and you cannot predict
+which you will get.
+
+The batched one is not delivered from the code that finds it. That code runs
+while the read lock and the request lock are both held and the response deadline
+is running, so a slow handler there would turn a subscription that *succeeded*
+into a ``ResponseTimeoutError``, and one that re-subscribed would block on a lock
+its own caller holds. The report is queued instead, and delivered by whichever
+coroutine read the frame once it has released its locks — before
+``handle_message`` returns, or before the subscribe that read it returns. Five
+consequences:
+
+* **Your handler can be called from inside a subscribe.** A slow one delays that
+  call returning; it cannot make it fail, because the response has already been
+  matched by then. Either way, keep it short.
+* A failed request still delivers what it read. The exception you get describes
+  the response that answered *your* request and says nothing about the others
+  in the frame. Your handler cannot replace that exception: a ``BaseException``
+  raised there is logged and swallowed, because the reason Schwab refused your
+  request is far more useful than the reason your handler fell over.
+* A **cancelled** request reports nothing. Draining while unwinding a cancel
+  would make ``close()``, a ``wait_for`` or a ``TaskGroup`` shutdown block for
+  as long as your handler takes. Whatever was queued waits for
+  ``handle_message``, or is discarded with the session.
+* The queue is cleared by ``close()`` and by a fresh ``login()``, along with any
+  frames read but not yet handled. Nothing that arrived on a connection you have
+  since replaced reaches you afterwards — not a rejection reported against the
+  new session, and not a stale quote delivered to a handler as though it were
+  live. That holds whether you closed first or simply logged in again.
+* The queue is bounded and drops the oldest when full. That needs reports to
+  arrive faster than they are drained, which means something is already wrong —
+  and the log line is written either way, so nothing unwritten is lost.
 
 The handler may be a coroutine function, like every other handler on this class:
 

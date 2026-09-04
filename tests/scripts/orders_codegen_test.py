@@ -481,3 +481,53 @@ class ScriptInvocationTest(unittest.TestCase):
         output = subprocess.check_output(
                 'schwab-order-codegen.py --help',
                 shell=True, text=True)
+
+
+class CredentialOrderTest(unittest.TestCase):
+    '''client_from_token_file takes (token_path, api_key, app_secret). This
+    script passed the secret and the key transposed, which builds a working
+    session until the token needs refreshing and then fails with
+    invalid_client. Every other test here mocks the call without looking at
+    what it was given.'''
+
+    @no_duplicates
+    @patch('builtins.print')
+    @patch('schwab.scripts.orders_codegen.client_from_token_file')
+    def test_the_key_and_secret_are_not_transposed(
+            self, mock_client_from_token_file, mock_print):
+        mock_client_from_token_file.return_value.\
+                get_orders_for_all_linked_accounts.return_value = \
+                MagicMock(status_code=httpx2.codes.OK, json=lambda: [])
+
+        latest_order_main([
+            '--token_file', 'token.json',
+            '--api_key', 'the-api-key',
+            '--app_secret', 'the-app-secret'])
+
+        mock_client_from_token_file.assert_called_once_with(
+                'token.json', 'the-api-key', 'the-app-secret')
+
+
+class CodegenExtraTest(unittest.TestCase):
+    '''The formatter is only used by the last statement of latest_order_main.
+    Without the check at the top, a user missing the 'codegen' extra pays for
+    a token load and two API calls before being told about a missing package.'''
+
+    @no_duplicates
+    @patch('schwab.scripts.orders_codegen.import_optional')
+    @patch('schwab.scripts.orders_codegen.client_from_token_file')
+    def test_the_extra_is_checked_before_anything_is_fetched(
+            self, mock_client_from_token_file, mock_import_optional):
+        mock_import_optional.side_effect = ImportError(
+                "requires the 'codegen' extra")
+
+        with self.assertRaises(ImportError):
+            latest_order_main([
+                '--token_file', 'token.json',
+                '--api_key', 'api-key',
+                '--app_secret', 'app-secret'])
+
+        mock_import_optional.assert_called_once_with(
+                'autopep8', 'codegen', 'Generating order-builder code')
+        # The point of the finding: nothing was authenticated or fetched.
+        mock_client_from_token_file.assert_not_called()

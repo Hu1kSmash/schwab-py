@@ -11,7 +11,25 @@ def main(api_key, app_secret, callback_url, token_path, requested_browser):
                 api_key, app_secret, callback_url, token_path,
                 requested_browser=requested_browser, callback_timeout=300)
         return 0
-    except:
+    except ImportError as exc:
+        # Printed, then fall through to the manual flow like any other
+        # failure. The manual flow needs no optional package, so it really is
+        # the right thing to do next -- but reporting this as "failed to fetch
+        # a token using a web browser" told the user nothing about the 'login'
+        # extra, and they would take the manual flow every time without ever
+        # learning why. Both properties matter: say what is wrong, and still
+        # get them a token.
+        #
+        # Not narrowed to the missing-extra message. import_optional re-raises
+        # an ImportError from inside an installed package unchanged, and a
+        # broken werkzeug under flask is no more a reason to refuse the manual
+        # flow than a missing one.
+        print(exc, file=sys.stderr)
+        print('Falling back to the manual flow.', file=sys.stderr)
+    except Exception:
+        # Deliberately not a bare 'except:'. That caught KeyboardInterrupt and
+        # SystemExit too, so a Ctrl-C at the login prompt fell through into the
+        # manual flow rather than quitting.
         print('Failed to fetch a token using a web browser, falling back to '
                 'the manual flow')
 

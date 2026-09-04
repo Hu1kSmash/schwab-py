@@ -15,6 +15,115 @@ current model.
 
 ---
 
+## Unreleased
+
+### Changed
+
+**The login flow and the code generator are now optional extras.** A plain
+install requires three packages -- `authlib`, `httpx2`, `websockets` -- and
+nothing else. `flask`, `multiprocess` and `psutil` move to `schwab-py[login]`;
+`autopep8` moves to `schwab-py[codegen]`.
+
+**This is breaking if you use `client_from_login_flow` or `easy_client`.** Add
+`[login]` to your install. Calling either without it raises an `ImportError`
+that names the extra and gives the command, rather than a bare "No module named
+'flask'".
+
+Note the second one carefully: **`easy_client` needs `[login]` even when you
+already have a token file.** Its `max_token_age` defaults to 6.5 days, and a
+token older than that is discarded and replaced through the login flow. So a
+plain install works for 6.5 days and then fails on a routine re-authentication,
+which on an unattended machine is the worst shape this break can take. Pass
+`max_token_age=0` to disable the proactive refresh if you really want to run
+`easy_client` without the extra — but Schwab's refresh token expires seven days
+from authorization regardless, so anything long-running needs a way to log in
+again either way.
+
+In a Jupyter or Colab notebook `easy_client` routes to `client_from_manual_flow`
+instead, which starts no callback server, so notebook users need no extra.
+
+Not affected: `client_from_token_file`, `client_from_access_functions`,
+`client_from_received_url`, `client_from_manual_flow`, and the streaming client.
+None of them touch the callback server.
+
+Measured on a clean 3.14 install: 27 packages before, 15 after. The twelve that
+go are `flask` and its tree (`blinker`, `click`, `itsdangerous`, `jinja2`,
+`markupsafe`, `werkzeug`), `multiprocess` and `dill`, `psutil`, and `autopep8`
+with `pycodestyle`.
+
+None of them were ever used outside the interactive login flow and the code
+generator, and two -- `multiprocess` and `psutil` -- were imported at module
+scope, so every `import schwab.auth` paid for them. A process that loads a token
+from a file and streams quotes has no use for a web framework, and on a machine
+that places trades each package is something to patch, audit and break on
+upgrade.
+
+### Fixed
+
+**A malformed response element ended the caller's receive loop.** A `"content"`
+present but JSON `null` made `content.get('code')` raise `AttributeError` out of
+`handle_message`. Both framings of the same event now share one parser, so a bad
+element is logged and skipped and the good elements beside it still report —
+they had diverged, with one framing hardened and the other not, which is exactly
+what the framing-independence contract above says cannot happen.
+
+**`login()` did not close the connection it replaced.** Calling it on a healthy
+client — a re-authentication, a preferences refresh — dropped a live websocket
+and its reader with nothing closing it. After a `ConnectionClosed` the old
+socket is already gone and this is a no-op, which is why it went unnoticed. A
+failure to close is logged rather than raised, since the login is the operation
+the caller asked for.
+
+**A rejection riding along in a matched response frame was reported by
+nothing.** `_validate_response` reads `response[0]`, which is the answer to the
+outstanding request; a frame carrying a second response handed it to the waiter
+unexamined. If that one was a rejection, nothing mentioned it -- the same gap
+the late-rejection reporting closed in 2.2.0, one element along. Additional
+responses are now checked. A rejection logs a warning and is reported to
+`add_error_handler`; a success alongside the answer logs at INFO and is not
+reported, exactly as on the orphan path.
+
+The rule is that every response no waiter claimed is checked, which is usually
+everything past element 0. In the window where a waiter has already timed out
+but the pending slot is not yet cleared, nobody claims element 0 either, and it
+is checked too.
+
+Reporting it matters more than it might look. `_request_lock` keeps one request
+outstanding, so a second response in a frame cannot answer anything the client
+is waiting on — it is a late answer to an abandoned request, the same class the
+orphan path has reported since 2.2.0. Whether Schwab sends it in its own frame
+or batches it behind the answer to a live request is the server's choice. Had
+only the orphan framing reported, a consumer who replaced log-scraping with
+`add_error_handler` would see a rejection one day and silently miss the
+identical one the next, for a reason invisible to them.
+
+**But not from where it is found.** That code runs holding the read lock, on the
+request path the request lock too, and inside the response deadline — a user
+handler called there let a slow one turn a subscription that *succeeded* into a
+`ResponseTimeoutError`, and one that re-subscribed blocked on a lock its own
+caller held. Both were real, and both have tests. The report is queued instead,
+and delivered by whichever coroutine read the frame once it has released its
+locks: before `handle_message` returns, or before the request that read it
+returns. Draining only in `handle_message` was not enough — when a subscribe
+wins the read lock, `handle_message` can be parked in `recv()` with its own
+drain already behind it, and the report would then wait for the next inbound
+message, which on a quiet stream is unbounded.
+
+The consequence to know: **your error handler can be called from inside a
+subscribe.** A slow one delays that call returning; it cannot make it fail. A
+request delivers what it read even when it fails, since the exception the caller
+gets describes only the response that answered their own request — though a
+handler's `BaseException` is logged rather than allowed to replace it, and a
+*cancelled* request skips the report so a shutdown never waits on user code. The queue is
+bounded, and is cleared by `close()` and by a fresh `login()`, so a torn-down
+session's rejection is never reported against a new one whichever way the caller
+reconnects. Frames read but not yet handled are cleared with it — that deque
+predates this change and had the same leak, which would have left the standalone
+framing crossing sessions while the batched one did not, and could hand a
+handler a quote from a dead connection. The log line written when each
+rejection is found is the complete record; the callback is the convenience. All
+of this is stated in `add_error_handler`'s docstring and in `docs/streaming.rst`.
+
 ## 2.2.0
 
 ### Added

@@ -171,9 +171,16 @@ PyPI, so install it from git, pinned to a release. Plain
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
 
-That's it! You're done! You can verify the install succeeded by importing the 
+The ``[login]`` part matters for this guide: the interactive login flow below
+runs a local HTTPS callback server, and the packages for that are an optional
+extra rather than a hard dependency. A program that loads an existing token
+from a file never uses them, so a plain install leaves them out --- it is
+twelve fewer packages on a machine that places trades. See
+:ref:`optional_extras` if you would rather install the smaller set.
+
+That's it! You're done! You can verify the install succeeded by importing the
 package:
 
 .. code-block:: python
@@ -183,13 +190,60 @@ package:
 If this succeeded, you're ready to move on to :ref:`auth`.
 
 Note that if you are using a virtual environment and switch to a new terminal
-your virtual environment will not be active in the new terminal, and you need to 
-run the activate command again. If you want to disable the loaded virtual 
+your virtual environment will not be active in the new terminal, and you need to
+run the activate command again. If you want to disable the loaded virtual
 environment in the same terminal window, use the command:
 
 .. code-block:: shell
 
   deactivate
+
+.. _optional_extras:
+
+~~~~~~~~~~~~~~~
+Optional Extras
+~~~~~~~~~~~~~~~
+
+Only three packages are always required: ``authlib``, ``httpx2`` and
+``websockets``. Everything else is grouped by what needs it:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Extra
+     - Install when you
+     - Pulls in
+   * - ``login``
+     - call :func:`~schwab.auth.client_from_login_flow`, or
+       :func:`~schwab.auth.easy_client` at all --- see the warning below,
+       which applies even when you have a token file
+     - ``flask``, ``multiprocess``, ``psutil``
+   * - ``codegen``
+     - use :func:`schwab.contrib.orders.code_for_builder`
+     - ``autopep8``
+
+Combine them with a comma --- ``schwab-py[login,codegen]``. Calling one of
+those entry points without its extra raises an ``ImportError`` naming the extra
+and the command to install it, rather than a bare "No module named 'flask'".
+
+.. warning::
+
+  ``easy_client`` needs ``login`` **even if you already have a token file.**
+  Its ``max_token_age`` defaults to 6.5 days, and it discards a token older
+  than that and fetches a new one through the login flow. Without the extra,
+  such a program runs for 6.5 days and then fails on a routine
+  re-authentication. Pass ``max_token_age=0`` to turn the proactive refresh
+  off --- though Schwab's refresh token expires seven days after
+  authorization whatever you do, so anything long-running needs some way to
+  log in again.
+
+  In a Jupyter or Colab notebook this does not apply: there ``easy_client``
+  uses :func:`~schwab.auth.client_from_manual_flow`, which starts no callback
+  server and needs no extra.
+
+A daemon which authenticates with :func:`~schwab.auth.client_from_token_file`
+and streams needs neither extra. So does one built on
+:func:`~schwab.auth.client_from_access_functions`.
 
 ++++++++++++
 Getting Help

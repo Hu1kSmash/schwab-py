@@ -5,9 +5,7 @@ import contextlib
 import httpx2
 import json
 import logging
-import multiprocess
 import os
-import psutil
 import queue
 import sys
 import tempfile
@@ -16,6 +14,7 @@ import urllib
 import warnings
 import webbrowser
 
+from schwab._optional import import_optional
 from schwab.client import AsyncClient, Client
 from schwab.debug import register_redactions
 
@@ -295,7 +294,8 @@ def __run_client_from_login_flow_server(
     '''Helper server for intercepting redirects to the callback URL. See
     client_from_login_flow for details.'''
 
-    import flask
+    flask = import_optional(
+            'flask', 'login', 'The interactive login flow')
 
     app = flask.Flask(__name__)
 
@@ -347,6 +347,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     client wrapped around the resulting token. The client will be configured to 
     refresh the token as necessary, writing each updated version to 
     ``token_path``.
+
+    **Requires the** ``login`` **extra:** ``pip install "schwab-py[login] @
+    git+https://github.com/Hu1kSmash/schwab-py@<tag>"``. The callback server
+    below needs ``flask``, ``multiprocess`` and ``psutil``, which a plain
+    install leaves out because nothing else in the library uses them. Calling
+    this without them raises an ``ImportError`` naming the extra.
 
     .. _callback_url_advisory:
 
@@ -430,6 +436,21 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 
     callback_port = parsed.port if parsed.port else 443
     callback_path = parsed.path if parsed.path else '/'
+
+    # Imported here rather than at module scope: this is the only entry point
+    # that runs a local callback server, and a process which loads its token
+    # from a file should not pay for a web framework and a process manager it
+    # will never call.
+    multiprocess = import_optional(
+            'multiprocess', 'login', 'The interactive login flow')
+    psutil = import_optional(
+            'psutil', 'login', 'The interactive login flow')
+
+    # flask is imported by the server, which runs in a child process -- so its
+    # ImportError would surface as child stderr and the parent would report
+    # RedirectServerExitedError, blaming the callback port for a missing
+    # package. Checked here, in the parent, where it can actually be raised.
+    import_optional('flask', 'login', 'The interactive login flow')
 
     output_queue = multiprocess.Queue()
 
@@ -899,6 +920,21 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
     *Reminder:* You should never create the token file yourself or modify it in
     any way. If ``token_path`` refers to an existing file, this method will
     assume that file is valid token and will attempt to parse it.
+
+    **Outside a notebook, requires the** ``login`` **extra -- even when a token
+    file already exists.** ``max_token_age`` defaults to 6.5 days, and a token
+    older than that is discarded here and replaced through
+    :func:`client_from_login_flow`, which needs the extra. Without it a program
+    runs for 6.5 days and then fails on a routine re-authentication rather than
+    at startup. Setting ``max_token_age=0`` skips the proactive refresh, but
+    Schwab's refresh token expires seven days after authorization regardless,
+    so a long-running program still needs some way to log in again. If you want
+    an install without the extra, use :func:`client_from_token_file` and handle
+    re-authentication yourself.
+
+    In a Jupyter or Colab notebook this routes to
+    :func:`client_from_manual_flow` instead, which starts no callback server
+    and needs no extra.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret provided upon :ref:`app approval 

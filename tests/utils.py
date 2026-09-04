@@ -6,6 +6,13 @@ import difflib
 import inspect
 import httpx2
 import json
+import os
+
+
+# Resolved from this file rather than the working directory. Every test that
+# loads it used to require pytest to be run from the repo root, and running
+# from anywhere else failed 164 tests on a FileNotFoundError in setUp.
+TESTDATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testdata')
 
 class AnyStringWith(str):
     '''
@@ -16,7 +23,7 @@ class AnyStringWith(str):
         return self in other
 
 def account_preferences():
-    with open('tests/testdata/preferences.json', 'r') as f:
+    with open(os.path.join(TESTDATA, 'preferences.json'), 'r') as f:
         return json.load(f)
 
 

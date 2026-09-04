@@ -1,6 +1,6 @@
-import autopep8
 import schwab
 
+from schwab._optional import import_optional
 from schwab.orders.common import (
         EquityInstrument,
         OptionInstrument,
@@ -168,6 +168,11 @@ def code_for_builder(builder, var_name=None):
         var_prefix = f'{var_name} = '
     else:
         var_prefix = ''
+
+    # Only the code generator needs a formatter; see schwab._optional for why
+    # these are extras.
+    autopep8 = import_optional(
+            'autopep8', 'codegen', 'Generating order-builder code')
 
     return autopep8.fix_code(
             '\n'.join(import_lines) + 

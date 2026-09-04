@@ -25,12 +25,20 @@
    ever resumes active maintenance, ``upstream-main`` is still mirrored here, and reconciling
    with it is a better outcome than defending the fork.
 
-   The importable package is still ``schwab``, so this is a drop-in replacement. It is not
+   The importable package is still ``schwab``, so your imports do not change. It is not
    published to PyPI — install it from git, pinned to a tag or commit:
 
    .. code-block:: shell
 
      pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+
+   That plain install is three packages, because the interactive login flow lives in an
+   extra. **Install** ``schwab-py[login]`` **instead if you call** ``easy_client`` **or**
+   ``client_from_login_flow`` — including when you already have a token file, since
+   ``easy_client`` re-authenticates through the login flow once the token passes
+   ``max_token_age`` (6.5 days by default). Calling either without the extra raises an
+   ``ImportError`` saying so. ``schwab-py[codegen]`` covers the order-code generator.
+   Notebook users need neither: there ``easy_client`` uses the manual flow.
 
    Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
    the ``schwab`` package. Pick one.
@@ -78,7 +86,16 @@ project from PyPI instead:
 
 .. code-block:: shell
 
-  pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.2.0"
+
+``[login]`` is there because the example below calls ``easy_client``, which
+opens a browser login flow the first time it runs. Without it, the plain
+``schwab-py`` install is the three packages the library always needs. The interactive
+login flow and the order-code generator each need an extra ---
+``schwab-py[login]`` and ``schwab-py[codegen]`` --- because neither is used by a
+program that loads its token from a file, and a bare install is twelve fewer
+packages on a machine that places trades. Calling either without its extra says
+so, and says what to install.
 
 You're good to go! To demonstrate, here's how you can authenticate and fetch
 daily historical price data for the past twenty years:
