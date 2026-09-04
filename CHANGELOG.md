@@ -21,7 +21,13 @@ inferred from the pull request list.
 
 ---
 
-## Unreleased
+## 2.1.0
+
+> **This is a breaking release despite the minor version.** It removes three
+> deprecated APIs and changes how `decimal.Decimal` prices are rendered. The
+> number is minor because this fork is installed from pinned tags rather than
+> version ranges -- nothing upgrades into it by accident -- but if you are
+> moving from 2.0.x by hand, read this section rather than skimming it.
 
 ### Removed
 
@@ -45,10 +51,19 @@ became `19.99` rather than `20.00`, and `0.186992` became `0.1869` rather than
 asked for. The docs carry the exact `decimal.ROUND_DOWN` equivalent for anyone
 who wants to migrate without moving any prices.
 
-`decimal.Decimal` is accepted alongside `str`, and is the better choice if you
-compute prices rather than write them down: it carries the precision you chose,
-and rendering it decides nothing. It is rendered with `format(d, 'f')` rather
-than `str(d)`, because `str(Decimal('1E+2'))` is `'1E+2'`, which is not a price.
+**`decimal.Decimal` now passes through exactly, where it used to be truncated.
+This one is a silent change and the only one in this release.** A `Decimal` was
+not a `str`, so it fell through to the same conversion floats did:
+`set_price(Decimal('12.129'))` sent `'12.12'` up to 2.0.1, and sends `'12.129'`
+now. If you compute prices as `Decimal` and relied on the library to round
+them, it no longer will, and a sub-penny equity limit is rejected by Schwab
+rather than caught here.
+
+That is the intended behaviour rather than an oversight -- a `Decimal` carries
+the precision its author chose, and silently discarding it was the bug -- but
+it is a change to what a previously correct call puts on the wire, so check
+your `Decimal` call sites. It is rendered with `format(d, 'f')` rather than
+`str(d)`, because `str(Decimal('1E+2'))` is `'1E+2'`, which is not a price.
 
 `copy_price` and `copy_stop_price` still set the field with no validation,
 which is what `contrib.orders` uses to reconstruct a historical order.
@@ -69,9 +84,13 @@ a field whose messages are labelled something else.
 
 ### Note
 
-Nothing here changes what a correct call does. Every removal converts a silent
-accommodation into an error, so code which already passed strings, used
-`additional_headers` and named `STRIKE_PRICE` is unaffected.
+The three removals convert a silent accommodation into an error, so code which
+already passed strings, used `additional_headers` and named `STRIKE_PRICE` is
+unaffected by them.
+
+The `Decimal` change above is the exception, and the only thing here that
+alters a working call without raising. If you pass `Decimal` prices, read that
+paragraph.
 
 ## 2.0.1
 

@@ -253,7 +253,8 @@ class OrderBuilder(EnumEnforcer):
     # StopPrice
     def set_stop_price(self, stop_price):
         '''
-        Set the stop price, as a string. See :ref:`price_strings`.
+        Set the stop price, as a string or a ``decimal.Decimal``. See
+        :ref:`price_strings`.
         '''
         self._stopPrice = _require_price_string('stop price', stop_price)
         return self
@@ -407,7 +408,8 @@ class OrderBuilder(EnumEnforcer):
     # Price
     def set_price(self, price):
         '''
-        Set the order price, as a string. See :ref:`price_strings`.
+        Set the order price, as a string or a ``decimal.Decimal``. See
+        :ref:`price_strings`.
         '''
         self._price = _require_price_string('price', price)
         return self
