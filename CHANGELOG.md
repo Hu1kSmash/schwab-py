@@ -96,9 +96,12 @@ drain already behind it, and the report would then wait for the next inbound
 message, which on a quiet stream is unbounded.
 
 The consequence to know: **your error handler can be called from inside a
-subscribe.** A slow one delays that call returning; it cannot make it fail. The
-queue is cleared by `close()`, so a torn-down session's rejection is never
-reported against a new one, and it is bounded. The log line written when each
+subscribe.** A slow one delays that call returning; it cannot make it fail. A
+request delivers what it read even when it fails, since the exception the caller
+gets describes only the response that answered their own request. The queue is
+bounded, and is cleared by `close()` and by a fresh `login()`, so a torn-down
+session's rejection is never reported against a new one whichever way the caller
+reconnects. The log line written when each
 rejection is found is the complete record; the callback is the convenience. All
 of this is stated in `add_error_handler`'s docstring and in `docs/streaming.rst`.
 

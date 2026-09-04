@@ -261,9 +261,13 @@ consequences:
 * **Your handler can be called from inside a subscribe.** A slow one delays that
   call returning; it cannot make it fail, because the response has already been
   matched by then. Either way, keep it short.
-* The queue is cleared by ``close()``. A rejection that arrived on a connection
-  you have since torn down is not reported against a new one, since the
-  exception carries a frame from the old session.
+* A failed request still delivers what it read. The exception you get describes
+  the response that answered *your* request and says nothing about the others
+  in the frame.
+* The queue is cleared by ``close()`` and by a fresh ``login()``. A rejection
+  that arrived on a connection you have since replaced is not reported against
+  the new one, since the exception carries a frame from the old session — and
+  that holds whether you closed first or simply logged in again.
 * The queue is bounded and drops the oldest when full. That needs reports to
   arrive faster than they are drained, which means something is already wrong —
   and the log line is written either way, so nothing unwritten is lost.

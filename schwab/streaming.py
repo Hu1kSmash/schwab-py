@@ -331,6 +331,14 @@ class StreamClient(EnumEnforcer):
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
 
+        # Anything still queued belongs to the connection being replaced. Its
+        # exception carries a frame from that session, so reporting it now
+        # would attribute a dead session's rejection to this one. close()
+        # clears these too, but a caller reconnecting after a ConnectionClosed
+        # may call login() again without closing first, and the guarantee has
+        # to hold whichever teardown they used.
+        self._pending_reports.clear()
+
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
 
@@ -617,32 +625,39 @@ class StreamClient(EnumEnforcer):
         unambiguous. Note it does not cover reading, so message handling
         continues while a request is in flight.
         '''
-        async with self._request_lock:
-            future = asyncio.get_running_loop().create_future()
-            self._pending_request = (request_id, service, command, future)
-            try:
-                await self._send({'requests': [request]})
-                await self._await_response(request_id, service, command)
-            finally:
-                self._pending_request = None
-                # Nobody will look at this future again. Cancel it if it is
-                # still open, so a reader which grabbed a reference to it just
-                # before it was cleared cannot complete it into the void, and
-                # retrieve any exception so asyncio does not report it as never
-                # having been retrieved.
-                if not future.done():
-                    future.cancel()
-                elif not future.cancelled():
-                    future.exception()
-
-        # Outside the `async with`, so neither lock is held and the response
-        # deadline has passed. Whoever read the frame delivers what it queued:
-        # when this coroutine was the reader, handle_message may be parked in
-        # recv() having already drained for its iteration, and the report would
-        # otherwise wait for the next inbound message -- unbounded on a quiet
-        # stream. Reached only when the request succeeded; if it raised, the
-        # caller has an exception to act on and handle_message drains the rest.
-        await self._drain_pending_reports()
+        try:
+            async with self._request_lock:
+                future = asyncio.get_running_loop().create_future()
+                self._pending_request = (request_id, service, command, future)
+                try:
+                    await self._send({'requests': [request]})
+                    await self._await_response(request_id, service, command)
+                finally:
+                    self._pending_request = None
+                    # Nobody will look at this future again. Cancel it if it is
+                    # still open, so a reader which grabbed a reference to it
+                    # just before it was cleared cannot complete it into the
+                    # void, and retrieve any exception so asyncio does not
+                    # report it as never having been retrieved.
+                    if not future.done():
+                        future.cancel()
+                    elif not future.cancelled():
+                        future.exception()
+        finally:
+            # Outside the `async with`, so neither lock is held and the
+            # response deadline has passed. Whoever read the frame delivers
+            # what it queued: when this coroutine was the reader,
+            # handle_message may be parked in recv() having already drained for
+            # its iteration, and the report would otherwise wait for the next
+            # inbound message -- unbounded on a quiet stream.
+            #
+            # In a `finally`, so a request which *failed* still delivers what
+            # it read. The caller's exception is element 0's rejection and says
+            # nothing about element 1, and a failed subscribe is usually
+            # followed by tearing the client down rather than reading it again
+            # -- so draining only on success dropped the batched rejection
+            # exactly when it was least likely to be reported another way.
+            await self._drain_pending_reports()
 
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
@@ -708,10 +723,13 @@ class StreamClient(EnumEnforcer):
         one delays that call returning. It cannot fail it: by then the response
         has already been matched.
 
-        The queue is bounded and is cleared by :meth:`close`, so a rejection
-        from a torn-down session is not reported against a new one. If a
-        request fails, its queued reports wait for the next
-        :meth:`handle_message`. The log line written when each rejection is
+        A request delivers what it read even when it fails, since the
+        exception the caller gets describes the response which answered *their*
+        request and says nothing about the others in the frame.
+
+        The queue is bounded, and is cleared both by :meth:`close` and by a
+        fresh :meth:`login`, so a rejection from a torn-down session is never
+        reported against a new one. The log line written when each rejection is
         found is the complete record; this callback is the convenience.
 
         That matters most where a fallback covers for the stream. If a

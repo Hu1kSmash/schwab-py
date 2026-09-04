@@ -1529,5 +1529,70 @@ class ImportOptionalTest(unittest.TestCase):
         self.assertIs(sentinel, cm.exception)
 
     @no_duplicates
+    def test_client_from_login_flow_names_the_extra_before_forking(self):
+        # The flask check lives in the parent for a reason: imported in the
+        # child, its ImportError surfaced as child stderr and the parent
+        # reported RedirectServerExitedError, blaming the callback port for a
+        # missing package. Nothing tested that, so moving the check back into
+        # the child would silently restore the misdiagnosis.
+        with self.block('flask'):
+            with self.assertRaises(ImportError) as cm:
+                auth.client_from_login_flow(
+                        API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
+                        '/tmp/does-not-matter.json')
+
+        msg = str(cm.exception)
+        self.assertIn("requires the 'login' extra", msg)
+        self.assertIn('flask', msg)
+
+    @no_duplicates
+    def test_client_from_login_flow_names_the_extra_for_each_package(self):
+        for module in ('multiprocess', 'psutil'):
+            with self.subTest(module=module):
+                with self.block(module):
+                    with self.assertRaises(ImportError) as cm:
+                        auth.client_from_login_flow(
+                                API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
+                                '/tmp/does-not-matter.json')
+
+                msg = str(cm.exception)
+                self.assertIn("requires the 'login' extra", msg)
+                self.assertIn(module, msg)
+
+    @no_duplicates
+    def test_easy_client_names_the_extra_when_it_must_log_in(self):
+        # The 6.5-day case: a token file exists but is too old, so easy_client
+        # discards it and goes to the login flow.
+        tmp = tempfile.TemporaryDirectory()
+        token_path = os.path.join(tmp.name, 'token.json')
+        with open(token_path, 'w') as f:
+            json.dump({'token': {'token': 'yes'},
+                       'creation_timestamp': 0}, f)
+
+        with self.block('flask'):
+            with self.assertRaises(ImportError) as cm:
+                auth.easy_client(
+                        API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
+                        token_path)
+
+        self.assertIn("requires the 'login' extra", str(cm.exception))
+
+    @no_duplicates
+    def test_code_for_builder_names_the_codegen_extra(self):
+        # CodegenExtraTest covers the CLI's early check by mocking
+        # import_optional, so it says nothing about the library function a
+        # non-CLI caller reaches.
+        from schwab.contrib.orders import code_for_builder
+        from schwab.orders.equities import equity_buy_limit
+
+        with self.block('autopep8'):
+            with self.assertRaises(ImportError) as cm:
+                code_for_builder(equity_buy_limit('AAPL', 1, '100.00'))
+
+        msg = str(cm.exception)
+        self.assertIn("requires the 'codegen' extra", msg)
+        self.assertIn('autopep8', msg)
+
+    @no_duplicates
     def test_an_installed_package_is_returned(self):
         self.assertIs(json, import_optional('json', 'login', 'Whatever'))
