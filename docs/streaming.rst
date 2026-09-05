@@ -809,9 +809,14 @@ does not rescue the truncated form; nothing matches it at all.
    'CHANGECREATED', 'CHANGEACCEPTED')
 
 Both ``CANCELED`` and ``CANCELLED`` appear -- the spelling is not consistent
-within Schwab's own tokens, so match on both. ``OrderUROutCompleted`` is
-Schwab's unsolicited out, and it is what a *cancel you asked for* produces as
-well as one the venue imposes.
+within Schwab's own tokens, so match on both.
+
+``OrderUROutCompleted`` says the order **came off the book**. It does not say
+why, and it is worth resisting the obvious gloss: this library called it "an
+unsolicited out" until 2026-09-05, which asserts that nobody asked for the
+cancellation --- and the same token ends a cancel you issued yourself. Any name
+or operator-facing phrase built on it should describe what the venue did, not
+what caused it. The cause is carried by the token beside it, below.
 
 **A cancel you issue yourself looks like this**, measured on 2026-09-05 by
 placing a resting order and cancelling it::

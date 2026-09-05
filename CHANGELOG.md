@@ -15,6 +15,20 @@ current model.
 
 ---
 
+## Unreleased
+
+### Documentation
+
+**`OrderUROutCompleted` was described as "an unsolicited out", in the sentence
+that corrected its spelling.** That asserts nobody asked for the cancellation,
+and the same token ends a cancel you issued yourself — so the description
+contradicted the sequences printed a few lines below it. It now says the order
+came off the book, and says explicitly that the token does not carry the cause.
+
+Found by a consumer applying the two-sequence table to their own operator-facing
+wording: a phrase asserting a cause the token cannot carry is a small lie on the
+screen every time an order is rejected. The same wording was in these docs.
+
 ## 2.4.1
 
 ### Documentation
