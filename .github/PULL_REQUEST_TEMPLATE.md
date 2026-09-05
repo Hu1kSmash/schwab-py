@@ -1,10 +1,4 @@
-<!--
-Thanks for sending a patch.
-
-schwaby began from alexgolec/schwab-py. If your change is not specific to the
-differences listed in CHANGELOG.md, please consider sending it there as well —
-it will help more people. Contributions are welcome here either way.
--->
+<!-- Thanks for sending a patch. -->
 
 **What this changes**
 

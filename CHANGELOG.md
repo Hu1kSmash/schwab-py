@@ -6,8 +6,7 @@ Versions below 1.6.0 are upstream releases; see the upstream repository for thei
 Through 2.1.0, changes here were offered upstream as pull requests first, so that anything
 upstream merged would shrink the divergence this fork carries. Upstream merged none of them, and
 its maintainer confirmed in September 2026 that he does not intend to update the project. As of
-2.2.0 this fork no longer tracks upstream and no longer maintains compatibility with it; see
-`MAINTAINING.md` for what that changed and what it did not.
+2.2.0 this project no longer tracks upstream and no longer maintains compatibility with it.
 
 Entries below 2.2.0 were written under the old arrangement, and some of them discuss which changes
 had or had not been sent upstream. They are left as written rather than rewritten to match the
@@ -188,6 +187,27 @@ broken install from a callback server that exited.
 **The PyPI classifier said `Development Status :: 1 - Planning`**, inherited and
 never updated, and it is what the project page would have shown. It now says
 `5 - Production/Stable`.
+
+### Removed, continued
+
+**`MAINTAINING.md` is gone, replaced by `RELEASING.md`.** A quarter of it
+described a fork: the branch model, the `upstream-main` mirror, the pull-request
+discipline, and why that arrangement ended. None of it applies to a standalone
+project, and `upstream-main` no longer exists. What survives is the release
+checklist and the rules this project has learned by getting them wrong, under a
+name that says what the file is for.
+
+**Every referral to the original project's tracker is gone**, from the README,
+`docs/help.rst`, `CONTRIBUTING.rst`, `SECURITY.md`, the issue and pull-request
+templates, and the issue-template contact links. They asked reporters to file
+the same thing on somebody else's repository, which is a promise this project
+cannot keep and a piece of coupling it has to maintain. The credit to Alex Golec
+stays exactly as it is, in the README and the licence, because that is
+authorship rather than process.
+
+The warnings that `schwaby` and `schwab-py` cannot be installed together stay
+too. Those are about a real collision that silently overwrites files, not about
+the relationship between the projects.
 
 ### Documentation
 

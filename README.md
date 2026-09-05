@@ -245,11 +245,6 @@ Bug reports, questions, suggestions and patches all go to the repository: open a
 [issue](https://github.com/Hu1kSmash/schwaby/issues) or a [pull
 request](https://github.com/Hu1kSmash/schwaby/pulls).
 
-If you have found something that also affects
-[alexgolec/schwab-py](https://github.com/alexgolec/schwab-py) and is not one of the
-changes listed in the [changelog](CHANGELOG.md), it is worth reporting there as well.
-It will help more people than a report here alone.
-
 ## Where this came from
 
 `schwaby` began from [alexgolec/schwab-py](https://github.com/alexgolec/schwab-py),

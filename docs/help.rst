@@ -15,11 +15,6 @@ how you can get help and make progress.
    Bug reports and questions go to `the tracker
    <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
-   If the behaviour is shared with `alexgolec/schwab-py
-   <https://github.com/alexgolec/schwab-py>`__ and is not one of the changes in
-   the `changelog
-   <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__, it is worth
-   reporting there too --- it will help more people than a report here alone.
 
 
 --------------

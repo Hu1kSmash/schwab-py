@@ -12,9 +12,7 @@ reporting](https://github.com/Hu1kSmash/schwaby/security/advisories/new),
 which opens a report only the maintainers can see.
 
 Please include what an attacker would be able to do, how to reproduce it, and
-which version you were on. If it affects the original project too, say so — it
-should be reported [there](https://github.com/alexgolec/schwab-py/security)
-as well, since most users are on that one.
+which version you were on.
 
 ## Supported versions
 

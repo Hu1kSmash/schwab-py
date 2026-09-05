@@ -8,12 +8,6 @@ assignees: ''
 ---
 
 <!--
-schwaby began from alexgolec/schwab-py and shares most of its code.
-
-If the behaviour is NOT one of the differences listed in CHANGELOG.md, it is
-worth reporting there too -- it will help more people than a report here alone:
-https://github.com/alexgolec/schwab-py/issues
-
 Please read the bug submission guidelines before filing:
 https://github.com/Hu1kSmash/schwaby/blob/main/docs/help.rst
 

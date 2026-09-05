@@ -19,4 +19,4 @@ updates:
 # trades, its own requirements are floors rather than pins, and a bot opening
 # pull requests against authlib or httpx would either be ignored or merged
 # without the live verification those changes actually need. Upgrading them is
-# a decision, not a chore -- see MAINTAINING.md.
+# a decision, not a chore -- see RELEASING.md.

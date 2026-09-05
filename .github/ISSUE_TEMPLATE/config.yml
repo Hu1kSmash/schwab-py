@@ -1,11 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Shared with alexgolec/schwab-py?
-    url: https://github.com/alexgolec/schwab-py/issues
-    about: >-
-      schwaby began from that project and shares most of its code. If the
-      behaviour is not one of the differences in CHANGELOG.md, reporting it
-      there too will help more people than a report here alone.
   - name: Security vulnerability
     url: https://github.com/Hu1kSmash/schwaby/security/advisories/new
     about: >-

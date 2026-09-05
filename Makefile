@@ -20,10 +20,10 @@ dist: clean
 # tag and the built version disagree. A local `twine upload` skips every one of
 # those, which is what the target inherited from upstream did.
 #
-# The steps are in MAINTAINING.md under "Cutting a release".
+# The steps are in RELEASING.md under "Cutting a release".
 release:
 	@echo 'No. Releases publish from CI on a published GitHub release.'
-	@echo 'See MAINTAINING.md, "Cutting a release".'
+	@echo 'See RELEASING.md, "Cutting a release".'
 	@exit 1
 
 clean:
