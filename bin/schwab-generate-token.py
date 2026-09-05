@@ -19,7 +19,7 @@ def main(api_key, app_secret, callback_url, token_path, requested_browser):
         # why. Both properties matter: say what is wrong, and still get them a
         # token.
         #
-        # Kept broad on purpose. Since 2.7.0 flask, multiprocess and psutil are
+        # Kept broad on purpose. Since 3.0.0 flask, multiprocess and psutil are
         # ordinary dependencies, so the usual cause is a damaged environment
         # rather than a missing one -- a broken werkzeug under flask is no more
         # a reason to refuse the manual flow than an absent one.

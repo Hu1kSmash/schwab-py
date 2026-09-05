@@ -8,7 +8,7 @@
 #
 # This is the subset of setup.py's install_requires that sphinx has to import,
 # not all of it. `flask`, `multiprocess` and `psutil` became hard dependencies
-# again in 2.7.0 and are deliberately still absent: they are imported inside
+# again in 3.0.0 and are deliberately still absent: they are imported inside
 # the functions that use them, so autodoc reads those docstrings without the
 # packages present.
 #

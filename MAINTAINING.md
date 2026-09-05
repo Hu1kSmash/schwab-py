@@ -100,7 +100,16 @@ fail together. It costs four seconds.
 ## Cutting a release
 
 1. `CHANGELOG.md` — a new section, written for someone who has to decide whether to upgrade.
-2. `schwab/version.py` — bump. Minor for added surface or changed behaviour, patch for fixes alone.
+2. `schwab/version.py` — bump. **Major if anything public is removed or renamed**, minor for
+   added surface or changed behaviour, patch for fixes alone.
+
+   The major rule is newer than the project and worth the sentence. 2.1.0 was breaking and
+   shipped as a minor, justified by "this fork is installed from pinned tags rather than
+   version ranges — nothing upgrades into it by accident." That was true then and stopped
+   being true at 2.6.0, the first PyPI release: `schwaby` or `schwaby>=2.6` in a requirements
+   file now resolves to whatever is newest. A changelog banner does not reach someone who
+   never opens one, so the version number has to carry it. 3.0.0 removed
+   `schwab.contrib.orders` and was numbered accordingly.
 3. **Anything naming a version**, which goes stale silently:
 
    ```shell
@@ -191,7 +200,7 @@ metadata, so `pip` refuses a `schwaby @ git+...@v2.5.1`.
 
 ## No extras
 
-As of 2.7.0 there are none that install anything. `login` and `codegen` survive as empty names so
+As of 3.0.0 there are none that install anything. `login` and `codegen` survive as empty names so
 an existing pin does not warn, and there is nothing to add to them: an extra that everybody has to
 install is a hard dependency with a way to get it wrong. `pip freeze` silently drops extras, which
 is what turned the 2.3.0 split from a saving into three late failure modes.

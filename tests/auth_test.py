@@ -1443,7 +1443,7 @@ class ParentSideImportTest(unittest.TestCase):
     The callback server runs in a child. An ImportError there surfaces as child
     stderr and the parent reports RedirectServerExitedError -- blaming the
     callback port for a broken install. This survived the removal of the
-    optional-import machinery in 2.7.0 because it was never about extras: it is
+    optional-import machinery in 3.0.0 because it was never about extras: it is
     about which process gets to raise.
     """
 

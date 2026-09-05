@@ -86,7 +86,7 @@ class SetupPyTest(unittest.TestCase):
     def test_install_requires_is_the_agreed_set(self):
         # Anything here lands on every machine running this library, so it
         # should be a deliberate decision rather than a merge artifact. The
-        # login packages moved back in 2.7.0 after the extras split saved
+        # login packages moved back in 3.0.0 after the extras split saved
         # twelve packages for nobody and cost three silent failure modes.
         names = sorted(package_name(r)
                        for r in self.kwargs['install_requires'])

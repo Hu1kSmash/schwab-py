@@ -43,7 +43,7 @@ class GenerateTokenTest(unittest.TestCase):
     def test_an_import_error_reaches_the_user_verbatim(
             self, login_flow, manual_flow):
         # This test used to fabricate the 'login' extra's ImportError and
-        # assert that "'login' extra" reached the user. 2.7.0 deleted the code
+        # assert that "'login' extra" reached the user. 3.0.0 deleted the code
         # that raised it and the test stayed green, because it was asserting on
         # a string it had invented itself. What is worth protecting is that
         # whatever the ImportError says reaches the user unchanged -- the
@@ -69,7 +69,7 @@ class GenerateTokenTest(unittest.TestCase):
     @patch('schwab.auth.client_from_login_flow')
     def test_a_broken_package_is_named_and_the_manual_flow_still_runs(
             self, login_flow, manual_flow):
-        # Since 2.7.0 flask, multiprocess and psutil are ordinary
+        # Since 3.0.0 flask, multiprocess and psutil are ordinary
         # dependencies, so a damaged environment rather than a missing one is
         # the usual cause -- a package installed but unable to import itself.
         # That is an ImportError too, and no more a reason to refuse.

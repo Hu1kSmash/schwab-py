@@ -15,10 +15,36 @@ current model.
 
 ---
 
-## 2.7.0
+## 3.0.0
+
+**This release removes public API.** `schwab.contrib.orders` and the
+`schwab-order-codegen.py` script are gone. If you import either, this will not
+be a drop-in upgrade; everything else is unchanged and needs no edits.
+
+The major number is the point. 2.1.0 was also breaking and shipped as a minor,
+on the reasoning that this project was installed from pinned git tags and so
+nothing could upgrade into it by accident. That stopped being true at 2.6.0,
+the first PyPI release: a requirement of `schwaby` or `schwaby>=2.6` now
+resolves to this on a routine `pip install -U`, and a changelog banner does not
+help someone who never reads one.
 
 **A plain `pip install schwaby` is now the whole library.** The extras are gone
 and the order-code generator is gone with them.
+
+### Fixed
+
+**The wheel was shipping a top-level `tests` package into your site-packages.**
+`find_packages()` matched it alongside `schwab`, so `pip install schwaby`
+installed 21 test files as an importable top-level `tests` module --- which
+collides file-for-file with any other distribution that ships one, and answers
+`import tests` from any directory that is not your project root. Present in
+every release up to and including 2.6.0. Uninstalling and reinstalling clears
+it; `pip uninstall schwaby` on its own may take files another package put
+there, so check `site-packages/tests` afterwards if you had one.
+
+**A docstring in `orders/generic.py` linked to
+`developer.schwabmeritrade.com`,** an inherited hostname from the TD Ameritrade
+era that does not resolve. It points at Schwab's own specification now.
 
 ### Changed
 

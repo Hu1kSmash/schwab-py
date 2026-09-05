@@ -56,7 +56,7 @@ setuptools.setup(
 
         # The interactive login flow runs a callback server in a separate
         # process. These were an optional `login` extra in 2.3.0 and are hard
-        # dependencies again as of 2.7.0: the split saved twelve packages for
+        # dependencies again as of 3.0.0: the split saved twelve packages for
         # nobody who existed, and cost three silent failure modes -- pip freeze
         # drops extras, a consumer's deploy check could not evaluate an
         # extras-bearing requirement line, and the machinery needed its own
@@ -71,7 +71,7 @@ setuptools.setup(
         # now no-ops because everything they named is installed anyway.
         'login': [],
         'codegen': [],
-        # A literal list since 2.7.0. It used to be composed from the other
+        # A literal list since 3.0.0. It used to be composed from the other
         # extras, because the suite starts flask servers through multiprocess
         # and a package listed in an extra but not in dev produced a green
         # local run against a stale virtualenv and a red CI. Those packages are
