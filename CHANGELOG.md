@@ -15,7 +15,7 @@ current model.
 
 ---
 
-## Unreleased
+## 2.5.1
 
 ### Fixed
 
