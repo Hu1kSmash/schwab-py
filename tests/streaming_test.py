@@ -7439,13 +7439,12 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # the routing path may raise once the waiter's future is resolved.
         socket = await self.login_and_get_socket(ws_connect)
 
+        # A bare string, not {'content': None}. The latter does not raise --
+        # `or {}` turns it into a code of None and it is skipped as neither a
+        # rejection nor a success -- so the guard this test is named for was
+        # never exercised, and removing that guard left the test green.
         ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
-        ok['response'].append({
-            'service': 'ACCT_ACTIVITY',
-            'command': 'SUBS',
-            'requestid': '77',
-            'content': None,
-        })
+        ok['response'].append('not a dict at all')
         socket.recv.side_effect = [json.dumps(ok)]
 
         # Must not raise: the subscribe succeeded.
@@ -7773,6 +7772,55 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertIn('21', str(cm.exception))
         self.assertNotIn('malformed', str(cm.exception))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_malformed_data_element_does_not_end_the_receive_loop(
+            self, ws_connect):
+        # d.get('service') is evaluated at the call site, outside the try in
+        # _dispatch_to_handlers, so a non-dict element ended the receive loop
+        # with an AttributeError -- on the highest-volume channel. The response
+        # path was hardened first and this one, three lines below it, was not.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps({'data': ['not a dict', good]})]
+
+        await self.client.handle_message()
+
+        # The positive control: the good element beside it still dispatches,
+        # so this cannot be green for want of the input arriving.
+        self.assertEqual([good], handled)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_channel_of_the_wrong_shape_does_not_end_the_loop(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        for broken in ({'data': 'oops'}, {'notify': [3]},
+                       {'notify': 'nope'}, {'data': None}):
+            with self.subTest(broken=broken):
+                socket.recv.side_effect = [json.dumps(broken)]
+                await self.client.handle_message()
+
+        self.assertEqual([], handled)
+
+        # Positive control in the same test: a well-formed frame afterwards is
+        # still delivered, so the assertions above are not green because
+        # nothing ever reached the dispatch.
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps({'data': [good]})]
+        await self.client.handle_message()
+        self.assertEqual([good], handled)
 
     @no_duplicates
     def test_the_report_queue_is_bounded(self):

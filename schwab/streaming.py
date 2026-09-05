@@ -395,40 +395,52 @@ class StreamClient(EnumEnforcer):
         request really was unusable.
         '''
         try:
-            return StreamClient._validate_response_fields(
-                    resp, request_id, service, command)
-        except (AttributeError, IndexError, KeyError, TypeError, ValueError) \
-                as exc:
+            first = resp['response'][0]
+            resp_request_id = int(first['requestid'])
+            resp_service = first['service']
+            resp_command = first['command']
+            content = first['content']
+            resp_code = content['code']
+        except (AttributeError, IndexError, KeyError, TypeError,
+                ValueError) as exc:
+            # Only the reads are inside the try. Wrapping the whole check
+            # would catch a bug of ours -- a signature change missing this
+            # call site raises TypeError -- and report it to the caller as a
+            # malformed frame from Schwab, carrying that frame as evidence.
+            # Every subscribe would fail with the investigation pointed at the
+            # venue rather than at this library.
             return UnexpectedResponse(
                 resp, 'malformed response frame: {}: {}'.format(
                     type(exc).__name__, exc))
 
+        return StreamClient._validate_response_fields(
+                resp, request_id, service, command,
+                resp_request_id, resp_service, resp_command, content,
+                resp_code)
+
     @staticmethod
-    def _validate_response_fields(resp, request_id, service, command):
+    def _validate_response_fields(resp, request_id, service, command,
+                                  resp_request_id, resp_service, resp_command,
+                                  content, resp_code):
         # Validate request ID
-        resp_request_id = int(resp['response'][0]['requestid'])
         if resp_request_id != request_id:
             return UnexpectedResponse(
                 resp, 'unexpected requestid: {}'.format(resp_request_id))
 
         # Validate service
-        resp_service = resp['response'][0]['service']
         if resp_service != service:
             return UnexpectedResponse(
                 resp, 'unexpected service: {}'.format(resp_service))
 
         # Validate command
-        resp_command = resp['response'][0]['command']
         if resp_command != command:
             return UnexpectedResponse(
                 resp, 'unexpected command: {}'.format(resp_command))
 
-        # Validate response code. `msg` is read with .get: a rejection which
-        # carries a code but no message is still a rejection, and reporting it
-        # as an unreadable frame instead would lose the code -- the one part
-        # the caller can act on.
-        content = resp['response'][0]['content']
-        resp_code = content['code']
+        # `msg` is read with .get: a rejection which carries a code but no
+        # message is still a rejection, and reporting it as an unreadable
+        # frame instead would lose the code -- the one part the caller can act
+        # on.
         if resp_code != 0:
             return UnexpectedResponseCode(
                 resp,
@@ -577,6 +589,38 @@ class StreamClient(EnumEnforcer):
                 continue
 
             yield response, code, content
+
+    def _iter_channel(self, msg, channel):
+        '''Yields the well-formed elements of ``msg[channel]``.
+
+        The data and notify counterpart of _iter_responses, and added for the
+        same reason: ``d.get('service')`` is evaluated at the call site,
+        *outside* the try in _dispatch_to_handlers, so a non-dict element or a
+        non-list channel ended the caller's receive loop with an AttributeError
+        or a TypeError. The response path was hardened first and this one --
+        three lines below it, and carrying far more traffic -- was not.
+
+        A bad element is logged and skipped; the good ones beside it are still
+        dispatched.
+        '''
+        elements = msg.get(channel)
+        if elements is None:
+            return
+
+        if not isinstance(elements, list):
+            self.logger.warning(
+                    'Ignoring a %s frame whose %r is not a list: %r',
+                    channel, channel, elements)
+            return
+
+        for element in elements:
+            if not isinstance(element, dict):
+                self.logger.warning(
+                        'Ignoring an unparseable %s element: %r',
+                        channel, element)
+                continue
+
+            yield element
 
     def _log_extra_responses(self, frame, start=1):
         '''Logs every response past the first, and queues the rejections.
@@ -1150,21 +1194,19 @@ class StreamClient(EnumEnforcer):
             return
 
         # data
-        if 'data' in msg:
-            for d in msg['data']:
-                await self._dispatch_to_handlers(
-                        d.get('service'), d, relabel=True)
+        for d in self._iter_channel(msg, 'data'):
+            await self._dispatch_to_handlers(
+                    d.get('service'), d, relabel=True)
 
         # notify
-        if 'notify' in msg:
-            for d in msg['notify']:
-                if 'heartbeat' in d:
-                    pass
-                else:
-                    # Not every notify message is guaranteed to name a service,
-                    # and one that does not must not raise out of here.
-                    await self._dispatch_to_handlers(
-                            d.get('service'), d, relabel=False)
+        for d in self._iter_channel(msg, 'notify'):
+            if 'heartbeat' in d:
+                pass
+            else:
+                # Not every notify message is guaranteed to name a service,
+                # and one that does not must not raise out of here.
+                await self._dispatch_to_handlers(
+                        d.get('service'), d, relabel=False)
 
     ##########################################################################
     # LOGIN

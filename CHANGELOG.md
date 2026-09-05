@@ -89,6 +89,14 @@ upgrade.
 
 ### Fixed
 
+**A malformed element on the data or notify channel ended the caller's receive
+loop.** `d.get('service')` is evaluated at the dispatch call site, outside the
+`try` that protects handlers, so a non-dict element — or a `data` field that is
+not a list — raised `AttributeError` or `TypeError` out of `handle_message`.
+That is the same defect as the one below, three lines away in the same method
+and on the channel carrying almost all the traffic. Both channels now skip a bad
+element and dispatch the good ones beside it.
+
 **A malformed response element ended the caller's receive loop.** A `"content"`
 present but JSON `null` made `content.get('code')` raise `AttributeError` out of
 `handle_message`. Both framings of the same event now share one parser, so a bad
