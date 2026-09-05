@@ -1,108 +1,129 @@
-=============================
+===========================
 Contributing to ``schwaby``
-=============================
+===========================
 
-Fixing a bug? Adding a feature? Just cleaning up for the sake of cleaning up?
-Great! No improvement is too small, and pull requests are welcome. Read this
-guide to learn how to set up your environment so you can contribute.
+Fixing a bug? Adding a feature? Cleaning something up for the sake of cleaning
+it up? All welcome, and no improvement is too small.
 
-.. note::
-
-   Branch from ``main``, one concern per branch. `RELEASING.md
-   <https://github.com/Hu1kSmash/schwaby/blob/main/RELEASING.md>`__ has the
-   rules this project has learned the hard way, and is worth a read before a
-   first patch.
-
-------------------------
-A Note About the Testing
-------------------------
-
-The test suite mocks the network. It proves this library builds the request it
-intended to build; it says nothing about whether the API accepts it or whether
-the result is correct.
-
-That distinction has mattered. Every defect found in this library so far has
-been in code with 100% line coverage — prices silently a cent low, a token file
-a crash could destroy, an enum advertising values the venue rejects, redaction
-which never ran. Coverage measures which lines executed, not whether what they
-produced was right.
-
-So when you add a test, **revert your fix and watch it fail.** A test which
-passes either way is worse than no test, because it looks like protection.
-
-And if a behaviour can only be established against the live API, say so in the
-pull request, say what you observed, and say when. That is a perfectly good
-answer and a more honest one than a mocked test implying more than it proves.
+Branch from ``main``, one concern per branch. `RELEASING.md
+<https://github.com/Hu1kSmash/schwaby/blob/main/RELEASING.md>`__ collects the
+rules this project has learned by getting them wrong, and is worth ten minutes
+before a first patch.
 
 ------------------------------
-Setting up the Dev Environment
+Setting up the dev environment
 ------------------------------
 
-Dependencies are listed in the `requirements.txt` file. These development 
-requirements are distinct from the requirements listed in `setup.py` and include 
-some additional packages around testing, documentation generation, etc.
-
-Before you install anything, I highly recommend setting up a `virtualenv` so you 
-don't pollute your system installation directories:
+Everything, including the development tooling, is declared in ``setup.py``.
+There is no separate requirements file.
 
 .. code-block:: shell
 
-  pip install virtualenv
-  virtualenv -v virtualenv
-  source virtualenv/bin/activate
+  python -m venv venv
+  source venv/bin/activate       # Windows: venv\Scripts\activate
 
-Next, install project requirements:
+  pip install -e ".[dev]"
 
-.. code-block:: shell
+The ``-e`` matters: without it you edit the source tree and test the copy in
+``site-packages``, and the two drift the moment you change anything.
 
-  pip install ".[dev]"
-
-Finally, verify everything works by running tests:
-
-.. code-block:: shell
-
-  make test
-
-At this point you can make your changes.
-
-Note that if you are using a virtual environment and switch to a new terminal
-your virtual environment will not be active in the new terminal,
-and you need to run the activate command again.
-If you want to disable the loaded virtual environment in the same terminal window,
-use the command:
+Then check the environment before you change anything, so a later failure is
+yours:
 
 .. code-block:: shell
 
-  deactivate
+  pytest tests/ -q
 
-----------------------
-Development Guidelines
-----------------------
+Roughly 920 tests, about six seconds. If your virtualenv is not active in a new
+terminal, run the ``activate`` line again; ``deactivate`` turns it off.
 
-+++++++++++++++++
-Test your changes
-+++++++++++++++++
+-------------------------
+Running what CI will run
+-------------------------
 
-This project aims for high test coverage. All changes must be properly tested, 
-and we will accept no PRs that lack appropriate unit testing. We also expect 
-existing tests to pass. You can run your tests using: 
+Four commands. Between them they are everything the ``tests`` workflow checks,
+so a green run here is a green run there:
 
 .. code-block:: shell
 
-  make test
+  pytest tests/ -q                          # the suite
+  python -m sphinx -W docs/ /tmp/docs-build # docs, warnings are errors
+  python -m build                           # the artifacts
+  python -m twine check --strict dist/*     # what PyPI will accept
 
-++++++++++++++++++
-Document your code
-++++++++++++++++++
+Two of those are easy to get wrong locally:
 
-Documentation is how users learn to use your code, and no feature is complete 
-without a full description of how to use it. If your PR changes external-facing 
-interfaces, or if it alters semantics, the changes must be thoroughly described 
-in the docstrings of the affected components. If your change adds a substantial 
-new module, a new section in the documentation may be justified. 
+- **``-W`` is not optional.** CI builds the documentation with warnings as
+  errors. Without it a broken cross-reference builds cleanly on your machine and
+  fails on the pull request.
+- **``python -m build``, not ``setup.py``.** ``setup.py`` is not imported by the
+  suite, so an edit that leaves it unparseable is invisible to ``pytest``. The
+  build is what proves the package still assembles.
 
-Documentation is built using `Sphinx <https://www.sphinx-doc.org/en/master/>`__:
+CI runs the suite on CPython 3.10 through 3.14. Pull requests additionally run on
+Windows and macOS; pushes to a branch run Linux only.
+
+--------------------------
+A note about the testing
+--------------------------
+
+The suite mocks the network. It proves this library builds the request it
+intended to build. It says nothing about whether Schwab accepts that request, or
+whether the answer is right.
+
+That distinction has mattered every time. **Every defect found in this library so
+far has been in code with 100% line coverage** — prices silently a cent low, a
+token file a crash could destroy, an enum advertising values the venue rejects,
+redaction that never ran, an order routed to a venue nobody asked for. Coverage
+measures which lines executed, not whether what they produced was correct.
+
+So when you add a test: **revert your fix and watch it fail.** A test that passes
+either way is worse than no test, because it looks like protection. Two things
+that have made that check lie here, both worth knowing:
+
+- Clear ``__pycache__`` first. CPython invalidates bytecode on modification time
+  and size, so a same-second edit can leave a stale ``.pyc`` in place and you
+  measure the old code.
+- Confirm the edit actually applied. A mutation that silently did not change the
+  file looks exactly like a test that did not notice.
+
+If a behaviour can only be established against the live API, say so in the pull
+request — say what you observed and when. That is a good answer, and a more
+honest one than a mocked test implying more than it proves.
+
+-------------------
+Documenting changes
+-------------------
+
+No feature is complete without a description of how to use it. If your change
+alters an external-facing interface or its semantics, the docstrings must say so;
+a substantial new module may justify a section of its own.
 
 .. code-block:: shell
 
-  sphinx-build docs/ docs-build
+  python -m sphinx -W docs/ /tmp/docs-build
+
+Documentation is checked by the suite as well as by Sphinx, which surprises
+people, so it is worth knowing what is enforced:
+
+- every ``:func:``/``:meth:``/``:class:`` target and every ``autodoc`` directive
+  must resolve to something that exists — ``sphinx -W`` does *not* check this,
+  and a page once told readers to call a method that had never existed
+- every keyword argument in a documentation code block, and in ``examples/``,
+  must be one the callee actually accepts
+- every URL host must be on an allowlist, and links into this repository must
+  point at a file that exists — including the ``#anchor``, which must match a
+  real section heading
+
+If one of those fails, the test says which file and which line.
+
+--------
+Examples
+--------
+
+``examples/`` is deliberately small. An example earns its place when it teaches
+an *assembly* the reference documentation cannot — a bounded queue in front of a
+stream, a token-expiry loop, an order followed to a terminal state. A sample that
+just repeats a call is already covered by the docs, and an uncovered file is one
+that rots: the streaming example spent four years subscribing to tickers that had
+been delisted.

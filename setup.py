@@ -97,6 +97,10 @@ setuptools.setup(
         # feature of the library.
         'dev': [
             'autopep8',
+            # `build` sits beside `twine` on purpose: CONTRIBUTING tells a
+            # contributor to run `python -m build` after installing `[dev]`,
+            # and without this that instruction fails on a missing module.
+            'build',
             'callee',
             'colorama',
             'coverage',
