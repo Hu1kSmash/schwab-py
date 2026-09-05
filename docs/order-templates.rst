@@ -6,7 +6,7 @@
 Order Templates
 ===============
 
-``schwab-py`` strives to be easy to use. This means making it easy to do simple 
+``schwaby`` strives to be easy to use. This means making it easy to do simple 
 things, while making it possible to do complicated things. Order construction is
 a major challenge to this mission: both simple and complicated orders use the 
 same format, meaning simple orders require a surprising amount of sophistication 
@@ -119,7 +119,7 @@ Options Templates
 -----------------
 
 Schwab supports over a dozen options strategies, each of which involve a precise 
-structure in the order builder. ``schwab-py`` is slowly gaining support for 
+structure in the order builder. ``schwaby`` is slowly gaining support for 
 these strategies, and they are documented here as they become ready for use.  As 
 time goes on, more templates will be added here. 
 
@@ -192,7 +192,7 @@ using either puts or call. You can find more information about this strategy on
 `Investopedia <https://www.investopedia.com/articles/active-trading/032614/
 which-vertical-option-spread-should-you-use.asp>`__
 
-``schwab-py`` provides utilities for opening and closing vertical spreads in 
+``schwaby`` provides utilities for opening and closing vertical spreads in 
 various ways. It follows the standard ``(bull/bear) (put/call)`` naming 
 convention, where the name specifies the market attitude and the option type 
 used in construction. 

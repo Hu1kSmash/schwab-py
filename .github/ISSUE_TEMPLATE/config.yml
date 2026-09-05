@@ -1,18 +1,18 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Is this actually a fork problem?
+  - name: Shared with alexgolec/schwab-py?
     url: https://github.com/alexgolec/schwab-py/issues
     about: >-
-      This is a fork. If the problem is not caused by one of the changes in
-      CHANGELOG.md, please report it upstream instead, where it will help more
-      people.
+      schwaby began from that project and shares most of its code. If the
+      behaviour is not one of the differences in CHANGELOG.md, reporting it
+      there too will help more people than a report here alone.
   - name: Security vulnerability
-    url: https://github.com/Hu1kSmash/schwab-py/security/advisories/new
+    url: https://github.com/Hu1kSmash/schwaby/security/advisories/new
     about: >-
       Do not open a public issue. This library holds brokerage credentials and
       can place trades; report privately.
   - name: Questions and discussion
-    url: https://github.com/Hu1kSmash/schwab-py/discussions
+    url: https://github.com/Hu1kSmash/schwaby/discussions
     about: >-
       For "how do I", "is this supposed to", and anything you are not yet sure
       is a bug.

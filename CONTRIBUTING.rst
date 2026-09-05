@@ -1,5 +1,5 @@
 =============================
-Contributing to ``schwab-py``
+Contributing to ``schwaby``
 =============================
 
 Fixing a bug? Adding a feature? Just cleaning up for the sake of cleaning up?
@@ -8,17 +8,18 @@ guide to learn how to set up your environment so you can contribute.
 
 .. note::
 
-   **This is a fork of** `alexgolec/schwab-py
+   **``schwaby`` began from** `alexgolec/schwab-py
    <https://github.com/alexgolec/schwab-py>`__.
 
-   If your change is not specific to this fork's changes — see `CHANGELOG.md
-   <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ — please
-   consider sending it upstream as well, or instead. It will help more people
-   there, and every change which lands upstream is one less this fork has to
+   If your change is not specific to the differences listed in `CHANGELOG.md
+   <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__ — please
+   consider sending it to `alexgolec/schwab-py
+   <https://github.com/alexgolec/schwab-py>`__ as well. It will help more people
+   there, and every change which lands there is one less this project has to
    carry. Contributions are welcome here either way.
 
    `MAINTAINING.md
-   <https://github.com/Hu1kSmash/schwab-py/blob/main/MAINTAINING.md>`__
+   <https://github.com/Hu1kSmash/schwaby/blob/main/MAINTAINING.md>`__
    describes the branch layout, which matters if you intend to send the same
    change to both.
 

@@ -35,7 +35,7 @@ a way that's appropriate to the context in which you're running:
    flow <schwab.auth.client_from_manual_flow>`.
 
 Here's how you can use it. If for some reason this doesn't work, please report 
-your issues `on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__. See 
+your issues `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`__. See 
 :func:`~schwab.auth.easy_client` for details:
 
 .. code-block:: python
@@ -109,7 +109,7 @@ and use it on another.
 
 This script is installed by ``pip``, and will only be accessible if you've added
 pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+free to `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 
 .. _token_expiration:
@@ -139,7 +139,7 @@ The token file is a credential in its own right. Anyone holding it can read your
 balances and positions and place trades with them, so it deserves the same care
 as a password.
 
-On Linux and macOS, ``schwab-py`` writes it readable only by you (mode
+On Linux and macOS, ``schwaby`` writes it readable only by you (mode
 ``0600``). A file written by an older version, or copied around with a
 permissive umask, is corrected the first time the token is refreshed. It is
 worth checking anyway::
@@ -260,7 +260,7 @@ Advanced Functionality
 The default token fetcher functions are designed for ease of use. They make some 
 common assumptions, most notably a writable filesystem and a terminal that 
 accepts inputs, which are valid for 99% of users. However, some very specialized 
-users, for instance those hoping to deploy ``schwab-py`` in serverless settings, 
+users, for instance those hoping to deploy ``schwaby`` in serverless settings, 
 require some more advanced functionality.  This method provides the most 
 flexible facility for fetching tokens possible. 
 
@@ -293,7 +293,7 @@ token, they can only place requests as you for thirty minutes.
 
 In order to continue using the API after thirty minutes, we must request a new 
 access token. This is where the refresh token comes into play: if you attempt to 
-place an API call but ``schwab-py`` detects that your access token is expired 
+place an API call but ``schwaby`` detects that your access token is expired 
 (or about to expire), it will use the refresh token to request a new access 
 token from Schwab. Once it receives the new access token, it will place your API 
 request. This entire process is automatically managed and invisible to you.
@@ -359,7 +359,7 @@ API endpoints, and can be refreshed over time.
 If you've gotten this far and your head isn't spinning, you haven't been paying 
 attention. Security-sensitive protocols can be very complicated, and you should 
 **never** build your own implementation. Fortunately there exist very robust 
-implementations of this flow, and ``schwab-py``'s authentication module makes 
+implementations of this flow, and ``schwaby``'s authentication module makes 
 using them easy.
 
 
@@ -372,7 +372,7 @@ As simple as it seems, the auth is complex and mistakes are easy to make.  This
 section outlines some of the more common issues you might encounter. If you find 
 yourself dealing with something that isn't listed here, or if you try the 
 suggested remedies and are still seeing issues, see the :ref:`help` page. You 
-can also `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__ to ask
+can also `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__ to ask
 questions.
 
 
@@ -384,7 +384,7 @@ All API endpoints require an approved app. When you app is first created and
 anytime it's modified, it will go into state ``Approved - Pending``, a
 confusingly-named status indicating that the application is being manually 
 approved by Schwab. Until that status changes to ``Ready for Use``, you cannot 
-proceed using ``schwab-py``, and you will encounter difficult-to-debug errors. A 
+proceed using ``schwaby``, and you will encounter difficult-to-debug errors. A 
 listing of the types of errors people have reported:
 
  * ``401 Unauthorized`` errors in the signin flow
@@ -433,12 +433,12 @@ callback URL each time you run it.
 ``401 Unauthorized``
 ++++++++++++++++++++
 
-This error is raised when ``schwab-py`` attempts to perform an operation using 
+This error is raised when ``schwaby`` attempts to perform an operation using 
 an invalid access token. If you don't know what that means, that's normal: you 
 shouldn't see this error. Some users have reported seeing it, and the 
-``schwab-py`` authors are working on updating the library to debug it. If you 
+``schwaby`` authors are working on updating the library to debug it. If you 
 see this error, please share the stack trace `on the issue tracker
-<https://github.com/Hu1kSmash/schwab-py/issues>`__. 
+<https://github.com/Hu1kSmash/schwaby/issues>`__. 
 
 In the meantime, you can work around this bug by deleting your old token and 
 creating a new one.
@@ -460,7 +460,7 @@ how tokens work. <token_expiration>`.
 Token Parsing Failures
 ++++++++++++++++++++++
 
-``schwab-py`` handles creating and refreshing tokens. Simply put, *the user 
+``schwaby`` handles creating and refreshing tokens. Simply put, *the user 
 should never create or modify the token file*. If you are experiencing parse 
 errors when accessing the token file or getting exceptions when accessing it, 
 it's probably because you created it yourself or modified it. If you're 
@@ -473,15 +473,15 @@ experiencing token parsing issues, remember that:
    assume it's a valid token file. If the file does not exist, they will go 
    through the login flow to create one.
 2. You should never modify the token file. The token file is automatically 
-   managed by ``schwab-py``, and modifying it will almost certainly break it.
+   managed by ``schwaby``, and modifying it will almost certainly break it.
 3. You should never share the token file. If the token file is shared between 
    applications, one of them will beat the other to refreshing, locking the 
-   slower one out of using ``schwab-py``.
+   slower one out of using ``schwaby``.
 
 If you didn't do any of this and are still seeing issues using a token file that 
 you're confident is valid, please `file a ticket 
-<https://github.com/Hu1kSmash/schwab-py/issues>`__. Just remember, **never share 
-your token file, not even with** ``schwab-py`` **developers**. Sharing the token
+<https://github.com/Hu1kSmash/schwaby/issues>`__. Just remember, **never share 
+your token file, not even with** ``schwaby`` **developers**. Sharing the token
 file is as dangerous as sharing your Schwab username and password.
 
 ++++++++++++++++++++++++++++++
@@ -490,12 +490,12 @@ What If I Can't Use a Browser?
 
 Launching a browser can be inconvenient in some situations, most notably in
 containerized applications running on a cloud provider, or when running in a 
-notebook. ``schwab-py`` supports two alternatives to creating tokens by opening 
+notebook. ``schwaby`` supports two alternatives to creating tokens by opening 
 a web browser.
 
 Firstly, the :ref:`manual login flow<manual_login>` flow allows you to go
 through the login flow on a different machine than the one on which 
-``schwab-py`` is running. Instead of starting the web browser and automatically 
+``schwaby`` is running. Instead of starting the web browser and automatically 
 opening the relevant URLs, this flow allows you to manually copy-paste around 
 the URLs. It's a little more cumbersome, but it has no dependency on selenium.
 

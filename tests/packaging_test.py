@@ -70,7 +70,10 @@ class SetupPyTest(unittest.TestCase):
     @no_duplicates
     def test_setup_py_parses_and_calls_setup(self):
         self.assertIn('name', self.kwargs)
-        self.assertEqual('schwab-py', self.kwargs['name'])
+        # The distribution is `schwaby`; the importable package is still
+        # `schwab`. Asserted because they differ deliberately and a future
+        # edit aligning them would be a breaking change for every consumer.
+        self.assertEqual('schwaby', self.kwargs['name'])
 
     @no_duplicates
     def test_the_version_matches_the_package(self):

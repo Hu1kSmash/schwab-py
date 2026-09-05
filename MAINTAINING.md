@@ -20,7 +20,7 @@ upstream* below.
 Remotes:
 
 ```
-origin    git@github.com:Hu1kSmash/schwab-py.git      (this fork)
+origin    git@github.com:Hu1kSmash/schwaby.git      (this fork)
 upstream  https://github.com/alexgolec/schwab-py.git  (the original)
 ```
 
@@ -104,7 +104,7 @@ fail together. It costs four seconds.
 3. **The install instructions**, which name the version and go stale silently:
 
    ```shell
-   grep -rn 'schwab-py@v' README.rst docs/
+   grep -rn 'schwaby@v' README.rst docs/
    ```
 
    Today that is the fork notice and the install section in `README.rst`, and
@@ -112,17 +112,10 @@ fail together. It costs four seconds.
    reader following a stale one installs the wrong release without any sign
    that they have.
 
-   `schwab/_optional.py` prints the same pin in the ImportError for a missing
-   extra, but interpolates `schwab.version.version` rather than hardcoding it,
-   so step 2 fixes it and the grep above does not need to find it.
-
-   It is wrong for the whole of any release which adds or renames an extra:
-   from the merge until the tag, `version.py` still names the previous release,
-   whose tag does not carry the new extra — `pip` says `does not provide the
-   extra 'login'` and installs the pre-split version. That window closes at
-   step 4 and cannot be closed earlier, since the tag does not exist yet. Do
-   steps 2 through 5 together rather than leaving a bumped `main` untagged,
-   and do not hand anyone the pre-release pin.
+   `schwab/_optional.py` no longer names a version at all: published to PyPI,
+   the command it prints is `pip install "schwaby[login]"`, which stays correct
+   for every release. The stale-pin window this step used to warn about closed
+   with the move off git installs.
 
    Prose which names a version is worse than a pin, because the grep above does
    not match it and the release may land under a different number than the one
@@ -131,7 +124,7 @@ fail together. It costs four seconds.
 
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
-6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
+6. `gh release create vX.Y.Z -R Hu1kSmash/schwaby --notes-file ...`
 7. **Re-check any claim about the release against the tag, after tagging.**
 
    A statement like "nothing under `schwab/` changed" is checkable, so a reader
@@ -148,23 +141,31 @@ fail together. It costs four seconds.
    wrong. Prefer the weaker sentence you can defend after tagging.
 
 Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
-`python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
+`python -m build --sdist`, `python -m twine check dist/*`, and
+`sphinx-build -W docs/ docs-build`.
+
+`twine check` is not optional and its output must be read, not glanced at. It
+is the only thing that checks `README.rst` renders as PyPI will render it —
+`sphinx -W` passes on markup PyPI rejects, because they are different parsers.
+A title whose underline is one character short fails `twine check` and would
+publish a release with no description at all.
 
 `python -m build --sdist` earns its place here: `setup.py` is not imported by
 the suite, so an edit which leaves it unparseable is invisible to `pytest`.
 `tests/packaging_test.py` now covers the common cases, but the build is what
 proves the artifact.
 
-Never write a bare `pip install schwab-py` anywhere. That installs the original
+Never write `pip install schwab-py` as an instruction for this project. That
+installs the original
 project from PyPI, which is not this code — and it will appear to work, since
 the importable package has the same name.
 
 ## Not on PyPI, deliberately
 
-`schwab-py` on PyPI is upstream's. This fork installs from git:
+`schwaby` on PyPI is upstream's. This fork installs from git:
 
 ```shell
-pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@vX.Y.Z"
+pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwaby@vX.Y.Z"
 ```
 
 Pin a tag or a commit, never a branch — a branch moves, and a rebuild months later would silently

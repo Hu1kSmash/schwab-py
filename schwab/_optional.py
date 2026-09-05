@@ -41,14 +41,7 @@ def import_optional(module_name, extra, needed_for):
         raise ImportError(
                 '{} requires the {!r} extra, which is not installed. Install '
                 'it with:\n\n'
-                '    pip install "schwab-py[{}] @ '
-                'git+https://github.com/Hu1kSmash/schwab-py@v{}"\n\n'
+                '    pip install "schwaby[{}]"\n\n'
                 '(missing module: {})'.format(
-                    needed_for, extra, extra, _version(), module_name)) from exc
+                    needed_for, extra, extra, module_name)) from exc
 
-
-def _version():
-    # Imported lazily: schwab.version is cheap, but this module is imported by
-    # auth at module scope and there is no reason to widen that at import time.
-    from schwab.version import version
-    return version

@@ -23,18 +23,29 @@ CODEGEN_REQUIRES = [
 ]
 
 setuptools.setup(
-    name='schwab-py',
+    # The distribution is `schwaby`; the importable package is still `schwab`.
+    # Those differ deliberately -- see the note in README.rst. It means a
+    # drop-in replacement for the original at the cost of never being
+    # installable alongside it.
+    name='schwaby',
     version=version,
-    # Authorship stays with the original author, who wrote essentially all of
-    # this. His contact details are deliberately not carried over: support for
-    # this fork should not land in his inbox.
+    # Authorship stays with the original author of the code this began from.
+    # His contact details are deliberately not carried over: support for this
+    # project should not land in his inbox.
+    #
+    # No maintainer_email either, and that is deliberate rather than an
+    # omission. An address in package metadata is permanent, scraped, and a
+    # worse place to report a bug than the tracker -- where the report is
+    # searchable, other people can see it has already been raised, and it
+    # cannot be lost in a mailbox. The Tracker project URL below is the
+    # supported route and the README says so.
     author='Alex Golec',
-    maintainer='Hu1kSmash',
-    description=('Unofficial API wrapper for the Schwab HTTP API '
-                 '(maintained fork of alexgolec/schwab-py)'),
+    maintainer='Tom Hirt',
+    description=('Unofficial Python client for the Charles Schwab API, built '
+                 'for systematic trading against live accounts'),
     long_description=long_description,
     long_description_content_type='text/x-rst',
-    url='https://github.com/Hu1kSmash/schwab-py',
+    url='https://github.com/Hu1kSmash/schwaby',
     packages=setuptools.find_packages(),
     classifiers=[
         'Programming Language :: Python :: 3',
@@ -75,9 +86,9 @@ setuptools.setup(
     },
     keywords='finance trading equities bonds options research',
     project_urls={
-        'Documentation': 'https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst',
-        'Source': 'https://github.com/Hu1kSmash/schwab-py',
-        'Tracker': 'https://github.com/Hu1kSmash/schwab-py/issues',
+        'Documentation': 'https://github.com/Hu1kSmash/schwaby/blob/main/docs/index.rst',
+        'Source': 'https://github.com/Hu1kSmash/schwaby',
+        'Tracker': 'https://github.com/Hu1kSmash/schwaby/issues',
         'Upstream': 'https://github.com/alexgolec/schwab-py',
     },
     license='MIT',

@@ -12,12 +12,16 @@ how you can get help and make progress.
 
 .. note::
 
-   This is a maintained fork. Issues caused by the changes listed in the
-   `changelog <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__
-   belong on `this fork's tracker
-   <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything else is usually
-   better reported `upstream <https://github.com/alexgolec/schwab-py/issues>`__,
-   where it will help more people.
+   Bug reports and questions go to `the tracker
+   <https://github.com/Hu1kSmash/schwaby/issues>`__. There is no maintainer
+   email on purpose: an issue is searchable, shows whether someone has already
+   hit the same thing, and cannot be lost in a mailbox.
+
+   If the behaviour is shared with `alexgolec/schwab-py
+   <https://github.com/alexgolec/schwab-py>`__ and is not one of the changes in
+   the `changelog
+   <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__, it is worth
+   reporting there too --- it will help more people than a report here alone.
 
 
 --------------
@@ -39,7 +43,7 @@ Most problems are solved faster by gathering a little information first.
 Reporting a Bug
 ---------------
 
-``schwab-py`` is not perfect. Features are missing, documentation may be out of
+``schwaby`` is not perfect. Features are missing, documentation may be out of
 date, and it almost certainly contains bugs. If you think of a way in which it
 can be improved, we're glad to hear it.
 
@@ -49,7 +53,7 @@ can be improved, we're glad to hear it.
 Enable Logging
 ~~~~~~~~~~~~~~
 
-Behind the scenes, ``schwab-py`` performs diagnostic logging of its activity
+Behind the scenes, ``schwaby`` performs diagnostic logging of its activity
 using Python's `logging <https://docs.python.org/3/library/logging.html>`__
 module. You can enable this debug information by telling the root logger to
 print these messages:
@@ -72,7 +76,7 @@ there and nowhere else.
 Gather Logs For Your Bug Report
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you still can't work out what is going wrong, ``schwab-py`` can gather and
+If you still can't work out what is going wrong, ``schwaby`` can gather and
 prepare logs for filing issues. It captures the logs, anonymizes them, and dumps
 them to the console when the program exits. Enable it by calling this method
 **before doing anything else in your application**:
@@ -105,4 +109,4 @@ A good report includes:
    checked for anything sensitive first.
  * **Your version, OS and execution environment.**
 
-Then `file an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+Then `file an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.

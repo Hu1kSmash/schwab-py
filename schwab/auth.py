@@ -348,8 +348,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     refresh the token as necessary, writing each updated version to 
     ``token_path``.
 
-    **Requires the** ``login`` **extra:** ``pip install "schwab-py[login] @
-    git+https://github.com/Hu1kSmash/schwab-py@<tag>"``. The callback server
+    **Requires the** ``login`` **extra:** ``pip install "schwaby[login]"``.
+    The callback server
     below needs ``flask``, ``multiprocess`` and ``psutil``, which a plain
     install leaves out because nothing else in the library uses them. Calling
     this without them raises an ``ImportError`` naming the extra.
@@ -550,10 +550,10 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         print('>>',callback_url)
         print()
         print('See here to learn more about self-signed SSL certificates:')
-        print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
+        print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
         print()
         print('If you encounter any issues, see here for troubleshooting:')
-        print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
+        print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
         print('***********************************************************************')
         print()
 
@@ -699,7 +699,7 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
     print('    Enter/Return.')
     print()
     print('If you encounter any issues, see here for troubleshooting:')
-    print('https://github.com/Hu1kSmash/schwab-py/blob/main/docs/auth.rst')
+    print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
     print('\n**************************************************************\n')
 
     if callback_url.startswith('http://'):

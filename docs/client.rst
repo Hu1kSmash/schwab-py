@@ -245,7 +245,7 @@ Timeout Management
 ++++++++++++++++++
 
 Timeouts for HTTP calls are managed under the hood by the ``httpx2`` library.  
-``schwab-py`` defaults to 30 seconds, which experience has shown should be more 
+``schwaby`` defaults to 30 seconds, which experience has shown should be more 
 than enough to allow even the slowest API calls to complete. A different timeout 
 specification can be set using this method:
 
