@@ -7440,16 +7440,26 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # the routing path may raise once the waiter's future is resolved.
         socket = await self.login_and_get_socket(ws_connect)
 
-        # A bare string, not {'content': None}. The latter does not raise --
-        # `or {}` turns it into a code of None and it is skipped as neither a
-        # rejection nor a success -- so the guard this test is named for was
-        # never exercised, and removing that guard left the test green.
-        ok = self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
-        ok['response'].append('not a dict at all')
-        socket.recv.side_effect = [json.dumps(ok)]
+        # Both shapes, because they are stopped by different guards. A bare
+        # string is caught by the element check; a mapping whose `content` is
+        # null gets past that one and is caught by the content check. Testing
+        # only the first left the second unexercised, and a mutation removing
+        # it kept this test green.
+        payloads = ('not a dict at all',
+                    {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                     'requestid': '77', 'content': None},
+                    {'service': 'ACCT_ACTIVITY', 'command': 'SUBS',
+                     'requestid': '77', 'content': 'not a mapping'})
 
-        # Must not raise: the subscribe succeeded.
-        await self.client.level_one_equity_subs(['GOOG'])
+        for i, payload in enumerate(payloads):
+            with self.subTest(payload=payload):
+                ok = self.success_response(
+                        self.client._request_id, 'LEVELONE_EQUITIES', 'SUBS')
+                ok['response'].append(payload)
+                socket.recv.side_effect = [json.dumps(ok)]
+
+                # Must not raise: the subscribe succeeded.
+                await self.client.level_one_equity_subs(['GOOG'])
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -7460,21 +7470,42 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         for broken in ('not a list', {'nope': 1}, None):
             with self.subTest(broken=broken):
                 self.client._pending_reports.clear()
-                # Must not raise, and must queue nothing.
+                self.client._absorbed = 0
+                # Must not raise, and must be absorbed rather than silently
+                # dropped -- a response field this client cannot read is a
+                # message it cannot use.
                 self.client._log_extra_responses({'response': broken}, 0)
-                self.assertEqual(0, len(self.client._pending_reports))
+                queued = list(self.client._pending_reports)
+                self.assertEqual(1, len(queued))
+                self.assertIsInstance(
+                        queued[0][0], schwab.streaming.UnusableMessage)
 
-        # A list whose elements are the wrong shape is skipped per element,
-        # and the well-formed ones beside them still report.
+        # A tuple is a list as far as this is concerned: set_json_decoder may
+        # return one, and rejections must still be reported for such a caller.
         self.client._pending_reports.clear()
+        self.client._absorbed = 0
+        self.client._log_extra_responses({'response': (
+            {'service': 'Y', 'command': 'SUBS',
+             'content': {'code': 21, 'msg': 'from a tuple'}},
+        )}, 0)
+        self.assertEqual(1, len(self.client._pending_reports))
+        self.assertIn('from a tuple',
+                      str(self.client._pending_reports[0][0]))
+
+        # A list whose elements are the wrong shape is absorbed per element,
+        # and the well-formed ones beside them still report as rejections.
+        self.client._pending_reports.clear()
+        self.client._absorbed = 0
         self.client._log_extra_responses({'response': [
             'a string, not a dict',
             {'service': 'Y', 'command': 'SUBS',
              'content': {'code': 21, 'msg': 'this one is fine'}},
         ]}, 0)
-        self.assertEqual(1, len(self.client._pending_reports))
+        kinds = [type(exc) for exc, _, _ in self.client._pending_reports]
+        self.assertEqual([schwab.streaming.UnusableMessage,
+                          schwab.streaming.UnexpectedResponseCode], kinds)
         self.assertIn('this one is fine',
-                      str(self.client._pending_reports[0][0]))
+                      str(self.client._pending_reports[1][0]))
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -7606,25 +7637,43 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         socket = await self.login_and_get_socket(ws_connect)
 
-        # Standalone framing, through handle_message's orphan path.
-        standalone = []
+        def rejections(pairs):
+            return [(service, message) for exc, service, message in pairs
+                    if isinstance(exc, schwab.streaming.UnexpectedResponseCode)]
+
+        def absorbed(pairs):
+            return [message for exc, _, message in pairs
+                    if isinstance(exc, schwab.streaming.UnusableMessage)]
+
+        # Standalone framing, through handle_message's orphan path. Collected
+        # from the queue rather than from the handler, so both sides are read
+        # the same way -- the orphan path reports a rejection inline and queues
+        # an absorbed element, and comparing one mechanism against the other
+        # would compare their timing rather than their content.
+        seen = []
         self.client.add_error_handler(
-                lambda service, exc, msg: standalone.append((service, msg)))
+                lambda service, exc, msg: seen.append((exc, service, msg)))
         socket.recv.side_effect = [
                 json.dumps({'response': [raises, rejection]})]
         await self.client.handle_message()
+        standalone = seen + list(self.client._pending_reports)
 
         # Batched framing, through the routing path. Element 0 stands in for
         # the answer a waiter took, so the same two elements follow it.
+        self.client._pending_reports.clear()
         self.client._log_extra_responses(
                 {'response': [{}, raises, rejection]}, 1)
-        batched = [(service, message) for _, service, message
-                   in self.client._pending_reports]
+        batched = list(self.client._pending_reports)
 
         # The positive control: the good element reports in both framings, so
         # neither list is empty for want of the input ever arriving.
-        self.assertEqual([('ACCT_ACTIVITY', rejection)], standalone)
-        self.assertEqual(standalone, batched)
+        self.assertEqual([('ACCT_ACTIVITY', rejection)], rejections(standalone))
+        self.assertEqual(rejections(standalone), rejections(batched))
+
+        # And the element which could not be read is absorbed on both, rather
+        # than one framing reporting it and the other dropping it.
+        self.assertEqual([raises], absorbed(standalone))
+        self.assertEqual(absorbed(standalone), absorbed(batched))
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -7919,6 +7968,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                       {'data': [{'service': ['a list'], 'command': 'SUBS'}]},
                       'hello'):
             with self.subTest(frame=frame):
+                self.client._absorbed = 0
                 socket.recv.side_effect = [json.dumps(frame)]
                 await self.client.handle_message()
 
@@ -7952,11 +8002,11 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         finally:
             logging.getLogger('schwab.streaming').removeHandler(handler)
 
-        # First few, then powers of ten -- not 5000 lines.
-        self.assertLess(len(records), 20)
-        self.assertGreater(len(records), 0)
-        # The running total stays visible.
-        self.assertIn('5000 absorbed', records[-1])
+        # First three, then powers of ten: 1, 2, 3, 10, 100, 1000 -- not 5000
+        # lines, and not silence between 3 and 1000 either.
+        self.assertEqual(6, len(records))
+        self.assertIn('1000 absorbed', records[-1])
+        self.assertIn('10 absorbed', records[3])
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -8011,6 +8061,65 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertIn('unexpected requestid: 999', str(cm.exception))
         self.assertNotIn('malformed', str(cm.exception))
+
+    @no_duplicates
+    def test_a_flood_of_absorbed_messages_cannot_evict_a_rejection(self):
+        # _absorb shares the bounded report queue with the late rejections. A
+        # frame carrying a few hundred bad elements would otherwise push every
+        # rejection out of it -- and a rejection of an abandoned request is the
+        # one thing nothing else will ever report. Reports are coalesced onto
+        # the same schedule as the log for exactly this reason.
+        rejection = (schwab.streaming.UnexpectedResponseCode({}, 'the one'),
+                     'ACCT_ACTIVITY', {})
+        self.client._pending_reports.append(rejection)
+
+        for i in range(500):
+            self.client._absorb('a bad element', i)
+
+        self.assertIn(rejection, list(self.client._pending_reports))
+        self.assertEqual(500, self.client._absorbed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_logging_in_again_resets_the_absorbed_count(
+            self, ws_connect):
+        # The log says "on this connection". Without a reset, a client which
+        # absorbed a few frames before a drop would log nothing for the first
+        # ~995 bad elements of a brand-new outage on the next connection.
+        await self.login_and_get_socket(ws_connect)
+
+        for i in range(5):
+            self.client._absorb('a bad element', i)
+        self.assertEqual(5, self.client._absorbed)
+
+        ws_connect.return_value = AsyncMock()
+        await self.client._init_from_preferences(account_preferences(), {})
+
+        self.assertEqual(0, self.client._absorbed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_null_channel_is_absorbed_not_dropped(self, ws_connect):
+        # {"data": null} is a malformed channel, and was the one shape
+        # indistinguishable from a frame carrying no data at all -- so it was
+        # dropped without a word while {"data": 5} was reported.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        socket.recv.side_effect = [json.dumps({'data': None}),
+                                   json.dumps({'notify': None}),
+                                   json.dumps({'command': 'nothing here'})]
+        await self.client.handle_message()
+        await self.client.handle_message()
+        await self.client.handle_message()
+
+        # Two absorbed, and the frame with neither channel is not one of them.
+        self.assertEqual(2, len(errors))
+        for exc in errors:
+            self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
 
     @no_duplicates
     def test_the_report_queue_is_bounded(self):

@@ -39,11 +39,15 @@ been bitten by before.
 ### Changed
 
 **A systematically malformed channel no longer logs one line per element.** The
-first few are logged, then every thousandth with a running total. A framing
-change on a `LEVELONE_EQUITIES` subscription across a few hundred symbols
-previously produced a warning per element per tick indefinitely — a log-volume
-incident on top of the data outage. Every occurrence still reaches
-`add_error_handler`.
+first three on a connection are logged, then powers of ten, with the running
+count. A framing change on a `LEVELONE_EQUITIES` subscription across a few
+hundred symbols would otherwise produce a warning per element per tick
+indefinitely — a log-volume incident on top of the data outage.
+
+Reports are coalesced onto the same schedule for a second reason: they share a
+bounded queue with the late rejections, so reporting every occurrence would let
+a flood of unusable elements evict a rejection of an abandoned request, which is
+the one thing nothing else will ever report.
 
 ### Fixed
 

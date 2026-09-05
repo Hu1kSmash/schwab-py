@@ -1,15 +1,14 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from collections.abc import Mapping, Sequence
 from enum import Enum
 
 import asyncio
 import copy
 import httpx2
 import inspect
+import itertools
 import json
 import logging
-import schwab
 
 import websockets.asyncio.client as ws_client
 
@@ -193,6 +192,37 @@ class ResponseTimeoutError(Exception):
 # A plain None cannot serve: a top-level JSON null is a frame a server can
 # send, and treating it as "already routed" dropped it silently.
 ROUTED = object()
+
+
+def _is_mapping(obj):
+    '''Whether ``obj`` can be read the way a decoded JSON object is read.
+
+    Structural, not ``isinstance(obj, Mapping)``. ``set_json_decoder`` is a
+    public hook promising only "the decoded JSON", and the reads it replaced --
+    ``'response' in frame``, ``msg.get('data')`` -- work on anything providing
+    them. An ABC matches only real subclasses and explicitly registered types,
+    so a lightweight mapping-like object worked before the type checks were
+    added and would have had every frame dropped afterwards.
+    '''
+    return hasattr(obj, 'get') and hasattr(obj, '__contains__')
+
+
+def _is_power_of_ten(n):
+    while n >= 10 and n % 10 == 0:
+        n //= 10
+    return n == 1
+
+
+def _is_sequence(obj):
+    '''Whether ``obj`` can be iterated the way a decoded JSON array is.
+
+    Strings and bytes are iterable and are not arrays; a mapping is iterable
+    and yields its keys, which is how ``{'notify': {...}}`` would have reached
+    handlers as a message per key.
+    '''
+    return (hasattr(obj, '__iter__')
+            and not isinstance(obj, (str, bytes, bytearray))
+            and not _is_mapping(obj))
 
 
 class StreamClient(EnumEnforcer):
@@ -411,6 +441,7 @@ class StreamClient(EnumEnforcer):
         # the guarantee has to hold whichever teardown they used.
         self._pending_reports.clear()
         self._overflow_items.clear()
+        self._absorbed = 0
 
 
     def _make_request(self, *, service, command, parameters):
@@ -473,17 +504,6 @@ class StreamClient(EnumEnforcer):
                 resp, 'malformed response frame: {}: {}'.format(
                     type(exc).__name__, exc))
 
-        return StreamClient._validate_response_fields(
-                resp, request_id, service, command,
-                resp_request_id, resp_service, resp_command, content,
-                resp_code)
-
-    @staticmethod
-    def _validate_response_fields(resp, request_id, service, command,
-                                  resp_request_id, resp_service, resp_command,
-                                  content, resp_code):
-        # The request id was compared before the other fields were read.
-
         # Validate service
         if resp_service != service:
             return UnexpectedResponse(
@@ -533,7 +553,7 @@ class StreamClient(EnumEnforcer):
         # and raises on a top-level JSON number. Handed back rather than
         # dropped here, so handle_message logs it in one place along with every
         # other frame this cannot route.
-        if not isinstance(frame, Mapping):
+        if not _is_mapping(frame):
             return frame
 
         if 'response' not in frame:
@@ -639,23 +659,28 @@ class StreamClient(EnumEnforcer):
         loop over one bad element among many.
         '''
         responses = frame.get('response')
-        if not isinstance(responses, list):
-            self.logger.warning(
-                    'Ignoring a response frame whose "response" is not a '
-                    'list: %r', responses)
+        if not _is_sequence(responses):
+            self._absorb('a response frame whose "response" is not a list',
+                         responses)
             return
 
-        for response in responses[start:]:
-            try:
-                # `or {}` rather than a default: the key is often present with
-                # a JSON null, which .get(key, {}) returns as None.
-                content = response.get('content') or {}
-                code = content.get('code')
-            except AttributeError:
-                self.logger.warning(
-                        'Ignoring an unparseable response element: %r',
-                        response)
+        # islice rather than a slice: _is_sequence admits any iterable, and a
+        # decoder returning a generator would raise on responses[start:].
+        for response in itertools.islice(responses, start, None):
+            if not _is_mapping(response):
+                self._absorb('an unparseable response element', response)
                 continue
+
+            # Normalised, not just defaulted. The key is often present with a
+            # JSON null, which .get(key, {}) returns as None -- and `or {}`
+            # alone is not enough either, because a *truthy* non-mapping (a
+            # string) survives it and is then handed to callers which call
+            # .get on it. handle_message's orphan loop does exactly that.
+            content = response.get('content')
+            if not _is_mapping(content):
+                content = {}
+
+            code = content.get('code')
 
             yield response, code, content
 
@@ -676,14 +701,29 @@ class StreamClient(EnumEnforcer):
         """
         self._absorbed += 1
         n = self._absorbed
-        if n <= 3 or n % 1000 == 0:
-            self.logger.warning(
-                    'Ignoring %s: %r. (%d absorbed on this connection.)',
-                    what, offender, n)
 
+        # The first few, then powers of ten. A fixed modulus would go quiet
+        # after the third occurrence and say nothing more until the thousandth,
+        # which hides the shape of an early burst.
+        if n > 3 and not _is_power_of_ten(n):
+            return
+
+        self.logger.warning(
+                'Ignoring %s: %r. (%d absorbed on this connection.)',
+                what, offender, n)
+
+        # Reported on the same schedule as the log, not on every occurrence.
+        # These share _pending_reports with the late rejections, which is a
+        # bounded deque: a frame carrying a few hundred bad elements would
+        # otherwise evict every rejection queued beside it -- and a rejection
+        # of an abandoned request is the one thing nothing else will ever
+        # report. Coalescing keeps this callback from starving the reports it
+        # was built for.
         self._pending_reports.append((
                 UnusableMessage(
-                    offender, 'Ignoring {}'.format(what)),
+                    offender,
+                    'Ignoring {} ({} absorbed on this connection)'.format(
+                        what, n)),
                 service,
                 offender))
 
@@ -700,18 +740,22 @@ class StreamClient(EnumEnforcer):
         A bad element is logged and skipped; the good ones beside it are still
         dispatched.
         '''
-        elements = msg.get(channel)
-        if elements is None:
+        if channel not in msg:
             return
 
-        if (not isinstance(elements, Sequence)
-                or isinstance(elements, (str, bytes))):
+        # Distinguished from absence deliberately: `{"data": null}` is a
+        # malformed channel and used to be indistinguishable from a frame with
+        # no data at all, so it was the one shape dropped without a word while
+        # `{"data": 5}` was reported.
+        elements = msg.get(channel)
+
+        if not _is_sequence(elements):
             self._absorb('a %s frame whose %r is not a list'
                          % (channel, channel), elements)
             return
 
         for element in elements:
-            if not isinstance(element, Mapping):
+            if not _is_mapping(element):
                 self._absorb('an unparseable %s element' % channel, element)
                 continue
 
@@ -975,11 +1019,13 @@ class StreamClient(EnumEnforcer):
           object, an element of ``data`` or ``notify`` which is not an object,
           a ``service`` which is not a name. These arrive as
           :class:`UnusableMessage`, whose ``message`` is the offending value as
-          it arrived. A systematically malformed channel logs only the first
-          few occurrences and then every thousandth, so a data outage does not
-          become a log-volume incident as well -- but every one of them is
-          reported here, which is the point of having a callback rather than a
-          log to read.
+          it arrived. These are *coalesced*: the first three on a connection,
+          then powers of ten, with the running count in the message. A
+          systematically malformed channel produces one of these per element
+          per tick, which would otherwise be a log-volume incident on top of
+          the outage -- and, because these share a bounded queue with the late
+          rejections above, would push out the one thing nothing else will ever
+          report.
 
         Each is logged as it was before. The callback is what makes them
         something other than a log record.
@@ -1260,7 +1306,7 @@ class StreamClient(EnumEnforcer):
         # tolerate a top-level JSON array or string; `msg.get('data')` does
         # not, so hardening the channels made a non-dict frame raise where it
         # used to be ignored. Guarded once, here, rather than at each read.
-        if not isinstance(msg, Mapping):
+        if not _is_mapping(msg):
             self._absorb('a message which is not an object', msg)
             return
 
@@ -1465,6 +1511,7 @@ class StreamClient(EnumEnforcer):
         # is the asymmetry this whole change exists to remove.
         self._pending_reports.clear()
         self._overflow_items.clear()
+        self._absorbed = 0
 
         if socket is not None:
             await socket.close()
