@@ -55,6 +55,20 @@ project's documentation site.
 described a July 2024 outage on a developer console that no longer exists, and
 it was the first thing a new reader saw.
 
+**`cryptography` is a declared dependency now.** The callback server runs with
+`ssl_context='adhoc'`, and `werkzeug` builds that certificate with
+`from cryptography import x509` --- which neither Flask nor Werkzeug declares.
+It was present only because `authlib` happens to require it. Had that changed,
+the child process would have died inside `app.run` and the parent would have
+reported `RedirectServerExitedError`, blaming your callback port for a missing
+package. The parent checks for it explicitly, alongside `flask`.
+
+**The rendered documentation was titled `schwab-py`.** `docs/conf.py` kept the
+original project's name through the rename, so every page title and browser tab
+named a different library while the text on the page said to install `schwaby`.
+Alex Golec's `author` and `copyright` entries are unchanged and deliberately
+so.
+
 ### Changed
 
 **`flask`, `multiprocess` and `psutil` are hard dependencies again.** They were

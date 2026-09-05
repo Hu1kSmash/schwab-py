@@ -64,6 +64,14 @@ setuptools.setup(
         'flask',
         'multiprocess',
         'psutil',
+        # Not a transitive freebie. The callback server runs with
+        # ssl_context='adhoc', which makes werkzeug call
+        # generate_adhoc_ssl_pair -> `from cryptography import x509`; neither
+        # flask nor werkzeug declares it. It is installed today only because
+        # authlib happens to require it, and if that ever stops the child dies
+        # inside app.run and the parent reports RedirectServerExitedError --
+        # the misdiagnosis the parent-side imports exist to prevent.
+        'cryptography',
     ],
     extras_require={
         # Kept, and deliberately empty. Anyone pinned to `schwaby[login]` or

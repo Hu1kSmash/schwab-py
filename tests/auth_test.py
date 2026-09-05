@@ -1496,6 +1496,21 @@ class ParentSideImportTest(unittest.TestCase):
         self.assertIn('flask', str(cm.exception))
 
     @no_duplicates
+    def test_a_missing_cryptography_is_not_a_redirect_server_failure(self):
+        # One step further out than flask. app.run passes ssl_context='adhoc',
+        # and werkzeug builds that certificate with `from cryptography import
+        # x509` -- raising TypeError, not ImportError, and inside the child, so
+        # without the parent-side check it reaches the caller as a dead server.
+        with self.block('cryptography'):
+            with self.assertRaises(Exception) as cm:
+                auth.client_from_login_flow(
+                        API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
+                        '/tmp/does-not-matter.json')
+
+        self.assertIsInstance(cm.exception, ImportError)
+        self.assertIn('cryptography', str(cm.exception))
+
+    @no_duplicates
     def test_easy_client_reaches_the_same_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             token_path = os.path.join(tmp, 'token.json')

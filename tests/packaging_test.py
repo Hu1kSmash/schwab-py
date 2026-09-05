@@ -89,11 +89,16 @@ class SetupPyTest(unittest.TestCase):
         # should be a deliberate decision rather than a merge artifact. The
         # login packages moved back in 3.0.0 after the extras split saved
         # twelve packages for nobody and cost three silent failure modes.
+        #
+        # cryptography is here because the callback server runs with
+        # ssl_context='adhoc' and werkzeug builds that certificate with it.
+        # Nothing in flask's or werkzeug's metadata says so -- it arrives via
+        # authlib today, which is a coincidence, not a guarantee.
         names = sorted(package_name(r)
                        for r in self.kwargs['install_requires'])
         self.assertEqual(
-                ['authlib', 'flask', 'httpx2', 'multiprocess', 'psutil',
-                 'websockets'], names)
+                ['authlib', 'cryptography', 'flask', 'httpx2', 'multiprocess',
+                 'psutil', 'websockets'], names)
 
     @no_duplicates
     def test_the_extras_survive_as_no_ops(self):
@@ -243,7 +248,11 @@ class LinkTest(unittest.TestCase):
 
     OURS = 'https://github.com/Hu1kSmash/schwaby/blob/main/'
 
-    URL = re.compile(r'https?://([^/\s\'"`)>,]+)')
+    # `\s*` after the slashes is load-bearing. RST wraps long links, and
+    # `getting-started.rst` had `<https://\nvirtualenv.pypa.io/...>` -- so a
+    # host anchored straight to `//` never saw it. The tell was that
+    # virtualenv.pypa.io was in the allowlist and no scanned file produced it.
+    URL = re.compile(r'https?://\s*([^/\s\'"`)>,]+)')
     OUR_LINK = re.compile(
             r'https://github\.com/Hu1kSmash/schwaby/blob/main/'
             r'([A-Za-z0-9_./-]+?)(?:#([a-z0-9-]+))?(?=[\s\'"`)>,]|$)')
@@ -262,7 +271,7 @@ class LinkTest(unittest.TestCase):
         with open(path, encoding='utf-8') as f:
             contents = f.read()
         if path.endswith('.py'):
-            return cls.ADJACENT_LITERALS.sub('', contents)
+            contents = cls.ADJACENT_LITERALS.sub('', contents)
         return contents
 
     @staticmethod
@@ -282,7 +291,9 @@ class LinkTest(unittest.TestCase):
                 for name in filenames:
                     if name.endswith(('.py', '.rst')):
                         found.append(os.path.join(dirpath, name))
-        found.append(os.path.join(REPO_ROOT, 'README.rst'))
+        for name in sorted(os.listdir(REPO_ROOT)):
+            if name.endswith(('.rst', '.md')):
+                found.append(os.path.join(REPO_ROOT, name))
         return found
 
     @classmethod
@@ -370,11 +381,17 @@ class LinkTest(unittest.TestCase):
             with open(path, 'w') as f:
                 f.write('See https://schwab-py.readthedocs.io/en/latest/ and\n'
                         'https://developer.schwabmeritrade.com/orders and\n'
-                        'https://beta-developer.schwab.com/ and\n'
                         'https://github.com/Hu1kSmash/schwaby and\n'
                         'https://127.0.0.1:8182\n')
 
-            offenders = self.disallowed_hosts_in([path])
+            wrapped = os.path.join(tmp, 'wrapped.rst')
+            with open(wrapped, 'w') as f:
+                # The shape that slipped past: RST breaking a long link
+                # immediately after the slashes.
+                f.write('`the console <https://\n'
+                        'beta-developer.schwab.com/dashboard>`__\n')
+
+            offenders = self.disallowed_hosts_in([path, wrapped])
 
         self.assertEqual(['beta-developer.schwab.com',
                           'developer.schwabmeritrade.com',
@@ -426,3 +443,35 @@ class LinkTest(unittest.TestCase):
         # in trouble: client_from_login_flow refused their callback URL.
         anchors = self.rst_anchors(os.path.join(REPO_ROOT, 'docs', 'auth.rst'))
         self.assertIn('callback-url-requirements', anchors)
+
+
+class DocsConfigTest(unittest.TestCase):
+    """`docs/conf.py`'s project name, which titles every rendered page.
+
+    It said `schwab-py` from the rename until 3.0.0 -- so every page title,
+    browser tab and sidebar named the original project while the text on the
+    page said to install `schwaby`. Nothing catches a name in a config file:
+    the docs build does not care, and the link checks look at URLs.
+    """
+
+    @no_duplicates
+    def test_sphinx_project_matches_the_distribution_name(self):
+        namespace = {'__file__': os.path.join(REPO_ROOT, 'docs', 'conf.py')}
+        with in_repo_root():
+            with open(namespace['__file__']) as f:
+                exec(compile(f.read(), 'conf.py', 'exec'), namespace)
+
+        self.assertEqual(setup_kwargs()['name'], namespace['project'])
+
+    @no_duplicates
+    def test_the_author_credit_is_deliberately_not_checked(self):
+        # `author` and `copyright` still name Alex Golec, which is correct and
+        # must not be swept along by the assertion above. Stated as a test so
+        # that changing it is a deliberate act rather than a tidy-up.
+        namespace = {'__file__': os.path.join(REPO_ROOT, 'docs', 'conf.py')}
+        with in_repo_root():
+            with open(namespace['__file__']) as f:
+                exec(compile(f.read(), 'conf.py', 'exec'), namespace)
+
+        self.assertIn('Alex Golec', namespace['author'])
+        self.assertIn('Alex Golec', namespace['copyright'])

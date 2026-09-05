@@ -353,9 +353,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     The callback server below needs ``flask``, ``multiprocess`` and ``psutil``.
     They are ordinary dependencies, so a plain ``pip install schwaby`` has them.
 
-    **Important Note:** this method starts an HTTP server on the port in your
-    callback URL, and Schwab sends your login data to it in the clear. *Anyone
-    who receives that request can act on your account as though they were you.*
+    **Important Note:** this method starts a server on the port in your
+    callback URL, and Schwab sends your login data to it in the request query.
+    *Anyone who receives that request can act on your account as though they
+    were you.* The server uses a self-signed certificate, which your browser
+    will warn about; that protects the data in transit and does nothing about
+    who is listening on the port.
     Only ``127.0.0.1`` is allowed as a host, and the port should be above
     ``1024``. Most users should use ``https://127.0.0.1:8182``. See
     :ref:`callback_url_advisory` for the rest, including what to do if your app
@@ -435,6 +438,13 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     # pyflakes schwab/` is the documented way to find dead code here. A lint
     # channel with one permanent entry in it is one nobody reads.
     importlib.import_module('flask')
+
+    # cryptography for the same reason, one step further out: app.run below
+    # passes ssl_context='adhoc', and werkzeug builds that certificate with
+    # `from cryptography import x509`. Absent, werkzeug raises a TypeError
+    # inside the child, which reaches the parent as a dead server rather than
+    # as a missing package.
+    importlib.import_module('cryptography')
 
     output_queue = multiprocess.Queue()
 

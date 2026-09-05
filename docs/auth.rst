@@ -71,10 +71,15 @@ your issues `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`
 Callback URL Requirements
 -------------------------
 
-:func:`~schwab.auth.client_from_login_flow` starts an HTTP server on the port in
-your callback URL. When you finish logging in, Schwab sends a request to that
-URL with the login data in the query parameters. **Anyone who receives that
-request can steal your token and act on your account as though they were you.**
+:func:`~schwab.auth.client_from_login_flow` starts a server on the port in your
+callback URL. When you finish logging in, Schwab sends a request to that URL
+with the login data in the query parameters. **Anyone who receives that request
+can steal your token and act on your account as though they were you.**
+
+That server uses a self-signed certificate, which is why your browser warns
+about it --- see :ref:`the troubleshooting section <ssl_errors>`. The
+certificate protects the data in transit. It does nothing about who is listening
+on the port, which is why the host is restricted rather than left to you.
 
 So only ``127.0.0.1`` is allowed as a host. Any other hostname raises a
 ``ValueError`` --- including ``localhost``, which resolves to the right place
