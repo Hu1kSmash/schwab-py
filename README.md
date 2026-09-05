@@ -32,6 +32,39 @@ Synchronous and `asyncio` over the same interface. Python 3.10+.
 
 ---
 
+> [!CAUTION]
+>
+> ## This places real orders with real money, and it has bugs
+>
+> Not "may have". Every defect ever found in this library was in code with 100%
+> test coverage, and the ones that mattered were **silent** — a limit price a
+> cent low, an option symbol naming a different contract, an order routed to a
+> venue nobody asked for, an accepted order whose id was thrown away. None
+> raised. None failed a test. The [changelog](CHANGELOG.md) lists them, and the
+> next one is in there somewhere too, unfound.
+>
+> **You are responsible for every order your code places.** Not the author, not
+> the maintainer, not anyone who has ever contributed. The MIT licence puts it
+> in legal terms — no warranty of any kind, express or implied, and no liability
+> for any claim or damages — and it means what it says: if this library loses
+> you money, the loss is yours.
+>
+> Nothing here is financial advice and nothing here is a guarantee of
+> correctness. There is no undo. A wrong order is filled before you know it was
+> wrong.
+>
+> So: start with size you can afford to lose entirely, and stay there longer
+> than feels necessary. Reconcile against the broker rather than trusting what
+> this library tells you happened. Read the code on every path that places,
+> replaces or cancels an order — all of it is [right
+> here](https://github.com/Hu1kSmash/schwaby/tree/main/schwab). And assume the
+> bug you have not found is on the path you did not read.
+>
+> If that is not a trade you want to make, use Schwab's own interfaces instead.
+> That is a completely reasonable choice.
+
+---
+
 ## What is `schwaby`?
 
 Charles Schwab publishes a trading API: REST endpoints for quotes, option chains,
@@ -271,8 +304,14 @@ Copyright is shared: © 2023 Alex Golec for the original work, © 2026 Tom Hirt 
 the changes since. Alex's notice is retained in full, as the licence requires and
 as the work deserves.
 
-**Disclaimer:** *schwaby is an unofficial API wrapper. It is in no way endorsed by or
-affiliated with Charles Schwab or any associated organization. Make sure to read and
-understand the terms of service of the underlying API before using this package. The
-authors accept no responsibility for any damage that might stem from use of this
-package. See the LICENSE file for more details.*
+**Disclaimer.** `schwaby` is an unofficial API wrapper, in no way endorsed by or
+affiliated with Charles Schwab or any associated organization. Read and
+understand the terms of service of the underlying API before using it.
+
+The software is provided **as is, without warranty of any kind**. The author,
+the maintainer and every contributor accept no responsibility or liability for
+any loss, damage, missed trade, unintended order, or any other consequence
+whatsoever arising from its use — financial or otherwise, foreseeable or not.
+Using it against a funded account is entirely at your own risk. See
+[LICENSE](LICENSE) for the binding text, and the caution at the top of this file
+for what it means in practice.

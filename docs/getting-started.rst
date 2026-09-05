@@ -7,6 +7,12 @@ Getting Started
 Welcome to ``schwaby``! Read this page to learn how to install and configure 
 your first Schwab Python application.
 
+.. warning::
+
+   This library places real orders against real accounts, there is no paper
+   trading, and it has bugs --- see the caution on :ref:`the front page
+   <index>`. Everything you place with it is your responsibility and your risk.
+
 
 +++++++++++++++++
 Schwab API Access
