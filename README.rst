@@ -20,16 +20,9 @@ running automated strategies against real accounts.
    rather than plausible-looking. Several of those needed changes to behaviour rather than
    additions on top.
 
-   Those changes were offered upstream first. They were not taken up --- the original has not
-   merged a change since August 2025 --- so rather than run an ever-growing private patch set
-   against someone else's release schedule, they were consolidated here and this became its
-   own project with its own release line.
-
-   **That is not a criticism of the original or of its author.** A library maintained at a
-   comfortable pace for a broad audience is a perfectly reasonable thing to be, and it is not
-   the same thing as one maintained for a machine that places orders with real money. Both can
-   be right. If you are not trading live capital, the original may suit you better and is
-   worth your consideration.
+   Those changes were offered upstream first. They were not taken up, so rather than run an
+   ever-growing private patch set against someone else's release schedule, they were
+   consolidated here and this became its own project with its own release line.
 
    **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``.
 
