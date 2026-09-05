@@ -190,6 +190,16 @@ never updated, and it is what the project page would have shown. It now says
 
 ### Removed, continued
 
+**`tox.ini` is gone, and CI runs the suite directly.** tox was not doing what
+it looked like it was doing. It built an sdist, installed it into an isolated
+environment, and then ran `coverage` as an external command --- which executed
+under a different interpreter and imported `schwab` from the working tree, so
+the environment tox had just built was never the one under test. Measured, not
+inferred. The Python version came from `setup-python` either way, which is the
+part that mattered, so the matrix still runs 3.10 through 3.14 on the same
+platforms. `passenv` and `setenv` went with it: the `CI` variable the macOS skip
+reads was only awkward because tox filtered the environment.
+
 **The `schwab-generate-token.py` script is gone.** It fetched a token and wrote
 it to a file without your having to write any Python, and it was the only thing
 this package installed onto your `PATH`. Nothing in the library used it, and it

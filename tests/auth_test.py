@@ -41,8 +41,10 @@ CALLBACK_URL = 'https://redirect.url.com'
 # marked per test rather than on the class, because the other seven in this
 # class never reach the child process and pass on macOS today.
 #
-# tox filters the environment, so CI only arrives here because tox.ini names it
-# in passenv. Without that this skip silently never fired.
+# GitHub Actions sets CI=true on every runner, and this reads it directly. It
+# used to need naming in tox.ini's passenv, because tox filtered the
+# environment -- and until it was named there, this skip silently never fired.
+# tox is gone as of 3.0.0, so the variable simply arrives.
 #
 # What would settle it: run `pytest tests/auth_test.py -k ClientFromLoginFlow`
 # on a physical Mac, where CI is unset and nothing is skipped. If it passes
