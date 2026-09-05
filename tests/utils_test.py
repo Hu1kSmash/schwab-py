@@ -52,10 +52,58 @@ class UtilsTest(unittest.TestCase):
 
     @no_duplicates
     def test_extract_order_id_order_not_ok(self):
+        # assertRaises' `msg` is the message printed when the *assertion*
+        # fails, not a pattern the exception has to match -- so the version of
+        # this test that passed `msg='order not successful'` asserted nothing
+        # about the exception at all and would have passed on any wording.
         response = MockResponse({}, 403)
-        with self.assertRaises(
-                UnsuccessfulOrderException, msg='order not successful'):
+        with self.assertRaisesRegex(
+                UnsuccessfulOrderException, 'order not successful: status 403'):
             self.utils.extract_order_id(response)
+
+    @no_duplicates
+    def test_a_rejection_carries_schwabs_own_explanation(self):
+        # A status code does not distinguish a malformed order from one the
+        # account cannot afford. Schwab types an error body as
+        # {"message": ..., "errors": [...]}, and that is the only place the
+        # reason appears.
+        response = MockResponse(
+                {'message': 'Order validation failed',
+                 'errors': ['Insufficient buying power']}, 400)
+
+        with self.assertRaises(UnsuccessfulOrderException) as cm:
+            self.utils.extract_order_id(response)
+
+        self.assertIn('Order validation failed', str(cm.exception))
+        self.assertIn('Insufficient buying power', str(cm.exception))
+        self.assertIs(response, cm.exception.response)
+
+    @no_duplicates
+    def test_a_rejection_with_no_readable_body_still_raises(self):
+        # The formatter runs on the failure path, so anything it cannot read
+        # has to yield no detail rather than an exception of its own --
+        # replacing a useful error with a useless one is worse than terse.
+        class Unreadable(MockResponse):
+            def json(self):
+                raise ValueError('not json')
+
+        response = Unreadable({}, 500)
+        with self.assertRaisesRegex(
+                UnsuccessfulOrderException, 'order not successful: status 500'):
+            self.utils.extract_order_id(response)
+
+    @no_duplicates
+    def test_a_long_explanation_is_bounded(self):
+        # This lands in a log line. The whole body stays reachable on
+        # .response for anyone who wants the rest of it.
+        response = MockResponse({'message': 'x' * 5000}, 400)
+
+        with self.assertRaises(UnsuccessfulOrderException) as cm:
+            self.utils.extract_order_id(response)
+
+        self.assertLess(len(str(cm.exception)), 700)
+        self.assertIn('truncated', str(cm.exception))
+        self.assertEqual(5000, len(cm.exception.response.json()['message']))
 
     @no_duplicates
     def test_extract_order_id_no_location(self):

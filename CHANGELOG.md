@@ -42,6 +42,15 @@ every release up to and including 2.6.0. Uninstalling and reinstalling clears
 it; `pip uninstall schwaby` on its own may take files another package put
 there, so check `site-packages/tests` afterwards if you had one.
 
+**A rejected order threw away Schwab's explanation of why.**
+`UnsuccessfulOrderException` carried the HTTP status code and nothing else, so
+`order not successful: status 400` was the whole of what you got --- a status
+code does not distinguish a malformed order from one the account cannot afford.
+Schwab types an error body as `{"message": ..., "errors": [...]}`, and that text
+now appears in the exception message, bounded so it cannot put an entire order
+echo into a log line. The rejected response is on the exception as `.response`
+for the rest of it.
+
 **The venue enum was being written to a field that does not select a venue.**
 `set_destination_link_name` validated its argument against `Destination`, whose
 twelve values are the ones Schwab lists for `requestedDestination`.

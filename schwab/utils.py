@@ -67,11 +67,58 @@ class EnumEnforcer:
         self.enforce_enums = enforce_enums
 
 
+def _describe_error(response):
+    '''Schwab's own words for a rejection, as a suffix, or the empty string.
+
+    Bounded, because this ends up in an exception message and from there in
+    somebody's logs: an unbounded body would put an entire order echo on one
+    line. The whole response stays reachable as the exception's ``.response``
+    for anyone who needs the rest.
+
+    Anything unexpected yields no suffix rather than an error of its own. This
+    runs on the failure path, and a formatter that raises there would replace a
+    useful exception with a useless one.
+    '''
+    try:
+        body = response.json()
+        if not isinstance(body, dict):
+            return ''
+        parts = []
+        message = body.get('message')
+        if isinstance(message, str) and message.strip():
+            parts.append(message.strip())
+        errors = body.get('errors')
+        if isinstance(errors, (list, tuple)):
+            parts.extend(e.strip() for e in errors
+                         if isinstance(e, str) and e.strip())
+        if not parts:
+            return ''
+        detail = '; '.join(parts)
+        if len(detail) > _ERROR_DETAIL_LIMIT:
+            detail = detail[:_ERROR_DETAIL_LIMIT] + '... (truncated, see .response)'
+        return ': ' + detail
+    except Exception:
+        return ''
+
+
+_ERROR_DETAIL_LIMIT = 500
+
+
 class UnsuccessfulOrderException(ValueError):
     '''
     Raised by :meth:`Utils.extract_order_id` when attempting to extract an
     order ID from a :meth:`Client.place_order` response that was not successful.
+
+    The rejected response is on the exception as ``.response``, and Schwab's own
+    explanation is in the message when there was one. Schwab types an error body
+    as ``{"message": ..., "errors": [...]}``, and that text is the only place
+    the reason for a rejection appears -- a status code alone does not
+    distinguish a malformed order from one the account cannot afford.
     '''
+
+    def __init__(self, response, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response = response
 
 
 class AccountHashMismatchException(ValueError):
@@ -165,7 +212,10 @@ class Utils(EnumEnforcer):
         '''
         if place_order_response.is_error:
             raise UnsuccessfulOrderException(
-                'order not successful: status {}'.format(place_order_response.status_code))
+                    place_order_response,
+                    'order not successful: status {}{}'.format(
+                        place_order_response.status_code,
+                        _describe_error(place_order_response)))
 
         try:
             location = place_order_response.headers['Location']

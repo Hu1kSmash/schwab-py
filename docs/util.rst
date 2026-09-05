@@ -52,6 +52,7 @@ The exceptions this library raises that a caller might reasonably catch.
 covered in :ref:`the streaming documentation <error_handlers>`.
 
 .. autoclass:: schwab.utils.UnsuccessfulOrderException
+  :members:
 
 .. autoclass:: schwab.utils.AccountHashMismatchException
 
