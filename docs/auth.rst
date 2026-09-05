@@ -183,35 +183,6 @@ crosses a network rather than a loopback interface.
 .. autofunction:: schwab.auth.client_from_received_url
 
 
-If you don't want to create a client and just want to fetch a token, you can use
-the ``schwab-generate-token.py`` script that's installed with the library. This 
-method is particularly useful if you want to create your token on one machine 
-and use it on another.
-
-.. code-block:: bash
-
-  usage: schwab-generate-token.py [-h] --token_file TOKEN_FILE --api_key API_KEY --app_secret APP_SECRET --callback_url CALLBACK_URL [--browser BROWSER]
-
-  Fetch a new token and write it to a file
-
-  options:
-    -h, --help            show this help message and exit
-
-  required arguments:
-    --token_file TOKEN_FILE
-                          Path to token file. Any existing file will be overwritten
-    --api_key API_KEY
-    --app_secret APP_SECRET
-    --callback_url CALLBACK_URL
-    --browser BROWSER     Manually specify a browser in which to start the login flow. See here for available options:
-                          https://docs.python.org/3/library/webbrowser.html#webbrowser.register
-    
-
-This script is installed by ``pip``, and will only be accessible if you've added
-pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.
-
-
 .. _token_expiration:
 
 -------------------------
@@ -600,9 +571,20 @@ opening the relevant URLs, this flow allows you to manually copy-paste around
 the URLs. It is a little more cumbersome, and it needs no browser on the machine
 running it.
 
-Alterately, you can take advantage of the fact that token files are portable.
-Once you create a token on one machine, such as one where you can open a web
-browser, you can easily copy that token file to another machine, such as your
-application in the cloud. However, make sure you don't use the same token on
-two machines. It is recommended to delete the token created on the
-browser-capable machine as soon as it is copied to its destination.
+Alternately, you can take advantage of the fact that token files are portable.
+Create the token on a machine that has a browser:
+
+.. code-block:: python
+
+  from schwab.auth import client_from_login_flow
+
+  client_from_login_flow(
+          api_key='YOUR_API_KEY',
+          app_secret='YOUR_APP_SECRET',
+          callback_url='https://127.0.0.1:8182',
+          token_path='token.json')
+
+then copy ``token.json`` to the machine that will use it --- a container, or an
+application in the cloud. Make sure you do not use the same token on two
+machines at once, and delete the copy on the browser-capable machine as soon as
+it has been transferred.

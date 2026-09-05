@@ -287,11 +287,17 @@ class LinkTest(unittest.TestCase):
 
         The first version of this walked `schwab/` and `bin/` only, which left
         the docs tree -- the place links are actually written -- uncovered, and
-        a dead onboarding hostname sat there through it.
+        a dead onboarding hostname sat there through it. `bin/` is gone as of
+        3.0.0; the roots are asserted to exist so a removed one fails loudly
+        rather than quietly reducing what is checked.
         """
         found = []
-        for directory in ('schwab', 'bin', 'docs'):
+        for directory in ('schwab', 'docs'):
             root = os.path.join(REPO_ROOT, directory)
+            # os.walk on a path that does not exist yields nothing and raises
+            # nothing, so a directory that is renamed or removed silently
+            # shrinks what this check covers. `bin/` went that way in 3.0.0.
+            assert os.path.isdir(root), 'walk root is gone: %s' % directory
             for dirpath, _, filenames in os.walk(root):
                 if '__pycache__' in dirpath or '_build' in dirpath:
                     continue

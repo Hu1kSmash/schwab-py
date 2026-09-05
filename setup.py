@@ -119,8 +119,5 @@ setuptools.setup(
         'Upstream': 'https://github.com/alexgolec/schwab-py',
     },
     license='MIT',
-    scripts=[
-        'bin/schwab-generate-token.py',
-    ],
 )
 

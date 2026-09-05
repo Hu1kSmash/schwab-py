@@ -190,6 +190,18 @@ never updated, and it is what the project page would have shown. It now says
 
 ### Removed, continued
 
+**The `schwab-generate-token.py` script is gone.** It fetched a token and wrote
+it to a file without your having to write any Python, and it was the only thing
+this package installed onto your `PATH`. Nothing in the library used it, and it
+was packaged the legacy way --- `scripts=` copies the file verbatim, so the
+installed command carried a `.py` extension and a project prefix from before the
+rename.
+
+The case it existed for is creating a token on a machine with a browser and
+copying the file to one without. That recipe is still in `docs/auth.rst`, now
+with the four lines of `client_from_login_flow` that replace the script. A
+`pip install schwaby` no longer puts anything in `bin/`.
+
 **`MAINTAINING.md` is gone, replaced by `RELEASING.md`.** A quarter of it
 described a fork: the branch model, the `upstream-main` mirror, the pull-request
 discipline, and why that arrangement ended. None of it applies to a standalone
