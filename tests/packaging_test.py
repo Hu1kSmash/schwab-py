@@ -81,13 +81,26 @@ class SetupPyTest(unittest.TestCase):
         self.assertEqual(version, self.kwargs['version'])
 
     @no_duplicates
-    def test_install_requires_stays_the_three_packages(self):
-        # The point of the extras is that a plain install is small. If
-        # something lands here, it lands on every machine running this library,
-        # so it should be a deliberate decision rather than a merge artifact.
+    def test_install_requires_is_the_agreed_set(self):
+        # Anything here lands on every machine running this library, so it
+        # should be a deliberate decision rather than a merge artifact. The
+        # login packages moved back in 2.7.0 after the extras split saved
+        # twelve packages for nobody and cost three silent failure modes.
         names = sorted(package_name(r)
                        for r in self.kwargs['install_requires'])
-        self.assertEqual(['authlib', 'httpx2', 'websockets'], names)
+        self.assertEqual(
+                ['authlib', 'flask', 'httpx2', 'multiprocess', 'psutil',
+                 'websockets'], names)
+
+    @no_duplicates
+    def test_the_extras_survive_as_no_ops(self):
+        # Kept so an existing `schwaby[login]` pin installs without a pip
+        # warning. Empty because everything they named is a hard dependency
+        # now. Removing the names would break nobody's install but would print
+        # 'does not provide the extra', which reads like a fault.
+        extras = self.kwargs['extras_require']
+        self.assertEqual([], extras['login'])
+        self.assertEqual([], extras['codegen'])
 
     @no_duplicates
     def test_dev_covers_every_extra(self):

@@ -182,40 +182,6 @@ Now that you have some background on how orders are structured, let's dive into
 the order builder itself. 
 
 
-------------------------------------------------------------
-Constructing ``OrderBuilder`` Objects from Historical Orders
-------------------------------------------------------------
-
-Schwab supports a huge array of order specifications, including both equity and 
-option orders, stop, conditionals, etc. However, the exact format of these 
-orders is tricky: if you don't specify the order *exactly* how Schwab expects 
-it, you'll either have your order rejected for no reason, or you'll end up 
-placing a different order than you intended. 
-
-Meanwhile, thinkorswim and the Schwab web and app UIs let you easily place these 
-orders, just not in a programmatic way. ``schwaby`` helps bridge this gap by 
-allowing you to place a complex order through your preferred UI and then 
-producing code that would have generated this order using ``schwaby``. This 
-process looks like this: 
-
-1. Place an order using your favorite UI.
-2. Call the following script to generate code for the most recently-placed 
-   order:
-
-.. code-block:: shell
-
-  # Notice we don't prefix this with "python" because this is a script that was 
-  # installed by pip when you installed schwaby
-  schwab-order-codegen.py --token_file <your token file path> --api_key <your 
-  API key>
-
-3. Copy-paste the resulting code and adapt it to your needs.
-
-This script is installed by ``pip``, and will only be accessible if you've added
-pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.
-
-
 --------------------------
 ``OrderBuilder`` Reference
 --------------------------
@@ -385,9 +351,9 @@ you keep that decision.
 :meth:`~schwab.orders.generic.OrderBuilder.copy_price` still sets the field
 without the type check, so a float or an int passes through as given. The one
 thing it refuses is a non-finite ``decimal.Decimal``, which would render as the
-transmittable string ``"NaN"``. That is what
-:func:`schwab.contrib.orders.construct_repeat_order` uses to rebuild an order
-exactly as Schwab reported it. The prebuilt templates on the
+transmittable string ``"NaN"``. It is there for rebuilding an order from a
+historical response, where the price Schwab reported is the price you mean and
+converting it would change the order. The prebuilt templates on the
 :ref:`order_templates` page are not an exception to any of this -- they call
 :meth:`~schwab.orders.generic.OrderBuilder.set_price` and take the same string
 it does.

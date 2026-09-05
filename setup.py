@@ -8,20 +8,6 @@ with open('schwab/version.py', 'r') as f:
     version = [s.strip() for s in f.read().strip().split('=')][1]
     version = version[1:-1]
 
-# The interactive login flow runs a local HTTPS callback server in a separate
-# process. Nothing else needs any of this, and a process which loads its token
-# from a file should not carry a web framework.
-LOGIN_REQUIRES = [
-    'flask',
-    'multiprocess',
-    'psutil',
-]
-
-# contrib.orders formats the code it generates.
-CODEGEN_REQUIRES = [
-    'autopep8',
-]
-
 setuptools.setup(
     # The distribution is `schwaby`; the importable package is still `schwab`.
     # Those differ deliberately -- see the note in README.rst. It means a
@@ -52,7 +38,7 @@ setuptools.setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Intended Audience :: Developers',
-        'Development Status :: 1 - Planning',
+        'Development Status :: 5 - Production/Stable',
         'Natural Language :: English',
         'Operating System :: OS Independent',
         'Topic :: Office/Business :: Financial :: Investment',
@@ -61,17 +47,31 @@ setuptools.setup(
     install_requires=[
         'authlib>=1.8',
         'httpx2>=2.12.0',
-        'websockets>=14.0'
+        'websockets>=14.0',
+
+        # The interactive login flow runs a callback server in a separate
+        # process. These were an optional `login` extra in 2.3.0 and are hard
+        # dependencies again as of 2.7.0: the split saved twelve packages for
+        # nobody who existed, and cost three silent failure modes -- pip freeze
+        # drops extras, a consumer's deploy check could not evaluate an
+        # extras-bearing requirement line, and the machinery needed its own
+        # error path and tests.
+        'flask',
+        'multiprocess',
+        'psutil',
     ],
     extras_require={
-        'login': LOGIN_REQUIRES,
-        'codegen': CODEGEN_REQUIRES,
+        # Kept, and deliberately empty. Anyone pinned to `schwaby[login]` or
+        # `schwaby[codegen]` keeps working with no pip warning; the extras are
+        # now no-ops because everything they named is installed anyway.
+        'login': [],
+        'codegen': [],
         # Composed rather than restated. The suite really starts flask servers
         # through multiprocess, so dev depends on the extras; listing them
         # twice meant adding a package to an extra and forgetting dev produced
         # a green local run against a stale virtualenv and a red CI, failing in
         # auth tests rather than anywhere near the change.
-        'dev': LOGIN_REQUIRES + CODEGEN_REQUIRES + [
+        'dev': [
             'callee',
             'colorama',
             'coverage',
@@ -93,7 +93,6 @@ setuptools.setup(
     },
     license='MIT',
     scripts=[
-        'bin/schwab-order-codegen.py',
         'bin/schwab-generate-token.py',
     ],
 )

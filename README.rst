@@ -45,14 +45,6 @@ running automated strategies against real accounts.
      install time, and the first sign is behaviour from a version you did not choose. If you
      are migrating, uninstall ``schwab-py`` first.
 
-   The plain install is three packages, because the interactive login flow lives in an
-   extra. **Install** ``schwaby[login]`` **if you call** ``easy_client`` **or**
-   ``client_from_login_flow`` --- including when you already have a token file, since
-   ``easy_client`` re-authenticates through the login flow once the token passes
-   ``max_token_age`` (6.5 days by default). Calling either without the extra raises an
-   ``ImportError`` saying so. ``schwaby[codegen]`` covers the order-code generator.
-   Notebook users need neither: there ``easy_client`` uses the manual flow.
-
    **Bug reports and questions go to** `the issue tracker
    <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
@@ -95,16 +87,7 @@ project, which is a different and much older codebase:
 
 .. code-block:: shell
 
-  pip install "schwaby[login]"
-
-``[login]`` is there because the example below calls ``easy_client``, which
-opens a browser login flow the first time it runs. Without it, the plain
-``schwaby`` install is the three packages the library always needs. The interactive
-login flow and the order-code generator each need an extra ---
-``schwaby[login]`` and ``schwaby[codegen]`` --- because neither is used by a
-program that loads its token from a file, and a bare install is twelve fewer
-packages on a machine that places trades. Calling either without its extra says
-so, and says what to install.
+  pip install schwaby
 
 You're good to go! To demonstrate, here's how you can authenticate and fetch
 daily historical price data for the past twenty years:
@@ -152,9 +135,7 @@ stays out of your way everywhere else:
    wrong. ``OrderBuilder`` assembles it from named parts and validates the
    values it can, and ``schwab.orders.equities`` and ``schwab.orders.options``
    provide ready-made templates for the common equity orders and option
-   strategies. ``schwab.contrib.orders`` runs the process backwards: hand it an
-   order you have already placed and it returns the builder that would place it
-   again.
+   strategies.
 
 4. **Enums rather than magic strings.** Each endpoint's legal parameter values
    are enums on the client, so a misspelled projection or an invalid order

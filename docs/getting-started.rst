@@ -171,7 +171,7 @@ the *original* project, which is a different and much older codebase:
 
 .. code-block:: shell
 
-  pip install "schwaby[login]"
+  pip install schwaby
 
 .. warning::
 
@@ -180,13 +180,6 @@ the *original* project, which is a different and much older codebase:
   other's files --- ``pip`` gives no warning and nothing fails until you are
   running code you did not choose. If you are migrating from ``schwab-py``,
   uninstall it first.
-
-The ``[login]`` part matters for this guide: the interactive login flow below
-runs a local HTTPS callback server, and the packages for that are an optional
-extra rather than a hard dependency. A program that loads an existing token
-from a file never uses them, so a plain install leaves them out --- it is
-twelve fewer packages on a machine that places trades. See
-:ref:`optional_extras` if you would rather install the smaller set.
 
 That's it! You're done! You can verify the install succeeded by importing the
 package:
@@ -205,78 +198,6 @@ environment in the same terminal window, use the command:
 .. code-block:: shell
 
   deactivate
-
-.. _optional_extras:
-
-~~~~~~~~~~~~~~~
-Optional Extras
-~~~~~~~~~~~~~~~
-
-Only three packages are always required: ``authlib``, ``httpx2`` and
-``websockets``. Everything else is grouped by what needs it:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Extra
-     - Install when you
-     - Pulls in
-   * - ``login``
-     - call :func:`~schwab.auth.client_from_login_flow`, or
-       :func:`~schwab.auth.easy_client` at all --- see the warning below,
-       which applies even when you have a token file
-     - ``flask``, ``multiprocess``, ``psutil``
-   * - ``codegen``
-     - use :func:`schwab.contrib.orders.code_for_builder`
-     - ``autopep8``
-
-Combine them with a comma --- ``schwaby[login,codegen]``. Calling one of
-those entry points without its extra raises an ``ImportError`` naming the extra
-and the command to install it, rather than a bare "No module named 'flask'".
-
-.. warning::
-
-  ``easy_client`` needs ``login`` **even if you already have a token file.**
-  Its ``max_token_age`` defaults to 6.5 days, and it discards a token older
-  than that and fetches a new one through the login flow. Without the extra,
-  such a program runs for 6.5 days and then fails on a routine
-  re-authentication. Pass ``max_token_age=0`` to turn the proactive refresh
-  off --- though Schwab's refresh token expires seven days after
-  authorization whatever you do, so anything long-running needs some way to
-  log in again.
-
-  In a Jupyter or Colab notebook this does not apply: there ``easy_client``
-  uses :func:`~schwab.auth.client_from_manual_flow`, which starts no callback
-  server and needs no extra.
-
-A daemon which authenticates with :func:`~schwab.auth.client_from_token_file`
-and streams needs neither extra. So does one built on
-:func:`~schwab.auth.client_from_access_functions`.
-
-.. warning::
-
-  **Do not regenerate a requirements line with** ``pip freeze``. It drops the
-  extra. A requirements file containing
-
-  .. code-block:: text
-
-    schwaby[login]
-
-  installs correctly with ``pip install -r``, but ``pip freeze`` writes it back
-  out as ``schwaby==X.Y.Z`` --- no ``[login]``, and no warning from either
-  command. Installing from that frozen line gives you a working-looking
-  environment which is missing ``flask``, ``multiprocess`` and ``psutil``, and
-  the failure appears later, the first time something calls the login flow.
-
-  This is not specific to this package: ``pip freeze`` records no extras for
-  anything. Measured on ``requests[socks]`` --- it freezes to
-  ``requests==2.34.2``, and installing that line leaves ``PySocks`` out. Pin the
-  literal line you want and keep it, rather than deriving it from an installed
-  environment.
-
-  This is a long-standing ``pip`` limitation with direct URL requirements
-  rather than anything specific to this package. Pin the literal line and keep
-  it, rather than deriving it from the installed environment.
 
 ++++++++++++
 Getting Help

@@ -31,7 +31,6 @@ import unittest
 from schwab import auth, debug, streaming
 from schwab.orders import generic
 from schwab.orders.generic import OrderBuilder
-from schwab.scripts import orders_codegen
 
 from .utils import MockAsyncOAuthClient, MockOAuthClient, no_duplicates
 
@@ -40,7 +39,7 @@ HTTP_MODULE_NAMES = ('httpx', 'httpx2')
 
 # Every module here builds a type guard, an except clause or a status
 # comparison against the HTTP module it imports.
-MODULES_WHICH_GUARD_ON_HTTP = (auth, debug, generic, orders_codegen, streaming)
+MODULES_WHICH_GUARD_ON_HTTP = (auth, debug, generic, streaming)
 
 API_KEY = 'APIKEY'
 APP_SECRET = '0x5EC07'

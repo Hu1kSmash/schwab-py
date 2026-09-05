@@ -14,7 +14,6 @@ import urllib
 import warnings
 import webbrowser
 
-from schwab._optional import import_optional
 from schwab.client import AsyncClient, Client
 from schwab.debug import register_redactions
 
@@ -294,8 +293,10 @@ def __run_client_from_login_flow_server(
     '''Helper server for intercepting redirects to the callback URL. See
     client_from_login_flow for details.'''
 
-    flask = import_optional(
-            'flask', 'login', 'The interactive login flow')
+    # Imported here rather than at module scope: this is the only entry point
+    # that runs a callback server, and a process which loads its token from a
+    # file should not pay for a web framework at import time.
+    import flask
 
     app = flask.Flask(__name__)
 
@@ -348,7 +349,6 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     refresh the token as necessary, writing each updated version to 
     ``token_path``.
 
-    **Requires the** ``login`` **extra:** ``pip install "schwaby[login]"``.
     The callback server
     below needs ``flask``, ``multiprocess`` and ``psutil``, which a plain
     install leaves out because nothing else in the library uses them. Calling
@@ -441,16 +441,14 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     # that runs a local callback server, and a process which loads its token
     # from a file should not pay for a web framework and a process manager it
     # will never call.
-    multiprocess = import_optional(
-            'multiprocess', 'login', 'The interactive login flow')
-    psutil = import_optional(
-            'psutil', 'login', 'The interactive login flow')
+    import multiprocess
+    import psutil
 
-    # flask is imported by the server, which runs in a child process -- so its
-    # ImportError would surface as child stderr and the parent would report
-    # RedirectServerExitedError, blaming the callback port for a missing
-    # package. Checked here, in the parent, where it can actually be raised.
-    import_optional('flask', 'login', 'The interactive login flow')
+    # flask is imported by the server, which runs in a child process -- so an
+    # ImportError there would surface as child stderr and the parent would
+    # report RedirectServerExitedError, blaming the callback port for a broken
+    # install. Imported here, in the parent, where it can actually be raised.
+    import flask  # noqa: F401
 
     output_queue = multiprocess.Queue()
 
@@ -921,20 +919,14 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
     any way. If ``token_path`` refers to an existing file, this method will
     assume that file is valid token and will attempt to parse it.
 
-    **Outside a notebook, requires the** ``login`` **extra -- even when a token
-    file already exists.** ``max_token_age`` defaults to 6.5 days, and a token
-    older than that is discarded here and replaced through
-    :func:`client_from_login_flow`, which needs the extra. Without it a program
-    runs for 6.5 days and then fails on a routine re-authentication rather than
-    at startup. Setting ``max_token_age=0`` skips the proactive refresh, but
-    Schwab's refresh token expires seven days after authorization regardless,
-    so a long-running program still needs some way to log in again. If you want
-    an install without the extra, use :func:`client_from_token_file` and handle
-    re-authentication yourself.
+    **``max_token_age`` defaults to 6.5 days**, and a token older than that is
+    discarded here and replaced through :func:`client_from_login_flow`. Setting
+    ``max_token_age=0`` skips the proactive refresh, but Schwab's refresh token
+    expires seven days after authorization regardless, so a long-running program
+    still needs some way to log in again.
 
     In a Jupyter or Colab notebook this routes to
-    :func:`client_from_manual_flow` instead, which starts no callback server
-    and needs no extra.
+    :func:`client_from_manual_flow` instead, which starts no callback server.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret provided upon :ref:`app approval 

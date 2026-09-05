@@ -1,5 +1,4 @@
 from schwab import auth
-from schwab._optional import import_optional
 from .utils import (
         AnyStringWith,
         MockAsyncOAuthClient,
@@ -1438,23 +1437,17 @@ class NormalizeCredentialTest(unittest.TestCase):
         self.assertEqual(API_KEY, sync_session.call_args[0][0])
 
 
-class ImportOptionalTest(unittest.TestCase):
-    '''The user-facing contract of the login/codegen extras is entirely the
-    error you get without them: it has to name the extra and give a command
-    that works. None of that is exercised by importing a package which is
-    installed, so it is asserted here directly.'''
+class ParentSideImportTest(unittest.TestCase):
+    """flask is imported in the parent process, not only in the child.
+
+    The callback server runs in a child. An ImportError there surfaces as child
+    stderr and the parent reports RedirectServerExitedError -- blaming the
+    callback port for a broken install. This survived the removal of the
+    optional-import machinery in 2.7.0 because it was never about extras: it is
+    about which process gets to raise.
+    """
 
     def block(self, *module_names, evict=()):
-        '''Makes ``module_names`` unimportable for the duration of a with
-        block, the way a machine without the extra would have them. Patching
-        importlib.import_module would test the mock rather than the import
-        machinery, and would not produce a real ModuleNotFoundError with a
-        populated .name, which is what the helper now discriminates on.
-
-        ``evict`` drops further modules from the cache without blocking them,
-        so a package which is installed is re-imported inside the block and
-        fails on whatever it imports rather than being served from
-        ``sys.modules``.'''
         blocked = set(module_names)
         evicted = blocked | set(evict)
 
@@ -1480,132 +1473,26 @@ class ImportOptionalTest(unittest.TestCase):
                 yield
             finally:
                 sys.meta_path.remove(blocker)
-                # Replaced wholesale, not merged: a half-initialised module
-                # left behind by the failed import would otherwise stay in the
-                # cache and break every later test that imports it.
                 sys.modules.clear()
                 sys.modules.update(saved)
 
         return ctx()
 
     @no_duplicates
-    def test_missing_login_package_names_the_extra_and_the_command(self):
-        with self.block('flask'):
-            with self.assertRaises(ImportError) as cm:
-                import_optional('flask', 'login', 'The interactive login flow')
-
-        msg = str(cm.exception)
-        self.assertIn("requires the 'login' extra", msg)
-        self.assertIn('The interactive login flow', msg)
-        self.assertIn('pip install "schwaby[login]"', msg)
-        self.assertIn('(missing module: flask)', msg)
-
-    @no_duplicates
-    def test_missing_codegen_package_names_the_extra_and_the_command(self):
-        with self.block('autopep8'):
-            with self.assertRaises(ImportError) as cm:
-                import_optional('autopep8', 'codegen',
-                                'Generating order-builder code')
-
-        msg = str(cm.exception)
-        self.assertIn("requires the 'codegen' extra", msg)
-        self.assertIn('pip install "schwaby[codegen]"', msg)
-
-    @no_duplicates
-    def test_the_command_carries_no_version_and_no_git_url(self):
-        # Published to PyPI as `schwaby`, so the command is the plain install
-        # rather than a pinned git URL. The old form interpolated the running
-        # version, which was right while the only way to get this was a git
-        # clone -- and wrong the moment a tagged release existed that pip could
-        # resolve on its own. A command naming a version cannot stay correct
-        # for a caller who wants the latest.
-        with self.block('flask'):
-            with self.assertRaises(ImportError) as cm:
-                import_optional('flask', 'login', 'The interactive login flow')
-
-        msg = str(cm.exception)
-        self.assertIn('pip install "schwaby[login]"', msg)
-        self.assertNotIn('git+', msg)
-        self.assertNotIn('@v', msg)
-
-    @no_duplicates
-    def test_a_package_which_fails_to_import_itself_is_not_called_missing(self):
-        # flask is present, but the werkzeug it imports is not. Telling this
-        # caller to install the 'login' extra is wrong advice for a version
-        # conflict, and hides which module actually failed. flask really is
-        # imported here: the point is that the failure comes from inside it.
-        import flask  # noqa: F401  -- the test is meaningless if absent
-
-        with self.block('werkzeug', evict=('flask',)):
-            with self.assertRaises(ModuleNotFoundError) as cm:
-                import_optional('flask', 'login',
-                                'The interactive login flow')
-
-        self.assertEqual('werkzeug', cm.exception.name.split('.')[0])
-        self.assertNotIn('extra', str(cm.exception))
-
-    @no_duplicates
-    def test_a_missing_submodule_is_not_reported_as_a_missing_package(self):
-        # A truncated install can raise ModuleNotFoundError for 'flask.json'.
-        # The extra is installed, so telling the caller to install it is the
-        # same misdirection one level down.
-        missing = ModuleNotFoundError(
-                "No module named 'flask.json'", name='flask.json')
-
-        with patch('schwab._optional.importlib.import_module',
-                   side_effect=missing):
-            with self.assertRaises(ModuleNotFoundError) as cm:
-                import_optional('flask', 'login', 'The interactive login flow')
-
-        self.assertIs(missing, cm.exception)
-        self.assertNotIn('extra', str(cm.exception))
-
-    @no_duplicates
-    def test_a_non_modulenotfound_import_error_propagates_unchanged(self):
-        sentinel = ImportError('cannot import name something from flask')
-
-        with patch('schwab._optional.importlib.import_module',
-                   side_effect=sentinel):
-            with self.assertRaises(ImportError) as cm:
-                import_optional('flask', 'login', 'The interactive login flow')
-
-        self.assertIs(sentinel, cm.exception)
-
-    @no_duplicates
-    def test_client_from_login_flow_names_the_extra_before_forking(self):
-        # The flask check lives in the parent for a reason: imported in the
-        # child, its ImportError surfaced as child stderr and the parent
-        # reported RedirectServerExitedError, blaming the callback port for a
-        # missing package. Nothing tested that, so moving the check back into
-        # the child would silently restore the misdiagnosis.
+    def test_a_missing_flask_is_not_a_redirect_server_failure(self):
         with self.block('flask'):
             with self.assertRaises(ImportError) as cm:
                 auth.client_from_login_flow(
                         API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
                         '/tmp/does-not-matter.json')
 
-        msg = str(cm.exception)
-        self.assertIn("requires the 'login' extra", msg)
-        self.assertIn('flask', msg)
+        # An ImportError naming flask, not a RedirectServerExitedError blaming
+        # the port.
+        self.assertNotIsInstance(cm.exception, auth.RedirectServerExitedError)
+        self.assertIn('flask', str(cm.exception))
 
     @no_duplicates
-    def test_client_from_login_flow_names_the_extra_for_each_package(self):
-        for module in ('multiprocess', 'psutil'):
-            with self.subTest(module=module):
-                with self.block(module):
-                    with self.assertRaises(ImportError) as cm:
-                        auth.client_from_login_flow(
-                                API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
-                                '/tmp/does-not-matter.json')
-
-                msg = str(cm.exception)
-                self.assertIn("requires the 'login' extra", msg)
-                self.assertIn(module, msg)
-
-    @no_duplicates
-    def test_easy_client_names_the_extra_when_it_must_log_in(self):
-        # The 6.5-day case: a token file exists but is too old, so easy_client
-        # discards it and goes to the login flow.
+    def test_easy_client_reaches_the_same_check(self):
         tmp = tempfile.TemporaryDirectory()
         token_path = os.path.join(tmp.name, 'token.json')
         with open(token_path, 'w') as f:
@@ -1613,29 +1500,7 @@ class ImportOptionalTest(unittest.TestCase):
                        'creation_timestamp': 0}, f)
 
         with self.block('flask'):
-            with self.assertRaises(ImportError) as cm:
+            with self.assertRaises(ImportError):
                 auth.easy_client(
                         API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
                         token_path)
-
-        self.assertIn("requires the 'login' extra", str(cm.exception))
-
-    @no_duplicates
-    def test_code_for_builder_names_the_codegen_extra(self):
-        # CodegenExtraTest covers the CLI's early check by mocking
-        # import_optional, so it says nothing about the library function a
-        # non-CLI caller reaches.
-        from schwab.contrib.orders import code_for_builder
-        from schwab.orders.equities import equity_buy_limit
-
-        with self.block('autopep8'):
-            with self.assertRaises(ImportError) as cm:
-                code_for_builder(equity_buy_limit('AAPL', 1, '100.00'))
-
-        msg = str(cm.exception)
-        self.assertIn("requires the 'codegen' extra", msg)
-        self.assertIn('autopep8', msg)
-
-    @no_duplicates
-    def test_an_installed_package_is_returned(self):
-        self.assertIs(json, import_optional('json', 'login', 'Whatever'))

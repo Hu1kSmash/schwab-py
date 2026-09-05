@@ -498,10 +498,10 @@ class OrderBuilder(EnumEnforcer):
         '''
         Directly set the price, skipping the type check
         :func:`set_price` applies -- a float, an int or a string all pass
-        through as given. This is what
-        :func:`schwab.contrib.orders.construct_repeat_order` uses to
-        reconstruct an order exactly as Schwab reported it. The prebuilt
-        templates use :func:`set_price` and take the same string it does.
+        through as given. It is there for reconstructing an order from a
+        historical response, where the price Schwab reported is the price you
+        mean and converting it would change the order. The prebuilt templates
+        use :func:`set_price` and take the same string it does.
 
         One thing is still refused: a non-finite ``decimal.Decimal``. Rendering
         one produces the string ``"NaN"``, which is well-formed JSON and

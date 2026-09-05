@@ -34,6 +34,17 @@ a way that's appropriate to the context in which you're running:
  * In a notebook like Google Colab or Jupyter, instead run the :func:`manual 
    flow <schwab.auth.client_from_manual_flow>`.
 
+.. note::
+
+  It does not simply load an existing token. It discards one older than
+  ``max_token_age`` --- 6.5 days by default --- and fetches a new one through
+  the login flow, so an unattended program built on ``easy_client`` runs for
+  6.5 days and then stops at a browser login. Pass ``max_token_age=0`` to turn
+  the proactive refresh off. Schwab's refresh token expires seven days after
+  authorization either way, so anything long-running needs some route back to a
+  login; turning it off means choosing that route yourself rather than having
+  one chosen at an arbitrary moment.
+
 Here's how you can use it. If for some reason this doesn't work, please report 
 your issues `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`__. See 
 :func:`~schwab.auth.easy_client` for details:

@@ -101,21 +101,16 @@ fail together. It costs four seconds.
 
 1. `CHANGELOG.md` — a new section, written for someone who has to decide whether to upgrade.
 2. `schwab/version.py` — bump. Minor for added surface or changed behaviour, patch for fixes alone.
-3. **The install instructions**, which name the version and go stale silently:
+3. **Anything naming a version**, which goes stale silently:
 
    ```shell
-   grep -rn 'schwaby@v' README.rst docs/
+   grep -rn 'schwaby@v\|schwaby==' README.rst docs/ schwab/
    ```
 
-   Today that is the fork notice and the install section in `README.rst`, and
-   the install step in `docs/getting-started.rst`. Nothing checks these, and a
-   reader following a stale one installs the wrong release without any sign
-   that they have.
-
-   `schwab/_optional.py` no longer names a version at all: published to PyPI,
-   the command it prints is `pip install "schwaby[login]"`, which stays correct
-   for every release. The stale-pin window this step used to warn about closed
-   with the move off git installs.
+   Should be empty. Since 2.6.0 the install instructions say `pip install
+   schwaby` with no version, so a reader following them gets the current
+   release. Anything that reintroduces a number is a thing nothing checks, and a
+   reader following a stale one installs the wrong release with no sign of it.
 
    Prose which names a version is worse than a pin, because the grep above does
    not match it and the release may land under a different number than the one
@@ -168,20 +163,38 @@ installs the original
 project from PyPI, which is not this code — and it will appear to work, since
 the importable package has the same name.
 
-## Not on PyPI, deliberately
+## The distribution name and the import name
 
-`schwaby` on PyPI is upstream's. This fork installs from git:
+Since 2.6.0 this publishes to PyPI as `schwaby`:
 
 ```shell
-pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwaby@vX.Y.Z"
+pip install schwaby
+```
+
+The importable package stays `schwab`. Those differ on purpose: keeping the import makes this a
+drop-in replacement, so a consumer changes one line of `requirements.txt` and nothing else.
+
+The cost is that `schwaby` cannot be installed alongside `schwab-py`, the original project. Both
+provide the `schwab` package, so whichever lands second silently overwrites the other's files —
+`pip` gives no warning and nothing fails at install time. Say so wherever the install is
+documented; a reader with both installed is running code they did not choose.
+
+A git install still works for testing an unreleased commit:
+
+```shell
+pip install "schwaby @ git+https://github.com/Hu1kSmash/schwaby@<sha>"
 ```
 
 Pin a tag or a commit, never a branch — a branch moves, and a rebuild months later would silently
-pull different code.
+pull different code. Note that tags before the repository rename carry `schwab-py` in their
+metadata, so `pip` refuses a `schwaby @ git+...@v2.5.1`.
 
-The importable package stays `schwab`, which is what makes this a drop-in replacement and keeps
-merges from upstream clean. The cost is that this cannot be installed alongside the PyPI package:
-both provide `schwab`, and whichever was installed last wins.
+## No extras
+
+As of 2.7.0 there are none that install anything. `login` and `codegen` survive as empty names so
+an existing pin does not warn, and there is nothing to add to them: an extra that everybody has to
+install is a hard dependency with a way to get it wrong. `pip freeze` silently drops extras, which
+is what turned the 2.4.0 split from a saving into three late failure modes.
 
 ## Why this fork stopped tracking upstream
 

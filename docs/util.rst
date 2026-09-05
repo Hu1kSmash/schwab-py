@@ -57,7 +57,6 @@ covered in :ref:`the streaming documentation <error_handlers>`.
 
 .. autoclass:: schwab.orders.common.InvalidOrderException
 
-.. autoclass:: schwab.contrib.orders.UnrepeatableOrderError
 
 ``TokenRefreshError`` is documented under :ref:`auth` with the retry guidance it
 needs, and is not repeated here.

@@ -15,6 +15,64 @@ current model.
 
 ---
 
+## 2.7.0
+
+**A plain `pip install schwaby` is now the whole library.** The extras are gone
+and the order-code generator is gone with them.
+
+### Changed
+
+**`flask`, `multiprocess` and `psutil` are hard dependencies again.** They were
+split out into a `login` extra in 2.4.0. The split saved twelve packages for
+nobody — every consumer that authenticates at all installed the extra — and cost
+three ways to be wrong, all of which fail late rather than at install time:
+
+- `pip freeze` drops extras. A `schwaby[login]` line freezes to
+  `schwaby==X.Y.Z`, and installing from that leaves the login packages out with
+  no warning from either command. This is not specific to this package —
+  measured on `requests[socks]`, which freezes the same way.
+- `easy_client` needs the extra even when a token file already exists, because
+  its `max_token_age` defaults to 6.5 days and it re-authenticates through the
+  login flow past that. A program installed without the extra ran for 6.5 days
+  and then failed on a routine refresh.
+- An extra is a second thing to get right in a pin, and nothing checks it.
+
+**An existing `schwaby[login]` or `schwaby[codegen]` pin keeps working.** Both
+names survive as empty extras, so `pip` installs them without the
+"does not provide the extra" warning that reads like a fault. They install
+nothing beyond the base, because everything they named is in the base now.
+
+### Removed
+
+**The order-code generator.** `schwab.contrib.orders`, the
+`schwab-order-codegen.py` script, the `codegen` extra's `autopep8` dependency,
+and the `construct_repeat_order` / `code_for_builder` / `UnrepeatableOrderError`
+API. It turned an order from your history back into the `OrderBuilder` code that
+would place it again — a one-off aid for writing a program, not something a
+running one calls, and it reconstructed a builder by pattern-matching against a
+response format that has moved on. Nothing else in the library used it.
+
+`schwab.contrib.util` is unaffected — `StreamJsonDecoder` and
+`HeuristicJsonDecoder`, which the streaming documentation recommends for frames
+that will not parse, are still there and still imported the same way.
+
+**`schwab/_optional.py`.** With nothing optional left to import, the
+lazy-import-with-a-helpful-ImportError machinery has nothing to guard.
+`auth.py` imports `flask`, `multiprocess` and `psutil` inside the functions
+that use them, which keeps the parent-process import check that distinguishes a
+broken install from a callback server that exited.
+
+### Documentation
+
+The install instructions, the "Optional Extras" table and the `pip freeze`
+warning are gone from `getting-started.rst` and the README, along with the
+codegen section of `order-builder.rst`.
+
+`easy_client`'s 6.5-day proactive re-authentication is now documented in
+`auth.rst`, where it belongs. It was previously described only as a reason to
+install an extra, so it disappeared with the extras despite being a property of
+`easy_client` rather than of the packaging.
+
 ## 2.6.0
 
 **First release published to PyPI, as `schwaby`.**

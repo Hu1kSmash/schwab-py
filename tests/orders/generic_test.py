@@ -1345,8 +1345,8 @@ class PricesAreStringsTest(unittest.TestCase):
 
     @no_duplicates
     def test_copy_price_still_takes_anything(self):
-        # The documented escape hatch, used by contrib.orders to rebuild a
-        # historical order exactly as the venue reported it.
+        # The documented escape hatch, for rebuilding a historical order
+        # exactly as the venue reported it.
         self.order_builder.copy_price(12.34)
         self.assertEqual(12.34, self.order_builder.build()['price'])
 
