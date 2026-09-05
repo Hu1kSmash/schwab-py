@@ -1,4 +1,4 @@
-``schwab-py``: A Charles Schwab API Wrapper
+``schwaby``: A Charles Schwab API Wrapper
 ===========================================
 
 .. note::
@@ -25,23 +25,34 @@
    ever resumes active maintenance, ``upstream-main`` is still mirrored here, and reconciling
    with it is a better outcome than defending the fork.
 
-   The importable package is still ``schwab``, so your imports do not change. It is not
-   published to PyPI — install it from git, pinned to a tag or commit:
+   **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``:
 
    .. code-block:: shell
 
-     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.5.1"
+     pip install schwaby
 
-   That plain install is three packages, because the interactive login flow lives in an
-   extra. **Install** ``schwab-py[login]`` **instead if you call** ``easy_client`` **or**
-   ``client_from_login_flow`` — including when you already have a token file, since
+   .. code-block:: python
+
+     import schwab   # unchanged
+
+   Those differ on purpose. Keeping ``schwab`` as the import makes this a drop-in
+   replacement --- a consumer changes one line of ``requirements.txt`` and nothing else.
+
+   .. warning::
+
+     **The consequence is that** ``schwaby`` **and the original** ``schwab-py`` **cannot be
+     installed together.** Both provide the ``schwab`` package, so whichever is installed
+     second silently overwrites the other's files. ``pip`` does not warn, nothing fails at
+     install time, and the first sign is behaviour from a version you did not choose. If you
+     are migrating, uninstall ``schwab-py`` first.
+
+   The plain install is three packages, because the interactive login flow lives in an
+   extra. **Install** ``schwaby[login]`` **if you call** ``easy_client`` **or**
+   ``client_from_login_flow`` --- including when you already have a token file, since
    ``easy_client`` re-authenticates through the login flow once the token passes
    ``max_token_age`` (6.5 days by default). Calling either without the extra raises an
-   ``ImportError`` saying so. ``schwab-py[codegen]`` covers the order-code generator.
+   ``ImportError`` saying so. ``schwaby[codegen]`` covers the order-code generator.
    Notebook users need neither: there ``easy_client`` uses the manual flow.
-
-   Note that installing this alongside the PyPI ``schwab-py`` will conflict, since both provide
-   the ``schwab`` package. Pick one.
 
    Issues and pull requests specific to this fork belong on `its own tracker
    <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything not caused by the changes listed
@@ -50,10 +61,10 @@
 .. image:: https://github.com/Hu1kSmash/schwab-py/workflows/tests/badge.svg
   :target: https://github.com/Hu1kSmash/schwab-py/actions?query=workflow%3Atests
 
-What is ``schwab-py``?
+What is ``schwaby``?
 ----------------------
 
-``schwab-py`` is an unofficial wrapper around the Charles Schwab Consumer APIs.  
+``schwaby`` is an unofficial wrapper around the Charles Schwab Consumer APIs.  
 It strives to be as thin and unopinionated as possible, offering an elegant 
 programmatic interface over each endpoint. Notable functionality includes:
 
@@ -65,10 +76,10 @@ programmatic interface over each endpoint. Notable functionality includes:
 * Account info
 * Synchronous and ``asyncio`` clients over the same interface
 
-How do I use ``schwab-py``?
+How do I use ``schwaby``?
 ---------------------------
 
-For a full description of ``schwab-py``'s functionality, check out the 
+For a full description of ``schwaby``'s functionality, check out the 
 `documentation <https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst>`__. Meanwhile,
 here's a quick getting started guide:
 
@@ -80,19 +91,19 @@ it. You app must be approved by Schwab before you can use it (this can take
 several days).  You can find more detailed instructions `here 
 <https://github.com/Hu1kSmash/schwab-py/blob/main/docs/getting-started.rst>`__.
 
-Next, install ``schwab-py``. Note this fork is not on PyPI, so install it from
-git, pinned to a release --- ``pip install schwab-py`` would fetch the original
-project from PyPI instead:
+Next, install ``schwaby``. Note the distribution is ``schwaby`` while the
+import stays ``schwab`` --- ``pip install schwab-py`` fetches the *original*
+project, which is a different and much older codebase:
 
 .. code-block:: shell
 
-  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.5.1"
+  pip install "schwaby[login]"
 
 ``[login]`` is there because the example below calls ``easy_client``, which
 opens a browser login flow the first time it runs. Without it, the plain
-``schwab-py`` install is the three packages the library always needs. The interactive
+``schwaby`` install is the three packages the library always needs. The interactive
 login flow and the order-code generator each need an extra ---
-``schwab-py[login]`` and ``schwab-py[codegen]`` --- because neither is used by a
+``schwaby[login]`` and ``schwaby[codegen]`` --- because neither is used by a
 program that loads its token from a file, and a bare install is twelve fewer
 packages on a machine that places trades. Calling either without its extra says
 so, and says what to install.
@@ -116,22 +127,22 @@ daily historical price data for the past twenty years:
   r.raise_for_status()
   print(json.dumps(r.json(), indent=4))
 
-Why should I use ``schwab-py``?
+Why should I use ``schwaby``?
 -------------------------------
 
 Schwab's API is capable, but several corners of it are tedious to get right and
-unforgiving when you get them wrong. ``schwab-py`` takes on those corners and
+unforgiving when you get them wrong. ``schwaby`` takes on those corners and
 stays out of your way everywhere else:
 
 1. **Safe authentication.** Schwab's API supports OAuth authentication, but too
    many people online end up rolling their own implementation of the OAuth
    callback flow. This is both unnecessarily complex and dangerous.
-   ``schwab-py`` handles token fetch and refreshing for you.
+   ``schwaby`` handles token fetch and refreshing for you.
 
 2. **A usable streaming client.** Schwab's streamer is a raw websocket that
    identifies every field by number, and the same number means different things
    on different services --- field ``2`` is the ask price on
-   ``LEVELONE_EQUITIES`` and the open price on ``CHART_EQUITY``. ``schwab-py``
+   ``LEVELONE_EQUITIES`` and the open price on ``CHART_EQUITY``. ``schwaby``
    carries the field tables for all thirteen services and relabels each message
    as it arrives, so you receive ``{'ASK_PRICE': 421.6, ...}`` rather than
    ``{'2': 421.6, ...}``. It also handles login and logout, keeps track of which
@@ -153,17 +164,17 @@ stays out of your way everywhere else:
    400 in the middle of a session.
 
 5. **Minimal wrapping everywhere else.** Unlike some other API wrappers, which
-   build in lots of logic and validation, ``schwab-py`` takes raw values and
+   build in lots of logic and validation, ``schwaby`` takes raw values and
    returns the raw ``httpx2`` response, allowing you to interpret the complex API
    responses as you see fit. Anything you can do with raw HTTP requests you can
-   do with ``schwab-py``, only more easily.
+   do with ``schwaby``, only more easily.
 
 The documentation linked above is worth reading even if you end up calling the
 API directly. Schwab's own developer portal is behind a login, so for a good
 deal of this API those pages are the most accessible description of how it
 actually behaves.
 
-Why should I *not* use ``schwab-py``?
+Why should I *not* use ``schwaby``?
 -------------------------------------
 
 As excellent as Schwab's API is, there are a few popular features it does not 
@@ -172,7 +183,7 @@ offer:
  * While Charles Schwab owns `thinkorswim (AKA TOS)
    <https://www.schwab.com/trading/thinkorswim/desktop>`__, this API is 
    unaffiliated with it. You can access and trade against the same accounts as 
-   TOS, but some of TOS's functionality is not supported by ``schwab-py``
+   TOS, but some of TOS's functionality is not supported by ``schwaby``
  * Paper trading is not supported
  * Historical options pricing data is not available. 
 
@@ -186,11 +197,11 @@ Please read the fork notice at the top first: problems which are not caused by
 this fork's changes are usually better reported `upstream
 <https://github.com/alexgolec/schwab-py/issues>`__.
 
-``schwab-py`` is released under the
+``schwaby`` is released under the
 `MIT license <https://github.com/Hu1kSmash/schwab-py/blob/main/LICENSE>`__, and remains
 copyright Alex Golec.
 
-**Disclaimer:** *schwab-py is an unofficial API wrapper. It is in no way 
+**Disclaimer:** *schwaby is an unofficial API wrapper. It is in no way 
 endorsed by or affiliated with Charles Schwab or any associated organization.
 Make sure to read and understand the terms of service of the underlying API 
 before using this package. This authors accept no responsibility for any

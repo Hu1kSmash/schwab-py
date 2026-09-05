@@ -4,7 +4,7 @@
 Utilities
 =========
 
-This section describes miscellaneous utility methods provided by ``schwab-py``.  
+This section describes miscellaneous utility methods provided by ``schwaby``.  
 All utilities are presented under the ``Utils`` class:
 
 .. autoclass:: schwab.utils.Utils

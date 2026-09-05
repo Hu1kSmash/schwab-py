@@ -1497,8 +1497,7 @@ class ImportOptionalTest(unittest.TestCase):
         msg = str(cm.exception)
         self.assertIn("requires the 'login' extra", msg)
         self.assertIn('The interactive login flow', msg)
-        self.assertIn('pip install "schwab-py[login] @ '
-                      'git+https://github.com/Hu1kSmash/schwab-py@v', msg)
+        self.assertIn('pip install "schwaby[login]"', msg)
         self.assertIn('(missing module: flask)', msg)
 
     @no_duplicates
@@ -1510,20 +1509,24 @@ class ImportOptionalTest(unittest.TestCase):
 
         msg = str(cm.exception)
         self.assertIn("requires the 'codegen' extra", msg)
-        self.assertIn('pip install "schwab-py[codegen] @ '
-                      'git+https://github.com/Hu1kSmash/schwab-py@v', msg)
+        self.assertIn('pip install "schwaby[codegen]"', msg)
 
     @no_duplicates
-    def test_the_command_pins_the_running_version(self):
-        # The pin is interpolated rather than hardcoded so it cannot rot into
-        # naming a tag older than the one the caller is running.
-        from schwab.version import version
-
+    def test_the_command_carries_no_version_and_no_git_url(self):
+        # Published to PyPI as `schwaby`, so the command is the plain install
+        # rather than a pinned git URL. The old form interpolated the running
+        # version, which was right while the only way to get this was a git
+        # clone -- and wrong the moment a tagged release existed that pip could
+        # resolve on its own. A command naming a version cannot stay correct
+        # for a caller who wants the latest.
         with self.block('flask'):
             with self.assertRaises(ImportError) as cm:
                 import_optional('flask', 'login', 'The interactive login flow')
 
-        self.assertIn('@v%s"' % version, str(cm.exception))
+        msg = str(cm.exception)
+        self.assertIn('pip install "schwaby[login]"', msg)
+        self.assertNotIn('git+', msg)
+        self.assertNotIn('@v', msg)
 
     @no_duplicates
     def test_a_package_which_fails_to_import_itself_is_not_called_missing(self):

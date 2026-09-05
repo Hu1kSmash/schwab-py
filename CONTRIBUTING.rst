@@ -1,5 +1,5 @@
 =============================
-Contributing to ``schwab-py``
+Contributing to ``schwaby``
 =============================
 
 Fixing a bug? Adding a feature? Just cleaning up for the sake of cleaning up?

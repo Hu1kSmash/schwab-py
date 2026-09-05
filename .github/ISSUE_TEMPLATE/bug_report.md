@@ -34,7 +34,7 @@ Paste in the code that causes the bug to occur.
 <ACTUAL BEHAVIOR>
 
 **Version and Environment**
- - `schwab-py` version (`print(schwab.version.version)`):
+ - `schwaby` version (`print(schwab.version.version)`):
  - Python version:
  - OS and how you run your code (terminal, notebook, container, IDE):
 

@@ -39,7 +39,7 @@ Most problems are solved faster by gathering a little information first.
 Reporting a Bug
 ---------------
 
-``schwab-py`` is not perfect. Features are missing, documentation may be out of
+``schwaby`` is not perfect. Features are missing, documentation may be out of
 date, and it almost certainly contains bugs. If you think of a way in which it
 can be improved, we're glad to hear it.
 
@@ -49,7 +49,7 @@ can be improved, we're glad to hear it.
 Enable Logging
 ~~~~~~~~~~~~~~
 
-Behind the scenes, ``schwab-py`` performs diagnostic logging of its activity
+Behind the scenes, ``schwaby`` performs diagnostic logging of its activity
 using Python's `logging <https://docs.python.org/3/library/logging.html>`__
 module. You can enable this debug information by telling the root logger to
 print these messages:
@@ -72,7 +72,7 @@ there and nowhere else.
 Gather Logs For Your Bug Report
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you still can't work out what is going wrong, ``schwab-py`` can gather and
+If you still can't work out what is going wrong, ``schwaby`` can gather and
 prepare logs for filing issues. It captures the logs, anonymizes them, and dumps
 them to the console when the program exits. Enable it by calling this method
 **before doing anything else in your application**:

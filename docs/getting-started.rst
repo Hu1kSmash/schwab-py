@@ -4,7 +4,7 @@
 Getting Started
 ===============
 
-Welcome to ``schwab-py``! Read this page to learn how to install and configure 
+Welcome to ``schwaby``! Read this page to learn how to install and configure 
 your first Schwab Python application.
 
 
@@ -42,9 +42,9 @@ following errors, please email Schwab's API team at `traderapi@schwab.com
 Schwab API Access
 +++++++++++++++++
 
-Before we do anything with ``schwab-py``, you'll need to create a developer 
+Before we do anything with ``schwaby``, you'll need to create a developer 
 account with Schwab and register an application. By the end of this section, 
-you'll have accomplished the three prerequisites for using ``schwab-py``:
+you'll have accomplished the three prerequisites for using ``schwaby``:
 
 1. Create an application.
 #. Choose and save the callback URL (important for authenticating).
@@ -72,7 +72,7 @@ required fields.
 The first thing you'll select is the API Product. We in the community aren't 
 currently clear on the difference between the options ("Accounts and Trading 
 Production" and "Market Data"). It seems that selecting "Accounts and Trading 
-Production" grants access to all APIs supported by ``schwab-py``, so unless you 
+Production" grants access to all APIs supported by ``schwaby``, so unless you 
 have a reason to do differently, we recommend selecting that option.
 
 **Order Limit**
@@ -88,7 +88,7 @@ Most users have no reason to restrict this, so we recommend setting this to 120.
 
 .. figure:: _static/setting-up-name-and-description.png
 
-Next are the app name and description. ``schwab-py`` does not use these values, 
+Next are the app name and description. ``schwaby`` does not use these values, 
 but the folks at at Schwab might. We recommend being descriptive here, if only 
 so that users and app approvers know what your app will do.
 
@@ -108,7 +108,7 @@ The vast majority of users should set their callback URL to
 ``https://127.0.0.1:8182`` (note the lack of a trailing slash). This means that 
 once the login flow is completed, the generated credentials are sent back to 
 your machine at port ``8182``, rather than any external server. Setting a port 
-number is not require to use ``schwab-py``, but it is required to use 
+number is not require to use ``schwaby``, but it is required to use 
 :ref:`certain convenient features <login_flow>`.  Advanced users may be able to 
 use a non-local callback URL, but this documentation assumes they are advanced 
 enough not to need our help creating such a setup.
@@ -118,7 +118,7 @@ refusing to create apps with callback URLs containing ``127.0.0.1``. If you
 encounter this, please `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__ so it can be tracked.
 
 In any case, note that whatever callback URL you choose, you must pass it to 
-``schwab-py`` *exactly* in the same way as you specified it while creating your 
+``schwaby`` *exactly* in the same way as you specified it while creating your 
 app.  Any deviation (including adding or removing a trailing slash!) can cause 
 difficult-to-debug issues. Be careful not to mis-copy this value.
 
@@ -134,7 +134,7 @@ After your app is created, you will likely see it in an ``Approved - Pending``
 state when you view it in your dashboard. Don't be fooled by the word 
 ``Approved``: your app is not yet ready for use. You must wait for Schwab to 
 *actually* approve it, at which point its status will be ``Ready For Use.`` This 
-can take up to a few days. Only then can you proceed to using ``schwab-py``.
+can take up to a few days. Only then can you proceed to using ``schwaby``.
 
 **Client Secrets**
 
@@ -144,18 +144,18 @@ Once your app is created and approved, you will be able to access your app key
 and app secret by clicking through to your approved application in the 
 dashobard. Neither  of these are meant to be shared by anyone, so keep them safe 
 (the ones displayed here are fake). You will also be required to pass these into 
-``schwab-py``.  This library does not share these values with anyone except 
+``schwaby``.  This library does not share these values with anyone except 
 official Schwab endpoints, not even its authors. Don't share them with anyone.
 
 ++++++++++++++++++++++++
-Installing ``schwab-py``
+Installing ``schwaby``
 ++++++++++++++++++++++++
 
 This section outlines the installation process for client users. For developers, 
 check out :ref:`contributing`.
 
-The recommended method of installing ``schwab-py`` is using ``pip`` from
-`PyPi <https://pypi.org/project/schwab-py/>`__ in a `virtualenv <https://
+The recommended method of installing ``schwaby`` is using ``pip`` from
+`PyPi <https://pypi.org/project/schwaby/>`__ in a `virtualenv <https://
 virtualenv.pypa.io/en/latest/>`__. First create a virtualenv in your project 
 directory. Here we assume your virtualenv is called ``my-venv``:
 
@@ -165,13 +165,21 @@ directory. Here we assume your virtualenv is called ``my-venv``:
   virtualenv -v my-venv
   source my-venv/bin/activate
 
-You are now ready to install ``schwab-py``. This fork is not published to
-PyPI, so install it from git, pinned to a release. Plain
-``pip install schwab-py`` would fetch the original project from PyPI instead:
+You are now ready to install ``schwaby``. The distribution is ``schwaby`` and
+the importable package is ``schwab`` --- ``pip install schwab-py`` would fetch
+the *original* project, which is a different and much older codebase:
 
 .. code-block:: shell
 
-  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.5.1"
+  pip install "schwaby[login]"
+
+.. warning::
+
+  ``schwaby`` and ``schwab-py`` cannot be installed together. Both provide the
+  ``schwab`` package, so whichever is installed second silently overwrites the
+  other's files --- ``pip`` gives no warning and nothing fails until you are
+  running code you did not choose. If you are migrating from ``schwab-py``,
+  uninstall it first.
 
 The ``[login]`` part matters for this guide: the interactive login flow below
 runs a local HTTPS callback server, and the packages for that are an optional
@@ -222,7 +230,7 @@ Only three packages are always required: ``authlib``, ``httpx2`` and
      - use :func:`schwab.contrib.orders.code_for_builder`
      - ``autopep8``
 
-Combine them with a comma --- ``schwab-py[login,codegen]``. Calling one of
+Combine them with a comma --- ``schwaby[login,codegen]``. Calling one of
 those entry points without its extra raises an ``ImportError`` naming the extra
 and the command to install it, rather than a bare "No module named 'flask'".
 
@@ -247,19 +255,24 @@ and streams needs neither extra. So does one built on
 
 .. warning::
 
-  **Do not regenerate a pinned line with** ``pip freeze``. It drops the extra.
-  A requirements file containing
+  **Do not regenerate a requirements line with** ``pip freeze``. It drops the
+  extra. A requirements file containing
 
   .. code-block:: text
 
-    schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.5.1
+    schwaby[login]
 
   installs correctly with ``pip install -r``, but ``pip freeze`` writes it back
-  out as ``schwab-py @ git+...@<commit sha>`` --- no ``[login]``, and no
-  warning from either command. Installing from that frozen line gives you a
-  working-looking environment which is missing ``flask``, ``multiprocess`` and
-  ``psutil``, and the failure appears later, the first time something calls the
-  login flow.
+  out as ``schwaby==X.Y.Z`` --- no ``[login]``, and no warning from either
+  command. Installing from that frozen line gives you a working-looking
+  environment which is missing ``flask``, ``multiprocess`` and ``psutil``, and
+  the failure appears later, the first time something calls the login flow.
+
+  This is not specific to this package: ``pip freeze`` records no extras for
+  anything. Measured on ``requests[socks]`` --- it freezes to
+  ``requests==2.34.2``, and installing that line leaves ``PySocks`` out. Pin the
+  literal line you want and keep it, rather than deriving it from an installed
+  environment.
 
   This is a long-standing ``pip`` limitation with direct URL requirements
   rather than anything specific to this package. Pin the literal line and keep

@@ -1,4 +1,4 @@
-``schwab-py``: An Unofficial Charles Schwab API Client
+``schwaby``: An Unofficial Charles Schwab API Client
 ======================================================
 
 .. image:: _static/github-logo.png
@@ -29,7 +29,7 @@
 
 
 
-**Disclaimer:** *schwab-py is an unofficial API wrapper. It is in no way 
+**Disclaimer:** *schwaby is an unofficial API wrapper. It is in no way 
 endorsed by or affiliated with Charles Schwab or any associated organization.
 Make sure to read and understand the terms of service of the underlying API 
 before using this package. This authors accept no responsibility for any

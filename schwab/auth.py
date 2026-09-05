@@ -348,8 +348,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     refresh the token as necessary, writing each updated version to 
     ``token_path``.
 
-    **Requires the** ``login`` **extra:** ``pip install "schwab-py[login] @
-    git+https://github.com/Hu1kSmash/schwab-py@<tag>"``. The callback server
+    **Requires the** ``login`` **extra:** ``pip install "schwaby[login]"``.
+    The callback server
     below needs ``flask``, ``multiprocess`` and ``psutil``, which a plain
     install leaves out because nothing else in the library uses them. Calling
     this without them raises an ``ImportError`` naming the extra.

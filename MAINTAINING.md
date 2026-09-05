@@ -104,7 +104,7 @@ fail together. It costs four seconds.
 3. **The install instructions**, which name the version and go stale silently:
 
    ```shell
-   grep -rn 'schwab-py@v' README.rst docs/
+   grep -rn 'schwaby@v' README.rst docs/
    ```
 
    Today that is the fork notice and the install section in `README.rst`, and
@@ -112,17 +112,10 @@ fail together. It costs four seconds.
    reader following a stale one installs the wrong release without any sign
    that they have.
 
-   `schwab/_optional.py` prints the same pin in the ImportError for a missing
-   extra, but interpolates `schwab.version.version` rather than hardcoding it,
-   so step 2 fixes it and the grep above does not need to find it.
-
-   It is wrong for the whole of any release which adds or renames an extra:
-   from the merge until the tag, `version.py` still names the previous release,
-   whose tag does not carry the new extra — `pip` says `does not provide the
-   extra 'login'` and installs the pre-split version. That window closes at
-   step 4 and cannot be closed earlier, since the tag does not exist yet. Do
-   steps 2 through 5 together rather than leaving a bumped `main` untagged,
-   and do not hand anyone the pre-release pin.
+   `schwab/_optional.py` no longer names a version at all: published to PyPI,
+   the command it prints is `pip install "schwaby[login]"`, which stays correct
+   for every release. The stale-pin window this step used to warn about closed
+   with the move off git installs.
 
    Prose which names a version is worse than a pin, because the grep above does
    not match it and the release may land under a different number than the one
@@ -155,13 +148,14 @@ the suite, so an edit which leaves it unparseable is invisible to `pytest`.
 `tests/packaging_test.py` now covers the common cases, but the build is what
 proves the artifact.
 
-Never write a bare `pip install schwab-py` anywhere. That installs the original
+Never write `pip install schwab-py` as an instruction for this project. That
+installs the original
 project from PyPI, which is not this code — and it will appear to work, since
 the importable package has the same name.
 
 ## Not on PyPI, deliberately
 
-`schwab-py` on PyPI is upstream's. This fork installs from git:
+`schwaby` on PyPI is upstream's. This fork installs from git:
 
 ```shell
 pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@vX.Y.Z"

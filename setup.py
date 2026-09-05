@@ -23,13 +23,17 @@ CODEGEN_REQUIRES = [
 ]
 
 setuptools.setup(
-    name='schwab-py',
+    # The distribution is `schwaby`; the importable package is still `schwab`.
+    # Those differ deliberately -- see the note in README.rst. It means a
+    # drop-in replacement for the original at the cost of never being
+    # installable alongside it.
+    name='schwaby',
     version=version,
     # Authorship stays with the original author, who wrote essentially all of
     # this. His contact details are deliberately not carried over: support for
     # this fork should not land in his inbox.
     author='Alex Golec',
-    maintainer='Hu1kSmash',
+    maintainer='Tom Hirt',
     description=('Unofficial API wrapper for the Schwab HTTP API '
                  '(maintained fork of alexgolec/schwab-py)'),
     long_description=long_description,
