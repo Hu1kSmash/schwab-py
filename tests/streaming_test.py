@@ -6,6 +6,7 @@ import json
 import os
 import logging
 import copy
+import sys
 import warnings
 from .utils import (
         account_preferences, has_diff, MockResponse, no_duplicates,
@@ -8005,8 +8006,8 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         # First three, then powers of ten: 1, 2, 3, 10, 100, 1000 -- not 5000
         # lines, and not silence between 3 and 1000 either.
         self.assertEqual(6, len(records))
-        self.assertIn('1000 absorbed', records[-1])
-        self.assertIn('10 absorbed', records[3])
+        self.assertIn('1000 of these', records[-1])
+        self.assertIn('10 of these', records[3])
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -8061,6 +8062,111 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertIn('unexpected requestid: 999', str(cm.exception))
         self.assertNotIn('malformed', str(cm.exception))
+
+    @no_duplicates
+    def test_a_flood_of_one_kind_does_not_silence_another(self):
+        # One shared counter meant a framing change on a few hundred symbols
+        # drove the count past a thousand within two ticks, after which a
+        # different fault was neither logged nor reported -- so an operator
+        # investigating the first outage saw no trace of the second.
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        handler = Capture()
+        logging.getLogger('schwab.streaming').addHandler(handler)
+        try:
+            for i in range(5000):
+                self.client._absorb('a bad element', i)
+
+            before = len(records)
+            self.client._absorb('a service which is not a name', ['a list'])
+        finally:
+            logging.getLogger('schwab.streaming').removeHandler(handler)
+
+        # The second kind is on its first occurrence and must be heard.
+        self.assertEqual(before + 1, len(records))
+        self.assertIn('a service which is not a name', records[-1])
+        # And the total still tells the truth about scale.
+        self.assertIn('5001 in all', records[-1])
+
+    @no_duplicates
+    def test_set_json_decoder_does_not_need_contrib_imported(self):
+        # schwab/__init__.py does not import contrib, so looking the base class
+        # up as schwab.contrib.util.StreamJsonDecoder raised AttributeError for
+        # anyone who subclassed it where it is defined. Every other test here
+        # imports contrib.util first, which is exactly what made the old code
+        # work -- so this one must not.
+        for name in list(sys.modules):
+            if name.startswith('schwab.contrib'):
+                del sys.modules[name]
+
+        blocked = 'schwab.contrib'
+
+        class Blocker:
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.startswith(blocked):
+                    raise ModuleNotFoundError(
+                            'No module named %r' % fullname, name=fullname)
+                return None
+
+        blocker = Blocker()
+        sys.meta_path.insert(0, blocker)
+        try:
+            class Decoder(streaming.StreamJsonDecoder):
+                def decode_json_string(self, raw):
+                    return json.loads(raw)
+
+            # Must not raise AttributeError reaching for schwab.contrib.
+            self.client.set_json_decoder(Decoder())
+        finally:
+            sys.meta_path.remove(blocker)
+
+        self.assertIsInstance(self.client.json_decoder, Decoder)
+
+    @no_duplicates
+    def test_a_debug_line_survives_an_unserialisable_frame(self):
+        # Cosmetic rather than load-bearing -- logging swallows a formatting
+        # failure -- but without it the content of every debug line is replaced
+        # by a traceback, for exactly the people who customised the decoder.
+        import collections
+
+        rendered = self.client._pretty(collections.ChainMap({'a': 1}))
+
+        self.assertIn('a', rendered)
+        self.assertIn('1', rendered)
+
+    @no_duplicates
+    def test_a_mapping_channel_is_absorbed_once_not_once_per_key(self):
+        # A mapping is iterable and yields its keys, so without excluding it
+        # from _is_sequence a {'data': {...}} frame absorbs one report per key
+        # rather than one for the channel.
+        self.client._pending_reports.clear()
+
+        list(self.client._iter_channel(
+                {'data': {'a': 1, 'b': 2, 'c': 3}}, 'data'))
+
+        self.assertEqual(1, len(self.client._pending_reports))
+        self.assertEqual({'a': 1, 'b': 2, 'c': 3},
+                         self.client._pending_reports[0][2])
+
+    @no_duplicates
+    def test_responses_may_be_any_iterable(self):
+        # islice rather than a slice: _is_sequence admits any iterable, and a
+        # decoder returning a generator would raise on responses[start:].
+        def generated():
+            yield {'service': 'X', 'command': 'SUBS', 'content': {'code': 0}}
+            yield {'service': 'Y', 'command': 'SUBS',
+                   'content': {'code': 21, 'msg': 'from a generator'}}
+
+        self.client._pending_reports.clear()
+        self.client._log_extra_responses({'response': generated()}, 1)
+
+        self.assertEqual(1, len(self.client._pending_reports))
+        self.assertIn('from a generator',
+                      str(self.client._pending_reports[0][0]))
 
     @no_duplicates
     def test_a_flood_of_absorbed_messages_cannot_evict_a_rejection(self):

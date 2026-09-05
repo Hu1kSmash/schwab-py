@@ -245,7 +245,11 @@ of ten, with the running count in the message. A systematically malformed
 channel produces one per element per tick, so reporting every one would be a
 log-volume incident on top of the data outage — and they share a bounded queue
 with the late rejections, so a flood would push out the one thing nothing else
-will ever report. The count tells you the true scale. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
+will ever report. The count tells you the true scale, and it is kept per kind —
+a flood of one sort of malformed message does not silence a different one
+arriving beside it.
+
+For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
 ``message`` rather than from ``exception.response['response'][0]``. ``service``
 and ``message`` are ``None`` where they do not apply. Registering none keeps the

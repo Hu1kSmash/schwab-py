@@ -283,9 +283,11 @@ class StreamClient(EnumEnforcer):
         # oldest loses nothing that was not already written down.
         self._pending_reports = deque(maxlen=64)
 
-        # How many messages this connection could not use. Only
-        # the first few are logged; this keeps the total honest.
+        # How many messages this connection could not use, in total and by
+        # kind. The count is per kind so that a flood of one does not silence
+        # a different one; the total keeps the log line honest about scale.
         self._absorbed = 0
+        self._absorbed_kinds = defaultdict(int)
 
         # Logging-related fields
         self.logger = get_logger()
@@ -330,13 +332,20 @@ class StreamClient(EnumEnforcer):
 
     @staticmethod
     def _pretty(obj):
-        """json.dumps for a debug line, without letting it take the stream down.
+        """json.dumps for a debug line, falling back to repr.
 
-        set_json_decoder is a public hook and only promises "the decoded JSON",
-        so a decoder returning a Mapping which is not a dict, or tuples for
-        arrays, produces something json.dumps refuses. That raised from inside
-        a logger.debug call -- so turning on debug logging ended the receive
-        loop, and only for the people who had customised the decoder.
+        set_json_decoder is a public hook promising only "the decoded JSON", so
+        a decoder returning a Mapping which is not a dict, or tuples for
+        arrays, produces something json.dumps refuses.
+
+        This is cosmetic, not a crash fix: logging swallows a formatting
+        failure and prints a "--- Logging error ---" block to stderr, so the
+        stream survives either way. What it costs without this is the content
+        of every debug line replaced by a traceback, for exactly the people who
+        customised the decoder and are most likely to be debugging it. Measured
+        rather than assumed -- an earlier version of this comment claimed the
+        exception ended the receive loop, which it does not; that reading came
+        from a test run, where pytest's capture handler re-raises.
         """
         try:
             return json.dumps(obj, indent=4)
@@ -442,6 +451,7 @@ class StreamClient(EnumEnforcer):
         self._pending_reports.clear()
         self._overflow_items.clear()
         self._absorbed = 0
+        self._absorbed_kinds.clear()
 
 
     def _make_request(self, *, service, command, parameters):
@@ -684,10 +694,10 @@ class StreamClient(EnumEnforcer):
 
             yield response, code, content
 
-    def _absorb(self, what, offender, service=None):
+    def _absorb(self, what, offender):
         """Records a message this client cannot use.
 
-        Three things happen to it, and each earns its place:
+        Two things happen to it, and each earns its place:
 
         * a WARNING, so it is visible without code changes -- but only for the
           first few. A systematically malformed high-volume channel would
@@ -700,17 +710,25 @@ class StreamClient(EnumEnforcer):
           delivered from the same drain, so no user code runs here.
         """
         self._absorbed += 1
-        n = self._absorbed
+        self._absorbed_kinds[what] += 1
+        n = self._absorbed_kinds[what]
 
-        # The first few, then powers of ten. A fixed modulus would go quiet
-        # after the third occurrence and say nothing more until the thousandth,
-        # which hides the shape of an early burst.
+        # Counted per kind, not across all of them. One shared counter meant a
+        # framing change on a few hundred symbols drove the count past a
+        # thousand within two ticks, after which a *different* fault -- a
+        # notify frame whose service is a list -- was neither logged nor
+        # reported, so an operator investigating the first outage saw no trace
+        # of the second.
+        #
+        # The first few of each kind, then powers of ten. A fixed modulus would
+        # go quiet after the third occurrence and say nothing more until the
+        # thousandth, hiding the shape of an early burst.
         if n > 3 and not _is_power_of_ten(n):
             return
 
         self.logger.warning(
-                'Ignoring %s: %r. (%d absorbed on this connection.)',
-                what, offender, n)
+                'Ignoring %s: %r. (%d of these, %d in all, on this '
+                'connection.)', what, offender, n, self._absorbed)
 
         # Reported on the same schedule as the log, not on every occurrence.
         # These share _pending_reports with the late rejections, which is a
@@ -722,9 +740,11 @@ class StreamClient(EnumEnforcer):
         self._pending_reports.append((
                 UnusableMessage(
                     offender,
-                    'Ignoring {} ({} absorbed on this connection)'.format(
-                        what, n)),
-                service,
+                    'Ignoring {} ({} of these, {} in all, on this '
+                    'connection)'.format(what, n, self._absorbed)),
+                # No service: every one of these is a message whose shape this
+                # client could not read, so there is no service name to be had.
+                None,
                 offender))
 
     def _iter_channel(self, msg, channel):
@@ -1512,6 +1532,7 @@ class StreamClient(EnumEnforcer):
         self._pending_reports.clear()
         self._overflow_items.clear()
         self._absorbed = 0
+        self._absorbed_kinds.clear()
 
         if socket is not None:
             await socket.close()

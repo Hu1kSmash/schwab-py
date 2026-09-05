@@ -73,9 +73,15 @@ stream.** `set_json_decoder` is a public hook which promises only "the decoded
 JSON", but the type checks above were written against the concrete types, so a
 decoder returning a `Mapping` which is not a `dict` — or tuples for arrays — had
 every frame dropped, presenting as a permanently dead feed with no exception.
-The checks are duck-typed. Separately, the debug log formatted frames with
-`json.dumps`, which refuses such an object, so turning on debug logging ended
-the receive loop for exactly those users.
+The checks are duck-typed against the operations used, not against
+`collections.abc` — an ABC matches only real subclasses and registered types,
+which would have narrowed what a decoder may return rather than tolerating it.
+
+Separately, and cosmetically: the debug log formatted frames with `json.dumps`,
+which refuses such an object. Logging swallows a formatting failure, so the
+stream survived either way, but the content of every debug line was replaced by
+a traceback — for exactly the people who customised the decoder and are most
+likely to be reading it.
 
 **A mismatched request id was reported as a malformed frame.** All five fields
 were read before any was compared, so a frame carrying an id this client never
