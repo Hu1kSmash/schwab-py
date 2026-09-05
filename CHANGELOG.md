@@ -17,6 +17,17 @@ current model.
 
 ## Unreleased
 
+### Documentation
+
+**Five more `ACCT_ACTIVITY` `MESSAGE_TYPE` tokens.** `ORDERMONITORCREATED`,
+`ORDERMONITORCOMPLETED`, `CHANGECREATED`, `CHANGEACCEPTED` and
+`EXECUTIONCREATED` — the lifecycle of a resting limit or stop order, observed on
+a live feed on 2026-07-27. A program placing only market orders never sees them
+and will meet them the first time a human places an order by hand in the same
+account, which is a plain way to get an unknown-shape alert from an allow-list.
+The note also flags that `CHANGECREATED`/`CHANGEACCEPTED`/`ORDERREPLACED` mean a
+*working order was amended* — a safety event for an order you placed yourself.
+
 ### Fixed
 
 **CI was red on macOS on every tag since 2.0.0, and the README badge said

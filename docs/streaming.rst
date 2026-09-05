@@ -788,11 +788,33 @@ Note ``CANCELED`` with one L.
    'EXECUTIONREQUESTCOMPLETED', 'ORDERFILLCOMPLETED',
    'ORDERPARTIALFILL', 'ORDERPARTIALLYFILLED', 'ORDERREJECTED',
    'ORDERCANCELED', 'ORDERCANCELLED', 'ORDERUROUT', 'ORDEREXPIRED',
-   'ORDERREPLACED')
+   'ORDERREPLACED',
+   # A resting order's lifecycle -- limit and stop. First seen 2026-07-27.
+   'ORDERMONITORCREATED', 'ORDERMONITORCOMPLETED',
+   'CHANGECREATED', 'CHANGEACCEPTED', 'EXECUTIONCREATED')
 
 Both ``CANCELED`` and ``CANCELLED`` appear -- the spelling is not consistent
 within Schwab's own tokens, so match on both. ``ORDERUROUT`` is Schwab's
 spelling for an unsolicited out.
+
+**The last five belong to resting orders.** They are the lifecycle of a limit or
+stop order sitting on the book, and a program that places only market orders
+will never see them --- it will meet them the first time a human places an order
+by hand in the same account from Schwab's own interface. That is exactly how
+they were observed, on 2026-07-27. If you match ``MESSAGE_TYPE`` against an
+allow-list, an ordinary hand trade will otherwise raise an unknown-shape alert.
+
+They carry no fill to act on; the authoritative fill remains
+``ORDERFILLCOMPLETED``. They are also chatty: one hand-placed order change was
+observed emitting nineteen messages, sixteen of them from this group, so
+consider logging them below the level you use for fills.
+
+**``CHANGECREATED``, ``CHANGEACCEPTED`` and ``ORDERREPLACED`` mean a working
+order was amended or cancelled.** That is worth separating from the rest. For an
+order your own program placed it is a safety event --- something modified a live
+order mid-flight --- while for an instrument you do not manage it is just
+somebody editing their own order. It is the one distinction in this group that
+changes what an operator should do about it.
 
 **Distinguishing a relabeled item from a raw one.** After relabeling, a
 ``data``-channel content item carries ``seq``, ``key``, ``ACCOUNT``,
