@@ -40,6 +40,7 @@ else. Four things need an edit, and only if you use them:
 | pin `schwaby[login]` or `schwaby[codegen]` | Drop the bracket. The pin still installs, with a warning. |
 | call `set_destination_link_name` to pick a venue | Use `set_requested_destination`. The old one was writing to a field that does not select one. |
 | pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
+| pin by git URL rather than from PyPI | A PyPI install writes no `direct_url.json`, so anything verifying the pin by reading `requested_revision` out of it stops answering. Check how you assert your pin before you switch. |
 | check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. |
 
 Nothing else in the public surface moved. If you install a fresh `3.0.0` and
@@ -228,6 +229,24 @@ the relationship between the projects.
 
 
 ### Documentation
+
+**A caution about real money, where a reader will actually meet it.** The README
+carried an inherited one-paragraph disclaimer at the very bottom, under the
+licence, which is where nobody reads. There is now a `[!CAUTION]` block near the
+top of the README, a `.. danger::` on the documentation front page, and a warning
+at the head of the getting-started guide.
+
+It makes the claim rather than hedging it: this places real orders with real
+money and it *has* bugs, not "may have". Every defect ever found here was in code
+with 100% test coverage and the ones that mattered were silent; the changelog
+lists them precisely because the next one is in there unfound. You are
+responsible for every order your code places, and the author, maintainer and
+contributors are not. Start small, reconcile against the broker rather than
+trusting what the library says happened, read the code on any path that places an
+order, and assume the bug you have not found is on the path you did not read.
+
+The bottom-of-file disclaimers were also rewritten. They were inherited, one
+carried a "This authors" typo, and neither mentioned financial loss.
 
 **A documented example called a method that does not exist.** The level two
 page told readers to use `Client.search_instruments()` and gave a worked

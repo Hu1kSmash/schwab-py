@@ -138,6 +138,14 @@ class OrderIdNotFoundError(ValueError):
 
     ``.response`` is the ``place_order`` response. ``.location`` is the raw
     ``Location`` header, or ``None`` when there was not one.
+
+    .. warning::
+
+       This subclasses ``ValueError``, for consistency with the other
+       exceptions here. So a broad ``except ValueError`` anywhere on your
+       placement path will swallow it, and the thing it is warning you about
+       --- a live order with no handle --- goes back to being silent. If you
+       have one of those, narrow it.
     '''
 
     def __init__(self, response, location, *args, **kwargs):
