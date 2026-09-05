@@ -70,9 +70,6 @@ branches: a fix ships in the next version and you upgrade to get it. Practically
 that means pinning an exact version is fine, but pinning one forever is not a
 security position.
 
-This policy covers `schwaby`. `schwab-py` is a separate project with a separate
-maintainer; check which one you have installed before reporting.
-
 ## Handling your token
 
 Most reports in this area turn out to be configuration rather than defects, so
