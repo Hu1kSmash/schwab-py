@@ -27,7 +27,8 @@ MOCK_NOW = 1613745082
 CALLBACK_URL = 'https://redirect.url.com'
 
 
-# These seven tests really start the callback server in a child process and
+# The seven tests marked with @_skip_on_macos_runner below really start the
+# callback server in a child process and
 # really talk to it over loopback. On the macOS runners the child starts and
 # then never answers on its port, so every one of them fails with
 # RedirectServerExitedError after the full 30-second wait -- on every Python
@@ -37,21 +38,28 @@ CALLBACK_URL = 'https://redirect.url.com'
 # Skipped rather than left red, because a permanently failing job is a signal
 # nobody reads: the other 923 tests pass on macOS and that coverage is worth
 # keeping. NOT skipped locally -- only where the environment variable says the
-# runner is the constraint -- so anyone with a Mac gets the real answer.
+# runner is the constraint -- so anyone with a Mac gets the real answer. And
+# marked per test rather than on the class, because the other seven in this
+# class never reach the child process and pass on macOS today.
+#
+# tox filters the environment, so CI only arrives here because tox.ini names it
+# in passenv. Without that this skip silently never fired.
 #
 # What would settle it: run `pytest tests/auth_test.py -k ClientFromLoginFlow`
-# on a physical Mac. If it passes there, this is a runner restriction and the
-# skip is correct. If it fails there too, the interactive login flow is broken
-# on macOS for real users and this skip is hiding it -- delete it and fix the
-# flow.
+# on a physical Mac, where CI is unset and nothing is skipped. If it passes
+# there, this is a runner restriction and the skip is correct. If it fails there
+# too, the interactive login flow is broken on macOS for real users and this
+# skip is hiding it -- delete it and fix the flow.
 _MACOS_RUNNER = (
         sys.platform == 'darwin' and os.environ.get('CI') == 'true')
 
 
-@unittest.skipIf(
+_skip_on_macos_runner = unittest.skipIf(
         _MACOS_RUNNER,
         'the callback server does not answer on loopback on macOS CI runners; '
         'see the comment above this class')
+
+
 class ClientFromLoginFlowTest(unittest.TestCase):
 
     def setUp(self):
@@ -69,6 +77,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_create_token_file(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
@@ -103,6 +112,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_specify_web_browser(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
@@ -132,6 +142,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input')
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_create_token_file_not_interactive(
             self, mock_prompt,mock_webbrowser_get, async_session, sync_session,
             client):
@@ -170,6 +181,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_create_token_file_root_callback_url(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
@@ -352,6 +364,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_time_out_waiting_for_request(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
@@ -375,6 +388,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_wait_forever_callback_timeout_equals_none(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
@@ -397,6 +411,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
     @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
     @patch('schwab.auth.input', MagicMock(return_value=''))
     @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    @_skip_on_macos_runner
     def test_wait_forever_callback_timeout_equals_zero(
             self, mock_webbrowser_get, async_session, sync_session, client):
         AUTH_URL = 'https://auth.url.com'
