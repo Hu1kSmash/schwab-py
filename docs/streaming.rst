@@ -804,6 +804,14 @@ by hand in the same account from Schwab's own interface. That is exactly how
 they were observed, on 2026-07-27. If you match ``MESSAGE_TYPE`` against an
 allow-list, an ordinary hand trade will otherwise raise an unknown-shape alert.
 
+Their provenance is thinner than the rest of this list, and that is worth
+saying. They were recorded as a vocabulary at the time they were seen, but the
+frames themselves were not retained --- capture on that feed began the following
+day, added in response to the very event that produced them. So these five are
+attested by a contemporaneous note rather than by a frame anyone can still
+produce. They are here because a token you have not heard of costs a consumer an
+alert whether or not the frame survives, but weight them accordingly.
+
 They carry no fill to act on; the authoritative fill remains
 ``ORDERFILLCOMPLETED``. They are also chatty: one hand-placed order change was
 observed emitting nineteen messages, sixteen of them from this group, so
