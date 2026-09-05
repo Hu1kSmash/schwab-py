@@ -190,6 +190,17 @@ never updated, and it is what the project page would have shown. It now says
 
 ### Removed, continued
 
+**Copyright is now asserted jointly.** `LICENSE` carries
+`Copyright (c) 2023 Alex Golec` unchanged, as the MIT licence requires, with
+`Copyright (c) 2026 Tom Hirt` added beneath it for the work since. The package
+metadata reads `Author: Tom Hirt and Alex Golec`, and the documentation footer
+says `2023 Alex Golec, 2026 Tom Hirt` rather than describing this as a fork
+someone maintains.
+
+Measured, for the record: of the 8,412 lines under `schwab/`, 4,832 are Alex
+Golec's, 3,113 are Tom Hirt's, and 463 come from other contributors to the
+original project. The licence is unchanged and remains MIT.
+
 **`tox.ini` is gone, and CI runs the suite directly.** tox was not doing what
 it looked like it was doing. It built an sdist, installed it into an isolated
 environment, and then ran `coverage` as an external command --- which executed

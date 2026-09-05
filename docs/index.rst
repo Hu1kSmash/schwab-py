@@ -47,7 +47,7 @@ separate project because running systematic strategies against funded accounts
 imposes requirements a general-purpose wrapper has no particular reason to
 prioritise --- prices that are never silently altered, a token file that
 survives a crash, a stream that reports what it absorbs. Alex Golec's copyright
-and licence are unchanged.
+notice is retained unchanged and the licence is the same MIT one he chose.
 
 See the `changelog
 <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__ for what

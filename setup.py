@@ -25,7 +25,7 @@ setuptools.setup(
     # searchable, other people can see it has already been raised, and it
     # cannot be lost in a mailbox. The Tracker project URL below is the
     # supported route and the README says so.
-    author='Alex Golec',
+    author='Tom Hirt and Alex Golec',
     maintainer='Tom Hirt',
     description=('Unofficial Python client for the Charles Schwab API, built '
                  'for systematic trading against live accounts'),

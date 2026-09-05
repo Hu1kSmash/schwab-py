@@ -249,8 +249,9 @@ request](https://github.com/Hu1kSmash/schwaby/pulls).
 
 `schwaby` began from [alexgolec/schwab-py](https://github.com/alexgolec/schwab-py),
 an excellent MIT-licensed library by Alex Golec that gave this project its shape —
-the endpoint coverage, the order builder, the streaming field tables. He wrote the
-great majority of the code here, and his copyright and licence are unchanged.
+the endpoint coverage, the order builder, the streaming field tables. Most of the
+code here is still his, his copyright notice is retained unchanged, and the
+licence is the same MIT one he chose.
 
 It became a separate project for a practical reason rather than a philosophical one.
 This client runs systematic strategies against funded accounts, and that use imposes
@@ -264,8 +265,11 @@ consolidated here and this became its own project with its own release line.
 
 ## License
 
-`schwaby` is released under the [MIT license](LICENSE), and remains copyright Alex
-Golec.
+`schwaby` is released under the [MIT license](LICENSE).
+
+Copyright is shared: © 2023 Alex Golec for the original work, © 2026 Tom Hirt for
+the changes since. Alex's notice is retained in full, as the licence requires and
+as the work deserves.
 
 **Disclaimer:** *schwaby is an unofficial API wrapper. It is in no way endorsed by or
 affiliated with Charles Schwab or any associated organization. Make sure to read and
