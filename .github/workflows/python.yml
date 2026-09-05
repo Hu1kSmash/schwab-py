@@ -76,8 +76,15 @@ jobs:
     - name: Check twine
       if: matrix.python.version == '3.10'
       run: |
-        python3 setup.py sdist bdist_wheel
-        twine check dist/*
+        # `setup.py sdist bdist_wheel` is deprecated -- setuptools calls the
+        # deprecation "overdue". `python -m build` is what publish.yml uses, so
+        # this checks the artifact that actually ships.
+        pip install build "readme_renderer[md]"
+        python -m build
+        # --strict, and readme_renderer[md] above: without that extra, twine
+        # reports PASSED on a markdown long_description having rendered
+        # nothing at all.
+        twine check --strict dist/*
 
   docs:
     strategy:

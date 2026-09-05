@@ -27,7 +27,7 @@ release:
 	@exit 1
 
 clean:
-	rm -rf build dist docs-build schwaby.egg-info schwab_py.egg-info htmlcov
+	rm -rf build dist docs-build schwaby.egg-info htmlcov
 	# Not a bare `__pycache__`: there is none at the repo root, so the plain
 	# pattern matched nothing and this target cleared no bytecode at all.
 	# CPython invalidates on mtime and size, so a same-second restore during a
