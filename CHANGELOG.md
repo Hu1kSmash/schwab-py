@@ -53,6 +53,27 @@ your imports resolve, you are done.
 `Destination` enum has been exported since the beginning and there was no
 setter that put it on the right field --- see Fixed, below.
 
+**`SchwabError`, a base class for every exception this library raises.**
+`except SchwabError` now catches anything `schwaby` throws and nothing else.
+Before this the nearest thing was `except ValueError`, which also catches every
+`int()` and `float()` in the same block.
+
+All fifteen exception classes inherit it, and a test walks the modules and fails
+if one does not — a base covering most of them would be worse than none, since
+it invites `except SchwabError` as a complete guard while quietly not being one.
+`UnsuccessfulOrderException` and `AccountHashMismatchException` keep `ValueError`
+as well, because code catching them that way predates this release and they do
+describe a caller mistake.
+
+**`OrderIdNotFoundError` deliberately does not inherit `ValueError`.** It was
+going to, for consistency, until a consumer pointed out that this hands back the
+exact failure the raise was introduced to remove: `except ValueError` is the
+idiom people reach for around `int()` and `float()`, order specs coerce exactly
+those a few lines from the call, and the one exception here that means *an order
+may be live and untracked* would be swallowed by a block aimed at parsing. It is
+also the wrong word — `ValueError` says the caller passed a bad argument, and
+they did not. This is remote state.
+
 **`set_tax_lot_method`.** `TaxLotMethod` was likewise exported from
 `schwab.orders.common` with no way to use it, so `taxLotMethod` could not be
 sent at all. It matters on a closing order: FIFO and LIFO realise different

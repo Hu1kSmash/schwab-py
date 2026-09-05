@@ -13,6 +13,8 @@ import tempfile
 import time
 import urllib
 import warnings
+
+from schwab.utils import SchwabError
 import webbrowser
 
 from schwab.client import AsyncClient, Client
@@ -325,10 +327,10 @@ def __run_client_from_login_flow_server(
         sys.stdout = old_stdout
 
 
-class RedirectTimeoutError(Exception):
+class RedirectTimeoutError(SchwabError):
     pass
 
-class RedirectServerExitedError(Exception):
+class RedirectServerExitedError(SchwabError):
     pass
 
 # Capture the real time.time so that we can use it in server initialization

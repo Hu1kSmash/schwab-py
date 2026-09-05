@@ -11,7 +11,7 @@ import logging
 
 import websockets.asyncio.client as ws_client
 
-from .utils import EnumEnforcer, LazyLog
+from .utils import EnumEnforcer, LazyLog, SchwabError
 
 
 class StreamJsonDecoder(ABC):
@@ -59,19 +59,19 @@ class _BaseFieldEnum(Enum):
                 new_msg[new_key] = new_msg.pop(old_key)
 
 
-class UnexpectedResponse(Exception):
+class UnexpectedResponse(SchwabError):
     def __init__(self, response, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.response = response
 
 
-class UnexpectedResponseCode(Exception):
+class UnexpectedResponseCode(SchwabError):
     def __init__(self, response, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.response = response
 
 
-class UnparsableMessage(Exception):
+class UnparsableMessage(SchwabError):
     '''A frame whose JSON did not decode.
 
     **This one still ends the caller's receive loop**, unlike
@@ -106,7 +106,7 @@ class UnparsableMessage(Exception):
         self.json_parse_exception = json_parse_exception
 
 
-class UnusableMessage(Exception):
+class UnusableMessage(SchwabError):
     '''A message which decoded successfully but which this client cannot use.
 
     Distinct from :class:`UnparsableMessage`, which means the JSON itself did
@@ -217,7 +217,7 @@ def _prepare_connect_args(websocket_connect_args):
     return dict(websocket_connect_args)
 
 
-class ResponseTimeoutError(Exception):
+class ResponseTimeoutError(SchwabError):
     '''
     Raised when the streaming server accepts a request but does not send a
     response to it within the configured timeout. Distinct from the connection

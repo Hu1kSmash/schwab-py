@@ -1,5 +1,7 @@
 from enum import Enum
 
+from ..utils import SchwabError
+
 
 class __BaseInstrument:
     def __init__(self, asset_type, symbol):
@@ -21,7 +23,7 @@ class OptionInstrument(__BaseInstrument):
         super().__init__('OPTION', symbol)
 
 
-class InvalidOrderException(Exception):
+class InvalidOrderException(SchwabError):
     '''Raised when attempting to build an incomplete order'''
     pass
 

@@ -104,7 +104,24 @@ def _describe_error(response):
 _ERROR_DETAIL_LIMIT = 500
 
 
-class UnsuccessfulOrderException(ValueError):
+class SchwabError(Exception):
+    '''Base class for every exception this library raises.
+
+    ``except SchwabError`` catches anything ``schwaby`` itself raises, and
+    nothing else. It exists so that "catch what this library throws" has a
+    spelling that does not borrow a builtin --- before 3.0.0 the nearest thing
+    was ``except ValueError``, which also catches every ``int()`` and
+    ``float()`` in the same block.
+
+    Two of the order exceptions additionally inherit ``ValueError``, because
+    they did before this class existed and code catching them that way still
+    works. :class:`OrderIdNotFoundError` deliberately does not: see its own
+    documentation.
+    '''
+
+
+
+class UnsuccessfulOrderException(SchwabError, ValueError):
     '''
     Raised by :meth:`Utils.extract_order_id` when attempting to extract an
     order ID from a :meth:`Client.place_order` response that was not successful.
@@ -121,7 +138,7 @@ class UnsuccessfulOrderException(ValueError):
         self.response = response
 
 
-class OrderIdNotFoundError(ValueError):
+class OrderIdNotFoundError(SchwabError):
     '''
     Raised by :meth:`Utils.extract_order_id` when Schwab accepted the order but
     the response did not yield an order ID.
@@ -139,13 +156,15 @@ class OrderIdNotFoundError(ValueError):
     ``.response`` is the ``place_order`` response. ``.location`` is the raw
     ``Location`` header, or ``None`` when there was not one.
 
-    .. warning::
+    **This deliberately does not inherit** ``ValueError``, unlike its two
+    siblings. ``except ValueError`` is the idiom people reach for around
+    ``int()`` and ``float()``, and order specs coerce exactly those a few lines
+    from the call --- so inheriting it would let the one exception here that
+    means *an order may be live and untracked* be swallowed by a block aimed at
+    parsing. It is a :class:`SchwabError` and nothing else.
 
-       This subclasses ``ValueError``, for consistency with the other
-       exceptions here. So a broad ``except ValueError`` anywhere on your
-       placement path will swallow it, and the thing it is warning you about
-       --- a live order with no handle --- goes back to being silent. If you
-       have one of those, narrow it.
+    ``ValueError`` also says the caller passed a bad argument, and they did
+    not. This is remote state.
     '''
 
     def __init__(self, response, location, *args, **kwargs):
@@ -170,7 +189,7 @@ class UnrecognizedLocationError(OrderIdNotFoundError):
     '''
 
 
-class AccountHashMismatchException(ValueError):
+class AccountHashMismatchException(SchwabError, ValueError):
     '''
     Raised by :meth:`Utils.extract_order_id` when attempting to extract an
     order ID from a :meth:`Client.place_order` with a different account hash
@@ -178,7 +197,7 @@ class AccountHashMismatchException(ValueError):
     '''
 
 
-class TokenRefreshError(Exception):
+class TokenRefreshError(SchwabError):
     '''
     Raised when Schwab rejects an attempt to refresh the OAuth token.
 

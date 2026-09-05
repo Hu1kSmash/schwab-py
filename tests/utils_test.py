@@ -1,8 +1,10 @@
 from unittest.mock import MagicMock
 from schwab.utils import AccountHashMismatchException, Utils
 from schwab.utils import (
+    AccountHashMismatchException,
     MissingLocationHeaderError,
     OrderIdNotFoundError,
+    SchwabError,
     UnrecognizedLocationError,
     UnsuccessfulOrderException,
 )
@@ -145,6 +147,48 @@ class UtilsTest(unittest.TestCase):
 
         self.assertFalse(
                 issubclass(UnsuccessfulOrderException, OrderIdNotFoundError))
+
+    @no_duplicates
+    def test_a_broad_except_valueerror_does_not_swallow_it(self):
+        # The point of raising was that a live, untracked order must not be
+        # silent. Inheriting ValueError would have handed that back: it is the
+        # idiom people reach for around int() and float(), and order specs
+        # coerce exactly those a few lines from this call.
+        self.assertFalse(issubclass(OrderIdNotFoundError, ValueError))
+
+        with self.assertRaises(OrderIdNotFoundError):
+            try:
+                self.utils.extract_order_id(MockResponse({}, 200, headers={}))
+            except ValueError:                       # pragma: no cover
+                self.fail('a broad except ValueError swallowed it')
+
+    @no_duplicates
+    def test_the_two_siblings_keep_valueerror(self):
+        # They had it before SchwabError existed, and code catching them that
+        # way predates this release. Dropping it would break that for no gain;
+        # they describe a caller mistake, which is what ValueError means.
+        self.assertTrue(issubclass(UnsuccessfulOrderException, ValueError))
+        self.assertTrue(issubclass(AccountHashMismatchException, ValueError))
+
+    @no_duplicates
+    def test_schwab_error_covers_every_exception_the_library_defines(self):
+        # A base that covers most of them is worse than none: it invites
+        # `except SchwabError` as a complete guard and is quietly not one.
+        import importlib, inspect
+        found, missing = 0, []
+        for name in ('schwab.auth', 'schwab.utils', 'schwab.streaming',
+                     'schwab.orders.common', 'schwab.orders.generic',
+                     'schwab.client.base', 'schwab.contrib.util'):
+            module = importlib.import_module(name)
+            for attr, obj in vars(module).items():
+                if (inspect.isclass(obj) and issubclass(obj, BaseException)
+                        and obj.__module__ == name):
+                    found += 1
+                    if not issubclass(obj, SchwabError):
+                        missing.append('%s.%s' % (name, attr))
+
+        self.assertGreater(found, 10)     # the walk actually found them
+        self.assertEqual([], missing)
 
     @no_duplicates
     def test_the_two_causes_are_distinguishable(self):

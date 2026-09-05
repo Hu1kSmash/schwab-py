@@ -44,6 +44,13 @@ downstream consumer. The question belongs in the fix, not the postmortem.
 `assertEqual([], offenders)` holds when the guard works *and* when the input
 never reached it. Prove the collection found something, in the same test.
 
+**A statement is made where it lands, not where you stand.** This has cost twice
+now: a diff range measured as `vPREV..HEAD` and asserted about `vPREV..vNEXT`,
+and a patch written against the unreleased version and handed to someone running
+the released one, where `str(None)` quietly became the string `"None"`. Both
+were true where they were written. Before sending or committing a claim, ask
+which version, which range, and which machine it will be read on.
+
 **A claim nothing checks will drift, silently.** A README, a changelog preamble
 or a docstring asserting something no test covers goes stale without a symptom.
 Prefer the weaker sentence you can verify.

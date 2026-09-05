@@ -69,6 +69,14 @@ The exceptions this library raises that a caller might reasonably catch.
 :class:`~schwab.streaming.UnusableMessage` are streaming-specific and are
 covered in :ref:`the streaming documentation <error_handlers>`.
 
+Every exception this library raises inherits
+:class:`~schwab.utils.SchwabError`, so ``except SchwabError`` catches anything
+``schwaby`` throws and nothing else. Two of the order exceptions additionally
+inherit ``ValueError`` because they always did;
+:class:`~schwab.utils.OrderIdNotFoundError` deliberately does not.
+
+.. autoclass:: schwab.utils.SchwabError
+
 .. autoclass:: schwab.utils.UnsuccessfulOrderException
   :members:
 
