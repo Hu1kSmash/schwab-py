@@ -17,6 +17,28 @@ current model.
 
 ## Unreleased
 
+### Added
+
+**`UnparsableMessage` now reaches `add_error_handler`.** It was the one failure
+class that ended the caller's receive loop *and* gave a consumer who replaced
+log-scraping with the callback no programmatic signal at all — the state 2.2.0
+was added to eliminate, one layer below where 2.4.0 eliminated it. It is
+reported and then re-raised, so the control flow is unchanged.
+
+Reported from outside the `async with` that holds the read lock, so no user code
+runs under it; a handler raising `BaseException` there is logged rather than
+allowed to replace the parse failure the caller needs to see.
+
+**That it still ends the loop is now a decision rather than an omission**, and
+the docstring gives the reasoning and the counter-argument. A structurally
+unusable element can be skipped precisely; a frame that will not parse has
+unknown contents, so continuing accepts a gap of unknown size — and a reconnect
+re-subscribes, which is the only thing that recovers state.
+`HeuristicJsonDecoder` exists because Schwab really does emit unparsable JSON,
+which is evidence the other way, so the docs now point at it.
+
+Found by a consumer tracing the failure classes rather than grepping for them.
+
 ### Documentation
 
 **`OrderUROutCompleted` was described as "an unsolicited out", in the sentence

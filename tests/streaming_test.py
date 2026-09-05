@@ -8347,6 +8347,67 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                             for e in errors))
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unparsable_frame_is_reported_and_still_raised(
+            self, ws_connect):
+        # The one failure class that still ends the receive loop. It was also
+        # the one reaching add_error_handler not at all, which is the half that
+        # was an oversight rather than a decision: a consumer who replaced log
+        # scraping with the callback got no signal for it.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        socket.recv.side_effect = ['this is not json at all']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage) as cm:
+            await self.client.handle_message()
+
+        # Reported as well as raised.
+        self.assertEqual(1, len(errors))
+        self.assertIs(cm.exception, errors[0])
+        self.assertIsNotNone(errors[0].json_parse_exception)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_reporting_an_unparsable_frame_holds_no_lock(
+            self, ws_connect):
+        # Reporting from inside the `async with` would call a handler under the
+        # read lock -- the hazard the whole queue-and-drain design exists to
+        # avoid. A handler which reads the lock state proves it is free.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        observed = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: observed.append(
+                    self.client._read_lock.locked()))
+
+        socket.recv.side_effect = ['{not json']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.handle_message()
+
+        self.assertEqual([False], observed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_handler_cannot_replace_the_parse_failure(
+            self, ws_connect):
+        # The caller needs the parse failure, not the handler's own accident.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        def explode(service, exc, msg):
+            raise SystemExit('handler exit')
+
+        self.client.add_error_handler(explode)
+        socket.recv.side_effect = ['nope']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.handle_message()
+
+    @no_duplicates
     def test_a_flood_of_absorbed_messages_cannot_evict_a_rejection(self):
         # _absorb shares the bounded report queue with the late rejections. A
         # frame carrying a few hundred bad elements would otherwise push every

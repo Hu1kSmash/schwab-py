@@ -262,6 +262,24 @@ non-``None`` in every case but a top-level JSON ``null``. Test
 on the kind. Registering none keeps the
 existing behaviour exactly, and the log line is written either way.
 
+**A frame whose JSON will not decode is the one failure this client does not
+absorb.** It is reported to your handler as ``UnparsableMessage`` and *also*
+raised, so it still ends your receive loop. Everything else on this page is
+skipped and reported; this one is skipped, reported and re-raised.
+
+The difference is what is known about what was missed. A structurally unusable
+element can be skipped precisely --- the elements beside it are still delivered
+and you are told which one went. A frame which will not parse has unknown
+contents, so continuing means accepting a gap of unknown size, and it might have
+carried a fill. Ending the loop causes a reconnect and a re-subscribe, which is
+the one thing that can recover state.
+
+If your feed hits this often, try
+:class:`~schwab.contrib.util.HeuristicJsonDecoder` before concluding the stream
+is broken --- it exists because Schwab really does emit JSON the default parser
+rejects, which is evidence for a frame-level quirk rather than a dead
+connection.
+
 The late rejection reaches you however Schwab frames it. Only one request is
 outstanding at a time, so a second response in a frame cannot be an answer to
 anything you are waiting on — it is a late answer to an abandoned request,

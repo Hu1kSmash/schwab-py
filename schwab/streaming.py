@@ -72,6 +72,28 @@ class UnexpectedResponseCode(Exception):
 
 
 class UnparsableMessage(Exception):
+    '''A frame whose JSON did not decode.
+
+    **This one still ends the caller's receive loop**, unlike
+    :class:`UnusableMessage`, which is absorbed. Both are reported to
+    ``add_error_handler``; only this one is also raised.
+
+    The difference is what is known about what was missed. A structurally
+    unusable element can be skipped precisely: the elements beside it are still
+    delivered, and the caller is told which one went. A frame which will not
+    parse has unknown contents -- it might have carried a fill -- so continuing
+    means silently accepting a gap of unknown size. Tearing the stream down
+    causes a reconnect and a re-subscribe, which is the one thing that can
+    recover state; skipping cannot.
+
+    That is a deliberate choice rather than an oversight, but it was made after
+    2.4.0 rather than during it, and the argument is not one-sided.
+    ``schwab.contrib.util.HeuristicJsonDecoder`` exists because Schwab really
+    does emit JSON this library cannot parse, which is evidence for a
+    frame-level quirk rather than a dead stream. If your feed hits this often
+    and a reconnect is worse for you than a gap, set that decoder before
+    concluding the stream is broken.
+    '''
     def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.raw_msg = raw_msg
@@ -1380,15 +1402,37 @@ class StreamClient(EnumEnforcer):
             if was_open and self._socket is None:
                 return
 
-            async with self._read_lock:
+            try:
+                async with self._read_lock:
+                    try:
+                        msg = await self._read_and_route()
+                    except BaseException as exc:
+                        # A read failure is also a failure for any request
+                        # waiting on a response, which will otherwise wait for
+                        # a reply that can no longer arrive.
+                        self._fail_pending_request(exc)
+                        raise
+            except UnparsableMessage as exc:
+                # Reported, then re-raised. Deliberately not absorbed: see the
+                # note on UnparsableMessage for why a frame which will not
+                # decode is treated differently from one which decodes into
+                # something unusable.
+                #
+                # Outside the `async with`, so the read lock is released before
+                # any user code runs. Reporting from inside the except above
+                # would call a handler under the lock, which is the hazard the
+                # whole queue-and-drain design exists to avoid.
                 try:
-                    msg = await self._read_and_route()
-                except BaseException as exc:
-                    # A read failure is also a failure for any request waiting
-                    # on a response, which will otherwise wait for a reply that
-                    # can no longer arrive.
-                    self._fail_pending_request(exc)
+                    await self._report_error(exc)
+                except asyncio.CancelledError:
                     raise
+                except BaseException:
+                    # Must not replace the parse failure the caller needs to
+                    # see, for the same reason logout() guards its own report.
+                    self.logger.exception(
+                            'Error handler raised while reporting an '
+                            'unparsable message. Ignoring it.')
+                raise
 
             if msg is not ROUTED:
                 break
