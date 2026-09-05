@@ -1,9 +1,9 @@
 <!--
 Thanks for sending a patch.
 
-This is a fork of alexgolec/schwab-py. If your change is not specific to this
-fork's changes, please consider sending it upstream as well, or instead — it
-will help more people there. Either is welcome here.
+schwaby began from alexgolec/schwab-py. If your change is not specific to the
+differences listed in CHANGELOG.md, please consider sending it there as well —
+it will help more people. Contributions are welcome here either way.
 -->
 
 **What this changes**

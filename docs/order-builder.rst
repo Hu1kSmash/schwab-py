@@ -213,7 +213,7 @@ process looks like this:
 
 This script is installed by ``pip``, and will only be accessible if you've added
 pip's executable locations to your ``$PATH``. If you're having a hard time, feel
-free to `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+free to `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 
 --------------------------
@@ -229,7 +229,7 @@ generated from the schema provided in the `official API documents
 <https://developer.schwab.com/products/trader-api--individual/details/specifications/Retail%20Trader%20API%20Production>`__,
 but many of the finer points, such as which fields should be populated for which 
 order types, etc. are best guesses.  If you find something is inaccurate or 
-missing, please `let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+missing, please `let us know <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 That being said, experienced traders who understand how various order types and 
 complex strategies work should find this builder easy to use, at least for the 
@@ -487,9 +487,9 @@ things have been observed, however:
    debit or credit desired.
 
 If you successfully use these strategies, we want to know about it. Please let 
-us know `on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__ to 
+us know `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`__ to 
 chat about it, or by `creating a feature request 
-<https://github.com/Hu1kSmash/schwab-py/issues>`__.
+<https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 .. autoclass:: schwab.orders.common::ComplexOrderStrategyType
   :members:
@@ -532,7 +532,7 @@ order spec schema describes some things that are outside my ability to document,
 so rather than make stuff up, I'm putting them here in the hopes that someone 
 will come along and shed some light on them. You can make suggestions by filing 
 an issue on our `GitHub issues page 
-<https://github.com/Hu1kSmash/schwab-py/issues>`__.
+<https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 
 .. _undocumented_quantity:

@@ -8,7 +8,7 @@ trades. Please treat problems in it accordingly.
 **Do not open a public issue for a security problem.**
 
 Use [private vulnerability
-reporting](https://github.com/Hu1kSmash/schwab-py/security/advisories/new),
+reporting](https://github.com/Hu1kSmash/schwaby/security/advisories/new),
 which opens a report only the maintainers can see.
 
 Please include what an attacker would be able to do, how to reproduce it, and

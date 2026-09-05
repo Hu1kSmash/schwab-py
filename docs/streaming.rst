@@ -457,7 +457,7 @@ documentation referred to them.
 
 The community is in the process of making sense of this new world. You are 
 encouraged to try and use this streaming library and report what you find back 
-`on the issue tracker <https://github.com/Hu1kSmash/schwab-py/issues>`__. We'll be updating 
+`on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`__. We'll be updating 
 this page as we discover new things.
 
 The following streams are confirmed working:
@@ -632,7 +632,7 @@ in these streams refusing to connect, typically returning errors about
 unavailable services. Due to this behavior and the lack of official 
 documentation for book streams generally, ``schwab-api`` assumes these streams are not
 actually implemented, and so excludes them. If you have any insight into using
-them, please `let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+them, please `let us know <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 
 -------------------------------------
@@ -668,7 +668,7 @@ happens.
 Note to preserve equivalence with what little documentation there is, the NYSE
 book is called "listed." Testing indicates this stream corresponds to the NYSE
 book, but if you find any behavior that suggests otherwise please
-`let us know <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+`let us know <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 .. automethod:: schwab.streaming::StreamClient.nyse_book_subs
 .. automethod:: schwab.streaming::StreamClient.nyse_book_unsubs

@@ -1,29 +1,35 @@
-``schwaby``: A Charles Schwab API Wrapper
-===========================================
+``schwaby``: A Charles Schwab API Client for Systematic Trading
+==============================================================
+
+``schwaby`` is an unofficial Python client for the Charles Schwab API, built for
+running automated strategies against real accounts.
 
 .. note::
 
-   **This is a maintained fork of**
-   `alexgolec/schwab-py <https://github.com/alexgolec/schwab-py>`__.
+   **Where this came from.** ``schwaby`` began from
+   `alexgolec/schwab-py <https://github.com/alexgolec/schwab-py>`__, an excellent
+   MIT-licensed library by Alex Golec that gave this project its shape --- the endpoint
+   coverage, the order builder, the streaming field tables. He wrote the great majority of
+   the code here and his copyright and licence are unchanged.
 
-   The original is the work of Alex Golec and remains the upstream project. This fork exists
-   because upstream has not merged a change since August 2025, while several defects affecting
-   correctness under live trading remained open — prices silently a cent low when passed as
-   floats, a token file that a crash during a refresh could destroy, a stream that could wedge
-   permanently on an unanswered request, and a deprecated ``websockets`` import that will stop
-   importing when it is removed. See `CHANGELOG.md
-   <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for the full list.
+   It became a separate project for a practical reason rather than a philosophical one. This
+   client runs systematic strategies against funded accounts, and that use imposes
+   requirements a general-purpose wrapper has no particular reason to prioritise: prices that
+   are never silently altered, a token file that survives a crash mid-refresh, a stream that
+   reports what it absorbs instead of going quiet, and failures that are loud and specific
+   rather than plausible-looking. Several of those needed changes to behaviour rather than
+   additions on top.
 
-   **As of 2.2.0 this fork no longer tracks upstream.** Every change used to be offered
-   upstream as a pull request first. Upstream merged none of them, and its maintainer confirmed
-   in September 2026 that he does not intend to update the project, so the queue was ceremony
-   rather than collaboration. Changes are now made because they are right for this library.
+   Those changes were offered upstream first. They were not taken up --- the original has not
+   merged a change since August 2025 --- so rather than run an ever-growing private patch set
+   against someone else's release schedule, they were consolidated here and this became its
+   own project with its own release line.
 
-   This is not a competing project and it is not a criticism of the original author, who wrote
-   essentially all of the code below. The licence and the attribution are unchanged; going
-   authoritative is a statement about who maintains this, not about who wrote it. If upstream
-   ever resumes active maintenance, ``upstream-main`` is still mirrored here, and reconciling
-   with it is a better outcome than defending the fork.
+   **That is not a criticism of the original or of its author.** A library maintained at a
+   comfortable pace for a broad audience is a perfectly reasonable thing to be, and it is not
+   the same thing as one maintained for a machine that places orders with real money. Both can
+   be right. If you are not trading live capital, the original may suit you better and is
+   worth your consideration.
 
    **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``:
 
@@ -54,12 +60,13 @@
    ``ImportError`` saying so. ``schwaby[codegen]`` covers the order-code generator.
    Notebook users need neither: there ``easy_client`` uses the manual flow.
 
-   Issues and pull requests specific to this fork belong on `its own tracker
-   <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything not caused by the changes listed
-   in the changelog is better reported upstream, where it will help more people.
+   **Bug reports and questions go to** `the issue tracker
+   <https://github.com/Hu1kSmash/schwaby/issues>`__, which is the only supported route ---
+   there is deliberately no maintainer email in the package metadata. An issue is searchable,
+   shows you whether someone has already hit the same thing, and cannot be lost in a mailbox.
 
-.. image:: https://github.com/Hu1kSmash/schwab-py/workflows/tests/badge.svg
-  :target: https://github.com/Hu1kSmash/schwab-py/actions?query=workflow%3Atests
+.. image:: https://github.com/Hu1kSmash/schwaby/workflows/tests/badge.svg
+  :target: https://github.com/Hu1kSmash/schwaby/actions?query=workflow%3Atests
 
 What is ``schwaby``?
 ----------------------
@@ -80,7 +87,7 @@ How do I use ``schwaby``?
 ---------------------------
 
 For a full description of ``schwaby``'s functionality, check out the 
-`documentation <https://github.com/Hu1kSmash/schwab-py/blob/main/docs/index.rst>`__. Meanwhile,
+`documentation <https://github.com/Hu1kSmash/schwaby/blob/main/docs/index.rst>`__. Meanwhile,
 here's a quick getting started guide:
 
 Before you do anything, create an account and an application on the
@@ -89,7 +96,7 @@ You'll receive an API key and app secret, which you can pass to this wrapper.
 You'll also want to take note of your callback URI, as the login flow requires 
 it. You app must be approved by Schwab before you can use it (this can take 
 several days).  You can find more detailed instructions `here 
-<https://github.com/Hu1kSmash/schwab-py/blob/main/docs/getting-started.rst>`__.
+<https://github.com/Hu1kSmash/schwaby/blob/main/docs/getting-started.rst>`__.
 
 Next, install ``schwaby``. Note the distribution is ``schwaby`` while the
 import stays ``schwab`` --- ``pip install schwab-py`` fetches the *original*
@@ -191,14 +198,15 @@ What else?
 ----------
 
 Bug reports, suggestions, and patches are welcome. Submit issues
-`here <https://github.com/Hu1kSmash/schwab-py/issues>`__ and pull requests `here <https://github.com/Hu1kSmash/schwab-py/pulls>`__.
+`here <https://github.com/Hu1kSmash/schwaby/issues>`__ and pull requests `here <https://github.com/Hu1kSmash/schwaby/pulls>`__.
 
-Please read the fork notice at the top first: problems which are not caused by
-this fork's changes are usually better reported `upstream
-<https://github.com/alexgolec/schwab-py/issues>`__.
+If the problem is with behaviour this project shares with
+`alexgolec/schwab-py <https://github.com/alexgolec/schwab-py>`__ and is not one of the
+changes listed in the changelog, it is worth reporting there too --- it will help more
+people than a report here alone.
 
 ``schwaby`` is released under the
-`MIT license <https://github.com/Hu1kSmash/schwab-py/blob/main/LICENSE>`__, and remains
+`MIT license <https://github.com/Hu1kSmash/schwaby/blob/main/LICENSE>`__, and remains
 copyright Alex Golec.
 
 **Disclaimer:** *schwaby is an unofficial API wrapper. It is in no way 

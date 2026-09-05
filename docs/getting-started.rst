@@ -115,7 +115,7 @@ enough not to need our help creating such a setup.
 
 *Update July 21, 2024:* There were intermittent reports that Schwab was 
 refusing to create apps with callback URLs containing ``127.0.0.1``. If you 
-encounter this, please `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__ so it can be tracked.
+encounter this, please `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__ so it can be tracked.
 
 In any case, note that whatever callback URL you choose, you must pass it to 
 ``schwaby`` *exactly* in the same way as you specified it while creating your 
@@ -282,6 +282,6 @@ and streams needs neither extra. So does one built on
 Getting Help
 ++++++++++++
 
-If you are ever stuck, you can `open an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__ to ask a 
+If you are ever stuck, you can `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__ to ask a 
 question. If you feel you've found a bug, you can :ref:`fill out a bug report 
 <help>`.

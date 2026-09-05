@@ -12,12 +12,16 @@ how you can get help and make progress.
 
 .. note::
 
-   This is a maintained fork. Issues caused by the changes listed in the
-   `changelog <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__
-   belong on `this fork's tracker
-   <https://github.com/Hu1kSmash/schwab-py/issues>`__. Anything else is usually
-   better reported `upstream <https://github.com/alexgolec/schwab-py/issues>`__,
-   where it will help more people.
+   Bug reports and questions go to `the tracker
+   <https://github.com/Hu1kSmash/schwaby/issues>`__. There is no maintainer
+   email on purpose: an issue is searchable, shows whether someone has already
+   hit the same thing, and cannot be lost in a mailbox.
+
+   If the behaviour is shared with `alexgolec/schwab-py
+   <https://github.com/alexgolec/schwab-py>`__ and is not one of the changes in
+   the `changelog
+   <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__, it is worth
+   reporting there too --- it will help more people than a report here alone.
 
 
 --------------
@@ -105,4 +109,4 @@ A good report includes:
    checked for anything sensitive first.
  * **Your version, OS and execution environment.**
 
-Then `file an issue <https://github.com/Hu1kSmash/schwab-py/issues>`__.
+Then `file an issue <https://github.com/Hu1kSmash/schwaby/issues>`__.

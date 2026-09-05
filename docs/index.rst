@@ -3,15 +3,23 @@
 
 .. image:: _static/github-logo.png
    :width: 40
-   :target: https://github.com/Hu1kSmash/schwab-py
+   :target: https://github.com/Hu1kSmash/schwaby
+
+``schwaby`` is an unofficial Python client for the Charles Schwab API, built for
+running automated strategies against real accounts.
 
 .. note::
 
-   This is a maintained fork of `alexgolec/schwab-py
-   <https://github.com/alexgolec/schwab-py>`__, which is the work of Alex Golec
-   and remains the upstream project. See the `changelog
-   <https://github.com/Hu1kSmash/schwab-py/blob/main/CHANGELOG.md>`__ for what
-   differs.
+   ``schwaby`` began from `alexgolec/schwab-py
+   <https://github.com/alexgolec/schwab-py>`__, an MIT-licensed library by Alex
+   Golec which gave this project its shape and most of its code. It became a
+   separate project because running systematic strategies against funded
+   accounts imposes requirements a general-purpose wrapper has no particular
+   reason to prioritise --- prices that are never silently altered, a token file
+   that survives a crash, a stream that reports what it absorbs. See the
+   `changelog <https://github.com/Hu1kSmash/schwaby/blob/main/CHANGELOG.md>`__
+   for what changed, and the `README
+   <https://github.com/Hu1kSmash/schwaby>`__ for the longer version.
 
 .. toctree::
   :maxdepth: 2

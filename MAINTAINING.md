@@ -20,7 +20,7 @@ upstream* below.
 Remotes:
 
 ```
-origin    git@github.com:Hu1kSmash/schwab-py.git      (this fork)
+origin    git@github.com:Hu1kSmash/schwaby.git      (this fork)
 upstream  https://github.com/alexgolec/schwab-py.git  (the original)
 ```
 
@@ -124,7 +124,7 @@ fail together. It costs four seconds.
 
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
-6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
+6. `gh release create vX.Y.Z -R Hu1kSmash/schwaby --notes-file ...`
 7. **Re-check any claim about the release against the tag, after tagging.**
 
    A statement like "nothing under `schwab/` changed" is checkable, so a reader
@@ -158,7 +158,7 @@ the importable package has the same name.
 `schwaby` on PyPI is upstream's. This fork installs from git:
 
 ```shell
-pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@vX.Y.Z"
+pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwaby@vX.Y.Z"
 ```
 
 Pin a tag or a commit, never a branch — a branch moves, and a rebuild months later would silently
