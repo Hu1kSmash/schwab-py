@@ -31,15 +31,28 @@ running automated strategies against real accounts.
    be right. If you are not trading live capital, the original may suit you better and is
    worth your consideration.
 
-   **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``:
+   **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``.
+
+   The first PyPI release is not out yet. Until it is, install from ``main``:
+
+   .. code-block:: shell
+
+     pip install "schwaby[login] @ git+https://github.com/Hu1kSmash/schwaby@main"
+
+   Note that must be ``@main`` rather than a tag: every tag so far was published
+   under the old distribution name, and ``pip`` refuses a direct URL whose metadata
+   names a different project than the one you asked for. Once the first release is
+   out this becomes:
 
    .. code-block:: shell
 
      pip install schwaby
 
+   Either way the import does not change:
+
    .. code-block:: python
 
-     import schwab   # unchanged
+     import schwab
 
    Those differ on purpose. Keeping ``schwab`` as the import makes this a drop-in
    replacement --- a consumer changes one line of ``requirements.txt`` and nothing else.

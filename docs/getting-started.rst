@@ -167,11 +167,18 @@ directory. Here we assume your virtualenv is called ``my-venv``:
 
 You are now ready to install ``schwaby``. The distribution is ``schwaby`` and
 the importable package is ``schwab`` --- ``pip install schwab-py`` would fetch
-the *original* project, which is a different and much older codebase:
+the *original* project, which is a different and much older codebase.
+
+The first PyPI release is not out yet, so install from ``main`` for now:
 
 .. code-block:: shell
 
-  pip install "schwaby[login]"
+  pip install "schwaby[login] @ git+https://github.com/Hu1kSmash/schwaby@main"
+
+That must be ``@main`` rather than a tag: every tag so far was published under
+the old distribution name, and ``pip`` refuses a direct URL whose metadata names
+a different project than the one you asked for. Once the first release is out,
+this becomes ``pip install "schwaby[login]"``.
 
 .. warning::
 
