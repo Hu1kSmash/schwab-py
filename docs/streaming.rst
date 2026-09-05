@@ -252,7 +252,12 @@ arriving beside it.
 For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
 ``message`` rather than from ``exception.response['response'][0]``. ``service``
-and ``message`` are ``None`` where they do not apply. Registering none keeps the
+and ``message`` are ``None`` where they do not apply --- but do not use that as
+a discriminator. Only the close failure leaves both unset *by design*; an
+``UnusableMessage`` reports the containing frame as ``message``, which is
+non-``None`` in every case but a top-level JSON ``null``. Test
+``isinstance(exception, UnusableMessage)`` before anything else if you branch
+on the kind. Registering none keeps the
 existing behaviour exactly, and the log line is written either way.
 
 The late rejection reaches you however Schwab frames it. Only one request is

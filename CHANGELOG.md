@@ -51,7 +51,7 @@ the one thing nothing else will ever report.
 
 ### Fixed
 
-**A malformed message ended the caller's receive loop.** Three related cases,
+**A malformed message ended the caller's receive loop.** Four related cases,
 all of which raised out of `handle_message` where the caller could only read
 them as the stream having failed:
 
@@ -67,6 +67,19 @@ them as the stream having failed:
 
 Each is now logged and skipped, and well-formed elements beside a bad one are
 still dispatched.
+
+**A failure to relabel a message was reported as a handler failure.** Relabeling
+is this library's work, not the caller's, but it happens inside the per-handler
+`try` — so a `content` the field tables could not read was reported as "your
+handler raised", once per registered handler, uncounted and uncoalesced. It is
+absorbed once per message now.
+
+**An `UnusableMessage` could not be told from a failure to close after logout.**
+Both arrived as `service=None, message=None`, which the documentation designates
+as the close-failure signature. The report now carries the containing frame as
+`message`, which is non-`None` for every case but a top-level JSON `null`, and
+the documentation says to test `isinstance(exception, UnusableMessage)` rather
+than branching on both being unset.
 
 **A custom JSON decoder returning anything but `dict` and `list` broke the
 stream.** `set_json_decoder` is a public hook which promises only "the decoded

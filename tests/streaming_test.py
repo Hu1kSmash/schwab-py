@@ -7643,7 +7643,10 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                     if isinstance(exc, schwab.streaming.UnexpectedResponseCode)]
 
         def absorbed(pairs):
-            return [message for exc, _, message in pairs
+            # exc.message, not the handler's `message`: the latter is now the
+            # containing frame, which differs between the two framings by
+            # construction.
+            return [exc.message for exc, _, _ in pairs
                     if isinstance(exc, schwab.streaming.UnusableMessage)]
 
         # Standalone framing, through handle_message's orphan path. Collected
@@ -7982,7 +7985,11 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(4, len(errors))
         for exc, message in errors:
             self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
-            self.assertIs(exc.message, message)
+            # The containing frame reaches the handler, so a null channel is
+            # not reported as (service=None, message=None) -- the signature the
+            # logout-close failure already uses, which a consumer branching on
+            # "both None" would file as a teardown problem.
+            self.assertIsNotNone(message)
 
     @no_duplicates
     def test_absorbed_warnings_do_not_flood(self):
@@ -8149,8 +8156,12 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 {'data': {'a': 1, 'b': 2, 'c': 3}}, 'data'))
 
         self.assertEqual(1, len(self.client._pending_reports))
-        self.assertEqual({'a': 1, 'b': 2, 'c': 3},
-                         self.client._pending_reports[0][2])
+        exc, service, message = self.client._pending_reports[0]
+        # The exception carries the offending value; the handler is given the
+        # containing frame, so that (service, message) is not (None, None) and
+        # cannot be mistaken for the logout-close report.
+        self.assertEqual({'a': 1, 'b': 2, 'c': 3}, exc.message)
+        self.assertEqual({'data': {'a': 1, 'b': 2, 'c': 3}}, message)
 
     @no_duplicates
     def test_responses_may_be_any_iterable(self):
@@ -8167,6 +8178,65 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(1, len(self.client._pending_reports))
         self.assertIn('from a generator',
                       str(self.client._pending_reports[0][0]))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_relabel_failure_is_absorbed_not_blamed_on_handlers(
+            self, ws_connect):
+        # Relabeling is this library's work. Reporting its failure as "your
+        # handler raised" blamed the consumer's code for a shape the venue
+        # sent, and did it once per registered handler -- uncounted, so a
+        # framing change flooded at one report per element per handler per tick.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        for _ in range(3):
+            self.client.add_level_one_equity_handler(lambda msg: None)
+
+        socket.recv.side_effect = [json.dumps({'data': [{
+            'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+            'content': None}]}), json.dumps(self.streaming_entry(
+                'LEVELONE_EQUITIES', 'SUBS'))]
+
+        await self.client.handle_message()
+        await self.client.handle_message()
+
+        # Once, not once per handler, and as an absorbed message rather than a
+        # handler failure.
+        self.assertEqual(1, len(errors))
+        self.assertIsInstance(errors[0], schwab.streaming.UnusableMessage)
+        self.assertEqual(1, self.client._absorbed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unusable_message_is_not_mistaken_for_a_close_failure(
+            self, ws_connect):
+        # docs/streaming.rst designates (service=None, message=None) as the
+        # logout-close signature, and a consumer branches on exactly that. A
+        # null channel used to produce the same pair.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc, msg)))
+
+        for frame in ({'data': None}, {'notify': None}, {'data': [None]}):
+            with self.subTest(frame=frame):
+                socket.recv.side_effect = [json.dumps(frame)]
+                await self.client.handle_message()
+
+        socket.recv.side_effect = [json.dumps(
+                self.streaming_entry('LEVELONE_EQUITIES', 'SUBS'))]
+        self.client.add_level_one_equity_handler(lambda msg: None)
+        await self.client.handle_message()
+
+        self.assertEqual(3, len(errors))
+        for service, exc, message in errors:
+            self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
+            self.assertFalse(service is None and message is None)
 
     @no_duplicates
     def test_a_flood_of_absorbed_messages_cannot_evict_a_rejection(self):

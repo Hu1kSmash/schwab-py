@@ -494,14 +494,13 @@ class StreamClient(EnumEnforcer):
             # 'service'". The id mismatch is the more diagnostic fact -- it
             # means the server and this client disagree about what was asked --
             # and it was hidden behind whichever field happened to be absent.
-            if resp_request_id != request_id:
-                return UnexpectedResponse(
-                    resp, 'unexpected requestid: {}'.format(resp_request_id))
+            mismatched_id = (resp_request_id
+                             if resp_request_id != request_id else None)
 
-            resp_service = first['service']
-            resp_command = first['command']
-            content = first['content']
-            resp_code = content['code']
+            resp_service = first['service'] if mismatched_id is None else None
+            resp_command = first['command'] if mismatched_id is None else None
+            content = first['content'] if mismatched_id is None else {}
+            resp_code = content['code'] if mismatched_id is None else 0
         except (AttributeError, IndexError, KeyError, TypeError,
                 ValueError) as exc:
             # Only the reads are inside the try. Wrapping the whole check
@@ -513,6 +512,16 @@ class StreamClient(EnumEnforcer):
             return UnexpectedResponse(
                 resp, 'malformed response frame: {}: {}'.format(
                     type(exc).__name__, exc))
+
+        # Built outside the try above, which exists to turn *reads* of a
+        # malformed frame into a clean error. Constructing the exception in
+        # there would mean a signature change to UnexpectedResponse reported
+        # every id mismatch as "malformed response frame: TypeError", blaming
+        # the venue for a bug of ours -- the exact misattribution that try is
+        # narrow to avoid.
+        if mismatched_id is not None:
+            return UnexpectedResponse(
+                resp, 'unexpected requestid: {}'.format(mismatched_id))
 
         # Validate service
         if resp_service != service:
@@ -671,14 +680,15 @@ class StreamClient(EnumEnforcer):
         responses = frame.get('response')
         if not _is_sequence(responses):
             self._absorb('a response frame whose "response" is not a list',
-                         responses)
+                         responses, frame=frame)
             return
 
         # islice rather than a slice: _is_sequence admits any iterable, and a
         # decoder returning a generator would raise on responses[start:].
         for response in itertools.islice(responses, start, None):
             if not _is_mapping(response):
-                self._absorb('an unparseable response element', response)
+                self._absorb('an unparseable response element', response,
+                             frame=frame)
                 continue
 
             # Normalised, not just defaulted. The key is often present with a
@@ -694,7 +704,7 @@ class StreamClient(EnumEnforcer):
 
             yield response, code, content
 
-    def _absorb(self, what, offender):
+    def _absorb(self, what, offender, frame=None):
         """Records a message this client cannot use.
 
         Two things happen to it, and each earns its place:
@@ -742,10 +752,19 @@ class StreamClient(EnumEnforcer):
                     offender,
                     'Ignoring {} ({} of these, {} in all, on this '
                     'connection)'.format(what, n, self._absorbed)),
-                # No service: every one of these is a message whose shape this
-                # client could not read, so there is no service name to be had.
+                # No service: every one of these is a message whose shape
+                # this client could not read, so there is no service name to
+                # be had.
                 None,
-                offender))
+                # The containing frame, not the offending value, because the
+                # value is often None -- a null channel, a null element -- and
+                # a report of (None, None) is the signature the logout-close
+                # failure already uses. A consumer discriminating on "both
+                # None" would file a dead feed under "could not close after
+                # logout". Where there is no containing frame, the offender is
+                # the frame, and `isinstance(exception, UnusableMessage)` is
+                # the discriminator the docs now point at.
+                frame if frame is not None else offender))
 
     def _iter_channel(self, msg, channel):
         '''Yields the well-formed elements of ``msg[channel]``.
@@ -771,12 +790,13 @@ class StreamClient(EnumEnforcer):
 
         if not _is_sequence(elements):
             self._absorb('a %s frame whose %r is not a list'
-                         % (channel, channel), elements)
+                         % (channel, channel), elements, frame=msg)
             return
 
         for element in elements:
             if not _is_mapping(element):
-                self._absorb('an unparseable %s element' % channel, element)
+                self._absorb('an unparseable %s element' % channel, element,
+                             frame=msg)
                 continue
 
             yield element
@@ -1096,7 +1116,11 @@ class StreamClient(EnumEnforcer):
 
         * ``service`` is the stream service the failure belongs to, or ``None``
           where it has none -- the close failure, or a message which named no
-          service.
+          service. **Do not discriminate on ``service`` and ``message`` both
+          being ``None``.** Only the close failure leaves both unset by design;
+          an :class:`UnusableMessage` carries the containing frame as
+          ``message``, which is non-``None`` in every case but a top-level JSON
+          ``null``. Test ``isinstance(exception, UnusableMessage)`` first.
         * ``exception`` is the exception that was raised.
         * ``message`` is the message being handled, or ``None``.
 
@@ -1243,15 +1267,28 @@ class StreamClient(EnumEnforcer):
             self._absorb('a message whose service is not a name', service)
             return
 
+        relabel_failed = False
+
         for handler in handlers:
-            # Bound before the try so that a failure inside label_message --
-            # which is a failure to relabel -- reports the message as it
-            # actually arrived rather than leaving this unbound.
-            payload = msg
             try:
                 # Relabeling reads into the message, so a message with an
-                # unexpected shape can fail here rather than in the handler.
+                # unexpected shape fails here rather than in the handler.
                 payload = handler.label_message(msg) if relabel else msg
+            except Exception:
+                # Absorbed, not reported as a handler failure. Relabeling is
+                # this library's work, not the caller's: reporting it as
+                # "your handler raised" blamed the consumer's code for a shape
+                # the venue sent, and did it once per registered handler,
+                # uncounted and uncoalesced. Once per message, and only the
+                # first handler pays for it.
+                if not relabel_failed:
+                    relabel_failed = True
+                    self._absorb(
+                            'a %s message which could not be relabeled'
+                            % service, msg)
+                continue
+
+            try:
                 result = handler(payload)
             except Exception as exc:
                 self.logger.exception(
