@@ -125,6 +125,14 @@ fail together. It costs four seconds.
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
 6. `gh release create vX.Y.Z -R Hu1kSmash/schwaby --notes-file ...`
+
+   **Creating the release is what publishes to PyPI.** `.github/workflows/publish.yml`
+   runs on a published release, re-runs the suite on all five Pythons, checks
+   `twine check --strict`, verifies the built version matches the tag, and
+   uploads via trusted publishing. Pushing a tag alone publishes nothing, so a
+   tag can be fixed or moved before the release is created — after it, the
+   version is permanent, because PyPI refuses a re-upload of a version even
+   after you delete it.
 7. **Re-check any claim about the release against the tag, after tagging.**
 
    A statement like "nothing under `schwab/` changed" is checkable, so a reader

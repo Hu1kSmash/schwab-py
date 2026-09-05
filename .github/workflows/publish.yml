@@ -1,0 +1,84 @@
+# Publishes to PyPI on a GitHub Release, using trusted publishing.
+#
+# There is no API token anywhere in this repository or in its secrets. GitHub
+# mints a short-lived OIDC token for this workflow and PyPI verifies it against
+# the publisher you configured, so there is no long-lived credential to leak,
+# rotate or forget. That is the whole reason `id-token: write` is here.
+#
+# It runs on a published Release rather than on a tag push, so pushing a tag by
+# itself never publishes. Creating the release is the deliberate act.
+name: publish
+
+on:
+  release:
+    types: [published]
+  # Lets a failed publish be retried without cutting another release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The tests run again here rather than trusting the run on the commit. A
+  # release can be created from a tag whose test run is old, was skipped, or
+  # passed before a force-push -- and "it was green earlier" is not the same
+  # claim as "it is green now".
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install ".[dev]"
+      - run: pytest tests/ -q
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+
+      # twine check is not optional. It is the only thing that verifies
+      # README.rst renders the way PyPI will render it -- sphinx passes on
+      # markup PyPI rejects, because they are different parsers. A title
+      # underline one character short publishes a release with no description.
+      - run: python -m twine check --strict dist/*
+
+      # The version in the artifact must match the tag being released.
+      # Publishing 2.5.1 from a tag called v2.6.0 is not recoverable: PyPI
+      # refuses re-uploads of a version, so the wrong number is permanent.
+      - name: Version must match the tag
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(ls dist/*.tar.gz | sed -E 's/.*schwaby-(.*)\.tar\.gz/\1/')
+          echo "tag=$tag built=$built"
+          test "$tag" = "$built"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write        # required for trusted publishing; nothing else
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
