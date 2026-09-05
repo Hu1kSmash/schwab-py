@@ -204,24 +204,16 @@ Here is an example of how to fetch an account hash and use it to place an order:
 
 .. code-block:: python
 
-  import atexit
   import httpx2
-  from selenium import webdriver
 
   from schwab.auth import easy_client
   from schwab.orders.equities import equity_buy_market
 
-  def make_webdriver():
-      driver = webdriver.Firefox()
-      atexit.register(lambda: driver.quit())
-      return driver
-
   c = easy_client(
-          token_path='/path/to/token.json',
           api_key='api-key',
           app_secret='app-secret',
-          callback_url='https://callback.example.com',
-          webdriver_func=make_webdriver)
+          callback_url='https://127.0.0.1:8182',
+          token_path='/path/to/token.json')
 
   resp = c.get_account_numbers()
   assert resp.status_code == httpx2.codes.OK

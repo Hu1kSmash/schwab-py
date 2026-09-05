@@ -597,7 +597,8 @@ Firstly, the :ref:`manual login flow<manual_login>` flow allows you to go
 through the login flow on a different machine than the one on which 
 ``schwaby`` is running. Instead of starting the web browser and automatically 
 opening the relevant URLs, this flow allows you to manually copy-paste around 
-the URLs. It's a little more cumbersome, but it has no dependency on selenium.
+the URLs. It is a little more cumbersome, and it needs no browser on the machine
+running it.
 
 Alterately, you can take advantage of the fact that token files are portable.
 Once you create a token on one machine, such as one where you can open a web

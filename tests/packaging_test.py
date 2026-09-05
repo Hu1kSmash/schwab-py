@@ -9,9 +9,11 @@ These assertions are about relationships between the lists rather than their
 contents, so adding a package does not require editing a test.
 '''
 
+import ast
 import collections
 import contextlib
 import importlib
+import inspect
 import os
 import re
 import tempfile
@@ -614,3 +616,160 @@ class DocReferenceTest(unittest.TestCase):
                 ['schwab.client.Client.search_instruments',
                  'schwab.streaming.StreamClient.NoSuchEnum'],
                 sorted(name for name, _ in broken))
+
+
+class DocExampleTest(unittest.TestCase):
+    """Keyword arguments in documentation examples, against real signatures.
+
+    `client.rst` showed placing an order with
+    `easy_client(..., webdriver_func=make_webdriver)` and a selenium import.
+    There is no `webdriver_func` parameter and selenium is not a dependency and
+    appears nowhere in the library -- it is left over from the TD Ameritrade
+    era, when the login flow drove a real browser. A reader following that
+    example got a TypeError before reaching the part they came for.
+
+    `DocReferenceTest` cannot see this: the reference role `:func:`easy_client``
+    resolves perfectly well. What is wrong is the call written underneath it.
+    This walks the python code blocks instead and checks that every keyword
+    passed to a `schwab` callable is one that callable accepts.
+
+    Deliberately narrow. It resolves a call only when the name is one the
+    documentation imported from `schwab`, and it skips a callable that takes
+    `**kwargs`. It is not a type checker; it catches the argument that used to
+    exist and does not any more, which is the one that rots.
+    """
+
+    CODE_BLOCK = re.compile(
+            r'\.\.\s+code-block::\s*python\s*\n\n((?:(?:[ \t]+[^\n]*)?\n)+)')
+
+    @staticmethod
+    def dedent(block):
+        lines = block.split('\n')
+        indents = [len(l) - len(l.lstrip()) for l in lines if l.strip()]
+        if not indents:
+            return ''
+        margin = min(indents)
+        return '\n'.join(l[margin:] if l.strip() else '' for l in lines)
+
+    @classmethod
+    def code_blocks_in(cls, files):
+        blocks = []
+        for path in files:
+            with open(path, encoding='utf-8') as f:
+                contents = f.read()
+            for m in cls.CODE_BLOCK.finditer(contents):
+                line = contents[:m.start()].count('\n') + 1
+                blocks.append((os.path.basename(path), line,
+                               cls.dedent(m.group(1))))
+        return blocks
+
+    @staticmethod
+    def resolve_callable(name, imported):
+        """Resolve a called name to a schwab callable, or None if not ours."""
+        root = name.split('.')[0]
+        if root not in imported:
+            return None
+        obj = imported[root]
+        for attr in name.split('.')[1:]:
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                return None
+        return obj if callable(obj) else None
+
+    @classmethod
+    def bad_keywords_in(cls, blocks):
+        """Returns (where, call, keyword) for each keyword the callee rejects."""
+        problems = []
+        for where, line, code in blocks:
+            try:
+                tree = ast.parse(code)
+            except SyntaxError:
+                # Fragments and shell-ish snippets are not our business.
+                continue
+
+            imported = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and \
+                        (node.module or '').startswith('schwab'):
+                    for alias in node.names:
+                        try:
+                            mod = importlib.import_module(node.module)
+                        except ImportError:                # pragma: no cover
+                            continue
+                        target = getattr(mod, alias.name, None)
+                        if target is not None:
+                            imported[alias.asname or alias.name] = target
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.startswith('schwab'):
+                            try:
+                                imported[alias.asname or alias.name] = \
+                                        importlib.import_module(alias.name)
+                            except ImportError:            # pragma: no cover
+                                pass
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                try:
+                    name = ast.unparse(node.func)
+                except Exception:                          # pragma: no cover
+                    continue
+                target = cls.resolve_callable(name, imported)
+                if target is None:
+                    continue
+                try:
+                    sig = inspect.signature(target)
+                except (ValueError, TypeError):             # pragma: no cover
+                    continue
+                if any(p.kind is inspect.Parameter.VAR_KEYWORD
+                       for p in sig.parameters.values()):
+                    continue
+                accepted = set(sig.parameters)
+                for kw in node.keywords:
+                    if kw.arg is not None and kw.arg not in accepted:
+                        problems.append(
+                                ('%s:%d' % (where, line), name, kw.arg))
+        return sorted(set(problems))
+
+    @no_duplicates
+    def test_no_example_passes_an_argument_that_does_not_exist(self):
+        blocks = DocReferenceTest.doc_files()
+        blocks = self.code_blocks_in(blocks)
+
+        # Positive control for the collection: an empty block list makes the
+        # assertion below hold for the wrong reason. Also prove a real call is
+        # being resolved and checked, not merely parsed.
+        self.assertGreater(len(blocks), 20)
+        resolved = sum(
+                1 for _, _, code in blocks
+                if 'easy_client(' in code or 'client_from_login_flow(' in code)
+        self.assertGreater(resolved, 1)
+
+        self.assertEqual([], self.bad_keywords_in(blocks))
+
+    @no_duplicates
+    def test_the_check_catches_the_argument_that_was_removed(self):
+        # webdriver_func, verbatim from the example this was written for.
+        code = ('from schwab.auth import easy_client\n'
+                'c = easy_client(\n'
+                "        token_path='/path/to/token.json',\n"
+                "        api_key='api-key',\n"
+                "        app_secret='app-secret',\n"
+                "        callback_url='https://callback.example.com',\n"
+                '        webdriver_func=make_webdriver)\n')
+        problems = self.bad_keywords_in([('doc.rst', 1, code)])
+        self.assertEqual([('doc.rst:1', 'easy_client', 'webdriver_func')],
+                         problems)
+
+    @no_duplicates
+    def test_a_correct_call_is_not_flagged(self):
+        # The same call, as it is actually written now. Without this the test
+        # above passes for a checker that flags everything.
+        code = ('from schwab.auth import easy_client\n'
+                'c = easy_client(\n'
+                "        api_key='api-key',\n"
+                "        app_secret='app-secret',\n"
+                "        callback_url='https://127.0.0.1:8182',\n"
+                "        token_path='/path/to/token.json')\n")
+        self.assertEqual([], self.bad_keywords_in([('doc.rst', 1, code)]))

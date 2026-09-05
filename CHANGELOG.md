@@ -184,9 +184,19 @@ The install instructions, the "Optional Extras" table and the `pip freeze`
 warning are gone from `getting-started.rst` and the README, along with the
 codegen section of `order-builder.rst`.
 
-**The README leads with what the library does.** The origin story and the
-credit to Alex Golec are a section near the bottom rather than the first thing
-a new reader meets. Same for `docs/index.rst`.
+**The README leads with what the library does.** It opens with the claim, then
+four short examples --- authenticate, fetch, place an order, stream --- that
+show the whole surface before asking anyone to read prose. The origin story and
+the credit to Alex Golec are the last section rather than the first thing a new
+reader meets. Same for `docs/index.rst`.
+
+**A second documentation example could not run.** `client.rst` showed placing
+an order with `easy_client(..., webdriver_func=make_webdriver)` and a
+`selenium` import. There is no `webdriver_func` parameter, and selenium is not
+a dependency and appears nowhere in the library --- it is left over from the TD
+Ameritrade era, when the login flow drove a real browser. A test now checks
+every keyword argument in every documentation example against the signature of
+the thing being called.
 
 **`client_from_login_flow` pointed a `ValueError` at `schwab-py.readthedocs.io`
 --- the original project's documentation site.** A user who got the callback URL
