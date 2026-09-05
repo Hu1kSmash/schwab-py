@@ -190,6 +190,28 @@ never updated, and it is what the project page would have shown. It now says
 
 ### Removed, continued
 
+**Two more examples, and a warning that had no code.** `examples/` now holds
+three files, chosen because each teaches an assembly the reference
+documentation cannot: the streaming consumer with its bounded queue,
+`auth/token_lifecycle.py`, and `orders/order_lifecycle.py`.
+
+The token one exists because Schwab's refresh token expires seven days after
+the original authorization and refreshing does not extend it, so every
+unattended program stops within seven days and the only question is whether it
+stops at a moment you chose. The documentation explains that across four
+separate passages and never shows the loop.
+
+The order one exists because `extract_order_id` returns `None` for two
+different reasons --- a rejection, and a response carrying no `Location` header
+--- and the snippet in `util.rst` ends in `assert order_id is not None`, which
+papers over exactly that.
+
+Separately, `client.rst` now warns that `httpx2` exceptions are not `httpx`
+exceptions. Catching `httpx.HTTPStatusError` around a call into this library
+fails silently: nothing raises at import, nothing raises at the `try`, and the
+`except` simply never matches. That is what broke a consumer's rate-limit retry
+on the 2.0.0 upgrade, and until now it appeared nowhere as code.
+
 **`StreamClient` no longer takes `account_id`.** It was accepted and never
 used --- the parameter appeared exactly once in `streaming.py`, in the
 signature. It is from the TD Ameritrade streamer, which needed one. The main
