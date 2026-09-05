@@ -141,7 +141,14 @@ fail together. It costs four seconds.
    wrong. Prefer the weaker sentence you can defend after tagging.
 
 Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
-`python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
+`python -m build --sdist`, `python -m twine check dist/*`, and
+`sphinx-build -W docs/ docs-build`.
+
+`twine check` is not optional and its output must be read, not glanced at. It
+is the only thing that checks `README.rst` renders as PyPI will render it —
+`sphinx -W` passes on markup PyPI rejects, because they are different parsers.
+A title whose underline is one character short fails `twine check` and would
+publish a release with no description at all.
 
 `python -m build --sdist` earns its place here: `setup.py` is not imported by
 the suite, so an edit which leaves it unparseable is invisible to `pytest`.

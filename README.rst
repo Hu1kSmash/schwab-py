@@ -1,5 +1,5 @@
 ``schwaby``: A Charles Schwab API Client for Systematic Trading
-==============================================================
+===============================================================
 
 ``schwaby`` is an unofficial Python client for the Charles Schwab API, built for
 running automated strategies against real accounts.
