@@ -194,8 +194,9 @@ class OrderBuilder(EnumEnforcer):
     '''
     Helper class to create arbitrarily complex orders. Note this class simply
     implements the order schema defined in the `documentation
-    <https://developer.schwabmeritrade.com/account-access/apis/post/accounts/
-    %7BaccountId%7D/orders-0>`__, with no attempts to validate the result.
+    <https://developer.schwab.com/products/trader-api--individual/details/
+    specifications/Retail%20Trader%20API%20Production>`__, with no attempts to
+    validate the result.
     Orders created using this class may be rejected or may never fill. Use at
     your own risk.
     '''

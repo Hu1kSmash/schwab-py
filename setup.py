@@ -32,7 +32,12 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type='text/x-rst',
     url='https://github.com/Hu1kSmash/schwaby',
-    packages=setuptools.find_packages(),
+    # include= rather than a bare find_packages(), which also matched `tests`
+    # and shipped a top-level `tests` module into every user's site-packages.
+    # Anything else installing a top-level `tests` then collides with it
+    # file-for-file, and `import tests` from outside a project root resolves
+    # here. Published that way through 2.6.0.
+    packages=setuptools.find_packages(include=['schwab', 'schwab.*']),
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

@@ -11,6 +11,8 @@ contents, so adding a package does not require editing a test.
 
 import contextlib
 import os
+import re
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -163,30 +165,49 @@ class SetupPyTest(unittest.TestCase):
                     {'login': ['flask'], 'codegen': [], 'dev': ['flask']}))
 
 
-class ShippedProjectReferencesTest(unittest.TestCase):
-    '''Strings in the installed package that name a project by URL.
+class ShippedFilesTest(unittest.TestCase):
+    """What ends up in the wheel, and what the strings in it point at.
 
-    These are user-facing and nothing else checks them. `auth.py` raised a
-    ValueError pointing at `schwab-py.readthedocs.io` --- the *original*
-    project's documentation site, inherited and never updated --- so a user who
-    got a callback URL wrong was sent to read someone else's docs about a
-    different codebase. It survived the rename because it is a string inside an
-    error message, which no build step and no doc build looks at.
+    `find_packages()` with no arguments matched `tests` as well as `schwab`,
+    so every release through 2.6.0 shipped a top-level `tests` package into
+    users' site-packages -- colliding file-for-file with anything else that
+    ships one, and answering `import tests` from outside a project root.
 
-    The test greps for the shape rather than that one instance: any
-    documentation host in shipped code has to be one this project controls.
-    '''
+    The URL check is the same class of problem seen from the other side.
+    `auth.py` raised a ValueError pointing at `schwab-py.readthedocs.io`, the
+    *original* project's documentation site, so a user who got a callback URL
+    wrong was sent to read someone else's docs about a different codebase. It
+    survived the rename because it is a string inside an error message, which
+    no build step and no doc build looks at.
 
-    # `alexgolec/schwab-py` is deliberately not here. Naming the origin project
-    # in prose is correct and the README, CHANGELOG and docs all do it. What is
-    # wrong is *sending a user there for instructions*, which only a docs host
-    # does.
-    FOREIGN_DOC_HOSTS = (
-            'schwab-py.readthedocs.io',
-            'schwab-py.rtfd.io',
-    )
+    That is an allowlist rather than a denylist. A denylist of the hosts
+    already found is not a guard, it is a record: it cannot catch the next
+    inherited link, and there was one -- `developer.schwabmeritrade.com` in
+    `orders/generic.py`, a hostname that does not resolve, which a denylist
+    naming only `schwab-py` hosts sailed straight past.
+    """
 
-    def shipped_files(self):
+    EXPECTED_PACKAGES = ['schwab', 'schwab.client', 'schwab.contrib',
+                         'schwab.orders']
+
+    # Every host a shipped string may name. Adding one is a deliberate act:
+    # these are places we send users when something has already gone wrong, so
+    # a stale or foreign entry is worse than no link at all.
+    ALLOWED_HOSTS = frozenset((
+        'github.com',                 # ours, and httpx2's changelog
+        'api.schwabapi.com',          # the API itself
+        'developer.schwab.com',       # Schwab's own documentation
+        'docs.python.org',
+        'websockets.readthedocs.io',  # a dependency's own docs
+        'www.investopedia.com',       # order-type explanations in the enums
+        'optionstradingiq.com',
+    ))
+
+    URL = re.compile(r'https?://([^/\s\'"`)>,]+)')
+
+    @staticmethod
+    def shipped_files():
+        found = []
         for directory in ('schwab', 'bin'):
             root = os.path.join(REPO_ROOT, directory)
             for dirpath, _, filenames in os.walk(root):
@@ -194,26 +215,73 @@ class ShippedProjectReferencesTest(unittest.TestCase):
                     continue
                 for name in filenames:
                     if name.endswith('.py'):
-                        yield os.path.join(dirpath, name)
+                        found.append(os.path.join(dirpath, name))
+        return found
 
-    @no_duplicates
-    def test_no_foreign_documentation_hosts(self):
+    @classmethod
+    def disallowed_hosts_in(cls, files):
+        '''Returns (path, host) for every URL host outside ALLOWED_HOSTS.
+
+        `files` is a parameter rather than a lookup so the positive control can
+        run this same collection code over a fixture. A control which
+        re-implements the predicate against a string literal proves only that
+        the literal matches; it says nothing about whether the walk that feeds
+        the real assertion found anything at all.
+        '''
         offenders = []
-        for path in self.shipped_files():
+        for path in files:
             with open(path, encoding='utf-8') as f:
                 contents = f.read()
-            for host in self.FOREIGN_DOC_HOSTS:
-                if host in contents:
+            for host in cls.URL.findall(contents):
+                # Loopback, with or without a port: the callback server, not a
+                # link anybody follows.
+                if host.split(':')[0] == '127.0.0.1':
+                    continue
+                if host not in cls.ALLOWED_HOSTS:
                     offenders.append(
-                            '{}: {}'.format(os.path.relpath(path, REPO_ROOT),
-                                            host))
-        self.assertEqual([], offenders)
+                            (os.path.relpath(path, REPO_ROOT), host))
+        return sorted(offenders)
 
     @no_duplicates
-    def test_the_check_would_have_caught_the_instance_it_was_written_for(self):
-        # Red-proofing, kept rather than described: the assertion above passes
-        # on an empty repository too, so it proves nothing on its own.
-        contents = ("raise ValueError('See https://schwab-py.readthedocs.io/"
-                    "en/latest/auth.html for more information')")
-        self.assertTrue(any(host in contents
-                            for host in self.FOREIGN_DOC_HOSTS))
+    def test_only_schwab_packages_are_shipped(self):
+        with in_repo_root():
+            found = setuptools.find_packages(include=['schwab', 'schwab.*'])
+        self.assertEqual(self.EXPECTED_PACKAGES, sorted(found))
+
+    @no_duplicates
+    def test_setup_py_ships_that_package_list(self):
+        # The assertion above is about find_packages. This one is about what
+        # setup.py actually passes, which is the thing that ends up in a wheel.
+        self.assertEqual(self.EXPECTED_PACKAGES,
+                         sorted(setup_kwargs()['packages']))
+
+    @no_duplicates
+    def test_no_disallowed_url_hosts(self):
+        files = self.shipped_files()
+
+        # Positive control for the walk. assertEqual([], offenders) holds just
+        # as well when shipped_files() returned nothing -- a mistyped root, or
+        # a future shipped directory that is not named in it.
+        self.assertGreater(len(files), 10)
+        self.assertIn(os.path.join(REPO_ROOT, 'schwab', 'auth.py'), files)
+
+        self.assertEqual([], self.disallowed_hosts_in(files))
+
+    @no_duplicates
+    def test_the_check_catches_a_foreign_host(self):
+        # Through the same collection code, not a re-implementation of it. Both
+        # hosts below really were in this tree: the readthedocs link the check
+        # was first written for, and the dead schwabmeritrade hostname that a
+        # denylist of the first would have missed.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'shipped.py')
+            with open(path, 'w') as f:
+                f.write('See https://schwab-py.readthedocs.io/en/latest/ and\n'
+                        'https://developer.schwabmeritrade.com/orders and\n'
+                        'https://github.com/Hu1kSmash/schwaby\n')
+
+            offenders = self.disallowed_hosts_in([path])
+
+        self.assertEqual(['developer.schwabmeritrade.com',
+                          'schwab-py.readthedocs.io'],
+                         sorted(host for _, host in offenders))
