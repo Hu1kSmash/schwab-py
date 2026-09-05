@@ -30,7 +30,7 @@
 
    .. code-block:: shell
 
-     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.0"
+     pip install "schwab-py @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.1"
 
    That plain install is three packages, because the interactive login flow lives in an
    extra. **Install** ``schwab-py[login]`` **instead if you call** ``easy_client`` **or**
@@ -86,7 +86,7 @@ project from PyPI instead:
 
 .. code-block:: shell
 
-  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.1"
 
 ``[login]`` is there because the example below calls ``easy_client``, which
 opens a browser login flow the first time it runs. Without it, the plain
