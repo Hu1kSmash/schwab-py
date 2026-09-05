@@ -15,6 +15,21 @@ current model.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+**CI was red on macOS on every tag since 2.0.0, and the README badge said
+otherwise.** Seven `ClientFromLoginFlowTest` cases really start the callback
+server in a child process and talk to it over loopback; on the macOS runners
+the child starts and never answers on its port, so each fails after the full
+30-second wait, on every Python version. Windows passes, and Windows also spawns
+rather than forks, so this is not a start-method problem.
+
+They are skipped on macOS CI runners only — not on a developer's Mac — with a
+comment saying what would settle whether this is a runner restriction or a real
+macOS defect. The other 923 tests pass on macOS and that coverage is kept.
+
 ## 2.4.0
 
 ### Added
