@@ -467,6 +467,13 @@ class StreamClient(EnumEnforcer):
         frame = (await self._receive() if use_overflow
                  else await self._receive_from_socket())
 
+        # `'response' not in frame` is itself a read which assumes a container,
+        # and raises on a top-level JSON number. Handed back rather than
+        # dropped here, so handle_message logs it in one place along with every
+        # other frame this cannot route.
+        if not isinstance(frame, dict):
+            return frame
+
         if 'response' not in frame:
             return frame
 
@@ -1061,7 +1068,21 @@ class StreamClient(EnumEnforcer):
         Handlers may be synchronous or coroutine functions, and errors are
         reported the same way for both.
         '''
-        for handler in self._handlers.get(service, ()):
+        try:
+            handlers = self._handlers.get(service, ())
+        except TypeError:
+            # An unhashable service -- a list or a dict where a name belongs --
+            # raises from the lookup itself, which is evaluated in the `for`
+            # header and so sits outside the per-handler try below. Guarded
+            # here rather than in each caller: this is the funnel they all go
+            # through, and adding it to one of them is how the response path
+            # got hardened while the data path did not.
+            self.logger.warning(
+                    'Ignoring a message whose service is not a name: %r',
+                    service)
+            return
+
+        for handler in handlers:
             # Bound before the try so that a failure inside label_message --
             # which is a failure to relabel -- reports the message as it
             # actually arrived rather than leaving this unbound.
@@ -1139,6 +1160,15 @@ class StreamClient(EnumEnforcer):
 
             if msg is not None:
                 break
+
+        # Every read below assumes a mapping. `'data' in msg` happened to
+        # tolerate a top-level JSON array or string; `msg.get('data')` does
+        # not, so hardening the channels made a non-dict frame raise where it
+        # used to be ignored. Guarded once, here, rather than at each read.
+        if not isinstance(msg, dict):
+            self.logger.warning(
+                    'Ignoring a message which is not an object: %r', msg)
+            return
 
         # response
         if 'response' in msg:

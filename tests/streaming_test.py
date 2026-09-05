@@ -7823,6 +7823,61 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual([good], handled)
 
     @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_frame_which_is_not_an_object_is_ignored(self, ws_connect):
+        # A regression the channel hardening introduced and this pins shut.
+        # `'data' in msg` tolerates any container; `msg.get('data')` does not,
+        # so a top-level JSON array or string went from being ignored to
+        # raising AttributeError out of the receive loop.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        for frame in ([], ['not', 'a', 'dict'], 'hello', 3, ['response']):
+            with self.subTest(frame=frame):
+                socket.recv.side_effect = [json.dumps(frame)]
+                await self.client.handle_message()
+
+        self.assertEqual([], handled)
+
+        # Positive control: a well-formed frame afterwards still dispatches,
+        # so the assertions above are not green for want of anything arriving.
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps({'data': [good]})]
+        await self.client.handle_message()
+        self.assertEqual([good], handled)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_service_which_is_not_a_name_is_ignored(self, ws_connect):
+        # The handler lookup is evaluated in the `for` header, outside the
+        # per-handler try, so an unhashable service raised TypeError out of the
+        # receive loop. The element type was guarded; the field inside it was
+        # not.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+
+        for service in (['LEVELONE_EQUITIES'], {'a': 1}, {'x'}):
+            with self.subTest(service=service):
+                socket.recv.side_effect = [json.dumps(
+                        {'data': [{'service': list(service)
+                                   if isinstance(service, set) else service,
+                                   'command': 'SUBS'}]})]
+                await self.client.handle_message()
+
+        self.assertEqual([], handled)
+
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps({'data': [good]})]
+        await self.client.handle_message()
+        self.assertEqual([good], handled)
+
+    @no_duplicates
     def test_the_report_queue_is_bounded(self):
         # Nothing guarantees handle_message is ever called again. The log line
         # written when each rejection is found is the durable record, so

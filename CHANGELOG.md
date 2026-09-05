@@ -19,6 +19,20 @@ current model.
 
 ### Fixed
 
+**A malformed message ended the caller's receive loop.** Three related cases,
+all of which raised out of `handle_message` where the caller could only read
+them as the stream having failed:
+
+* an element of `data` or `notify` which is not an object — `d.get('service')`
+  is evaluated at the dispatch call site, outside the `try` that protects
+  handlers;
+* a `service` which is not a name, since the handler lookup is evaluated in the
+  same place;
+* a frame which is not an object at all — a top-level JSON array or string.
+
+Each is now logged and skipped, and well-formed elements beside a bad one are
+still dispatched.
+
 **A malformed answer took down the receive loop as well as its own request.**
 `_validate_response` read four fields straight after the request id, unguarded.
 A `KeyError` there reached `_fail_pending_request`, which sets the exception on
@@ -88,14 +102,6 @@ that places trades each package is something to patch, audit and break on
 upgrade.
 
 ### Fixed
-
-**A malformed element on the data or notify channel ended the caller's receive
-loop.** `d.get('service')` is evaluated at the dispatch call site, outside the
-`try` that protects handlers, so a non-dict element — or a `data` field that is
-not a list — raised `AttributeError` or `TypeError` out of `handle_message`.
-That is the same defect as the one below, three lines away in the same method
-and on the channel carrying almost all the traffic. Both channels now skip a bad
-element and dispatch the good ones beside it.
 
 **A malformed response element ended the caller's receive loop.** A `"content"`
 present but JSON `null` made `content.get('code')` raise `AttributeError` out of
