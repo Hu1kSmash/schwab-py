@@ -8164,20 +8164,38 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         self.assertEqual({'data': {'a': 1, 'b': 2, 'c': 3}}, message)
 
     @no_duplicates
-    def test_responses_may_be_any_iterable(self):
-        # islice rather than a slice: _is_sequence admits any iterable, and a
-        # decoder returning a generator would raise on responses[start:].
-        def generated():
-            yield {'service': 'X', 'command': 'SUBS', 'content': {'code': 0}}
-            yield {'service': 'Y', 'command': 'SUBS',
-                   'content': {'code': 21, 'msg': 'from a generator'}}
-
+    def test_responses_may_be_any_sequence(self):
+        # A tuple is the realistic custom-decoder case and must work. A
+        # generator is not: routing indexes element 0, validation reads it
+        # again and handlers are given the frame afterwards, so a single-pass
+        # iterable cannot serve however tolerant the iteration is -- it was
+        # accepted for one release and made every subscribe time out.
         self.client._pending_reports.clear()
-        self.client._log_extra_responses({'response': generated()}, 1)
+        self.client._log_extra_responses({'response': (
+            {'service': 'X', 'command': 'SUBS', 'content': {'code': 0}},
+            {'service': 'Y', 'command': 'SUBS',
+             'content': {'code': 21, 'msg': 'from a tuple'}},
+        )}, 1)
 
         self.assertEqual(1, len(self.client._pending_reports))
-        self.assertIn('from a generator',
+        self.assertIn('from a tuple',
                       str(self.client._pending_reports[0][0]))
+
+    @no_duplicates
+    def test_a_single_pass_iterable_is_refused_rather_than_half_read(self):
+        # Refused cleanly and reported, not accepted and then found empty by
+        # whichever function read it second.
+        def generated():
+            yield {'service': 'Y', 'command': 'SUBS',
+                   'content': {'code': 21, 'msg': 'nope'}}
+
+        self.client._pending_reports.clear()
+        self.client._log_extra_responses({'response': generated()}, 0)
+
+        self.assertEqual(1, len(self.client._pending_reports))
+        exc = self.client._pending_reports[0][0]
+        self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
+        self.assertIn('is not a list', str(exc))
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -8237,6 +8255,96 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         for service, exc, message in errors:
             self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
             self.assertFalse(service is None and message is None)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_relabel_failure_names_its_service_and_its_cause(
+            self, ws_connect):
+        # service, because a handler routing alerts by subscription needs to
+        # know which one went dark, and it is the key the lookup just used.
+        # cause, because _BookHandler indexes four levels deep and the KeyError
+        # is the only thing that says which field moved.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((service, exc)))
+        self.client.add_nasdaq_book_handler(lambda msg: None)
+
+        socket.recv.side_effect = [json.dumps({'data': [{
+            'service': 'NASDAQ_BOOK', 'command': 'SUBS',
+            'content': [{'BIDS': [{'no-nested-bids': 1}]}]}]}),
+            json.dumps(self.streaming_entry('NASDAQ_BOOK', 'SUBS'))]
+
+        await self.client.handle_message()
+        await self.client.handle_message()
+
+        self.assertEqual(1, len(errors))
+        service, exc = errors[0]
+        self.assertEqual('NASDAQ_BOOK', service)
+        self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
+        self.assertIsNotNone(exc.cause)
+        # The cause is in the text too, so a log reader sees it as well.
+        self.assertIn(type(exc.cause).__name__, str(exc))
+
+    @no_duplicates
+    def test_an_unusable_message_carries_its_counts_as_numbers(self):
+        # The docs position the running count as the mitigation for suppressed
+        # reports. A consumer alerting on drop volume should not have to parse
+        # it out of prose.
+        self.client._pending_reports.clear()
+
+        for i in range(3):
+            self.client._absorb('a bad element', i)
+        self.client._absorb('a different thing', 'x')
+
+        by_kind = [(e.count, e.total) for e, _, _ in
+                   self.client._pending_reports]
+        self.assertEqual([(1, 1), (2, 2), (3, 3), (1, 4)], by_kind)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unusable_request_id_is_absorbed_not_only_logged(
+            self, ws_connect):
+        # The one unusable-message path that bypassed _absorb: uncounted,
+        # uncoalesced, and with no programmatic signal at all -- while
+        # repeating per re-read inside a single subscribe.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        self.client._response_timeout = 0.3
+
+        quiet = asyncio.Event()
+        first = [True]
+
+        async def recv():
+            if first[0]:
+                first[0] = False
+                return json.dumps({'response': [{
+                    'service': 'X', 'command': 'SUBS',
+                    'requestid': 'not a number'}]})
+            await quiet.wait()
+            return '{}'
+
+        socket.recv = recv
+
+        # The id is only read while a request is outstanding.
+        with self.assertRaises(schwab.streaming.ResponseTimeoutError):
+            await self.client.level_one_equity_subs(['GOOG'])
+
+        self.assertEqual(1, self.client._absorbed)
+        quiet.set()
+
+        socket.recv = AsyncMock(side_effect=[
+                json.dumps(self.streaming_entry('LEVELONE_EQUITIES', 'SUBS'))])
+        self.client.add_level_one_equity_handler(lambda msg: None)
+        await self.client.handle_message()
+
+        self.assertTrue(any(isinstance(e, schwab.streaming.UnusableMessage)
+                            for e in errors))
 
     @no_duplicates
     def test_a_flood_of_absorbed_messages_cannot_evict_a_rejection(self):

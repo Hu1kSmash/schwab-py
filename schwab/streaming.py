@@ -6,7 +6,6 @@ import asyncio
 import copy
 import httpx2
 import inspect
-import itertools
 import json
 import logging
 
@@ -91,10 +90,25 @@ class UnusableMessage(Exception):
     the other.
 
     ``message`` is the offending value, exactly as it arrived.
+
+    ``cause`` is the exception which made it unusable, where there was one --
+    a relabeling failure carries the ``KeyError`` from the field tables, which
+    is the only thing that says *which* field moved. ``None`` where the message
+    was rejected on inspection rather than by failing.
+
+    ``count`` and ``total`` are how many of this kind, and how many in all,
+    have been absorbed on this connection. These are suppressed after the first
+    few, so the numbers are the only way to see the true scale -- as integers
+    rather than only in the message text, since a consumer alerting on drop
+    volume should not have to parse prose.
     '''
-    def __init__(self, message, *args, **kwargs):
+    def __init__(self, message, *args, cause=None, count=None, total=None,
+                 **kwargs):
         super().__init__(*args, **kwargs)
         self.message = message
+        self.cause = cause
+        self.count = count
+        self.total = total
 
 
 class _Handler:
@@ -214,13 +228,21 @@ def _is_power_of_ten(n):
 
 
 def _is_sequence(obj):
-    '''Whether ``obj`` can be iterated the way a decoded JSON array is.
+    '''Whether ``obj`` can be used the way a decoded JSON array is.
 
-    Strings and bytes are iterable and are not arrays; a mapping is iterable
+    Indexable, not merely iterable. Routing reads ``frame['response'][0]`` and
+    validation reads it again, and handlers are given the frame afterwards, so
+    a single-pass iterable cannot serve however tolerant the iteration is: a
+    decoder returning generators made every response frame fall into the "no
+    usable request id" branch and every subscribe time out. Tuples work, which
+    is the realistic custom-decoder case; generators never could.
+
+    Strings and bytes are indexable and are not arrays; a mapping is iterable
     and yields its keys, which is how ``{'notify': {...}}`` would have reached
     handlers as a message per key.
     '''
-    return (hasattr(obj, '__iter__')
+    return (hasattr(obj, '__getitem__')
+            and hasattr(obj, '__len__')
             and not isinstance(obj, (str, bytes, bytearray))
             and not _is_mapping(obj))
 
@@ -617,9 +639,13 @@ class StreamClient(EnumEnforcer):
         try:
             response_id = int(frame['response'][0]['requestid'])
         except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-            self.logger.warning(
-                    'Received a response frame with no usable request id. '
-                    'Leaving it for handle_message: %r', frame.get('response'))
+            # Through _absorb like every other unusable message, so it is
+            # counted, coalesced and reported. Logged directly, this was the
+            # one such path with no programmatic signal at all -- and it
+            # repeats per re-read, so a venue emitting a non-numeric requestid
+            # produced a continuous warning stream inside a single subscribe.
+            self._absorb('a response frame with no usable request id',
+                         frame.get('response'), frame=frame)
             return frame
 
         if response_id != request_id and response_id < self._request_id:
@@ -683,9 +709,7 @@ class StreamClient(EnumEnforcer):
                          responses, frame=frame)
             return
 
-        # islice rather than a slice: _is_sequence admits any iterable, and a
-        # decoder returning a generator would raise on responses[start:].
-        for response in itertools.islice(responses, start, None):
+        for response in responses[start:]:
             if not _is_mapping(response):
                 self._absorb('an unparseable response element', response,
                              frame=frame)
@@ -704,7 +728,8 @@ class StreamClient(EnumEnforcer):
 
             yield response, code, content
 
-    def _absorb(self, what, offender, frame=None):
+    def _absorb(self, what, offender, frame=None, service=None,
+                cause=None):
         """Records a message this client cannot use.
 
         Two things happen to it, and each earns its place:
@@ -738,7 +763,9 @@ class StreamClient(EnumEnforcer):
 
         self.logger.warning(
                 'Ignoring %s: %r. (%d of these, %d in all, on this '
-                'connection.)', what, offender, n, self._absorbed)
+                'connection.)%s', what, offender, n, self._absorbed,
+                '' if cause is None
+                else ' Cause: {}: {}'.format(type(cause).__name__, cause))
 
         # Reported on the same schedule as the log, not on every occurrence.
         # These share _pending_reports with the late rejections, which is a
@@ -751,11 +778,16 @@ class StreamClient(EnumEnforcer):
                 UnusableMessage(
                     offender,
                     'Ignoring {} ({} of these, {} in all, on this '
-                    'connection)'.format(what, n, self._absorbed)),
-                # No service: every one of these is a message whose shape
-                # this client could not read, so there is no service name to
-                # be had.
-                None,
+                    'connection){}'.format(
+                        what, n, self._absorbed,
+                        '' if cause is None
+                        else ': {}: {}'.format(type(cause).__name__, cause)),
+                    cause=cause, count=n, total=self._absorbed),
+                # Usually None -- a message whose shape could not be read has
+                # no service name to be had -- but not always: a relabeling
+                # failure knows exactly which subscription went dark, and a
+                # handler routing alerts by service needs it.
+                service,
                 # The containing frame, not the offending value, because the
                 # value is often None -- a null channel, a null element -- and
                 # a report of (None, None) is the signature the logout-close
@@ -1264,7 +1296,8 @@ class StreamClient(EnumEnforcer):
             # here rather than in each caller: this is the funnel they all go
             # through, and adding it to one of them is how the response path
             # got hardened while the data path did not.
-            self._absorb('a message whose service is not a name', service)
+            self._absorb('a message whose service is not a name', service,
+                         frame=msg)
             return
 
         relabel_failed = False
@@ -1274,7 +1307,7 @@ class StreamClient(EnumEnforcer):
                 # Relabeling reads into the message, so a message with an
                 # unexpected shape fails here rather than in the handler.
                 payload = handler.label_message(msg) if relabel else msg
-            except Exception:
+            except Exception as exc:
                 # Absorbed, not reported as a handler failure. Relabeling is
                 # this library's work, not the caller's: reporting it as
                 # "your handler raised" blamed the consumer's code for a shape
@@ -1285,7 +1318,8 @@ class StreamClient(EnumEnforcer):
                     relabel_failed = True
                     self._absorb(
                             'a %s message which could not be relabeled'
-                            % service, msg)
+                            % service, msg, frame=msg, service=service,
+                            cause=exc)
                 continue
 
             try:

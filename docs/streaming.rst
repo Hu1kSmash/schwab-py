@@ -238,7 +238,9 @@ a request nobody was waiting on, a connection which failed to close after logout
 and a message this client cannot use at all — a frame which is not an object, an
 element of ``data`` or ``notify`` which is not an object, or a ``service`` which
 is not a name. That last group arrives as ``UnusableMessage``, whose ``message``
-attribute is the offending value exactly as it arrived.
+attribute is the offending value exactly as it arrived, alongside ``cause`` (the
+exception which made it unusable, where there was one) and ``count``/``total``
+as integers.
 
 Those last ones are **coalesced**: the first three on a connection, then powers
 of ten, with the running count in the message. A systematically malformed

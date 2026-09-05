@@ -23,7 +23,10 @@ current model.
 this client cannot use at all.** A frame which is not an object, an element of
 `data` or `notify` which is not an object, a `service` which is not a name.
 These arrive as the new `UnusableMessage`, whose `message` is the offending
-value as it arrived.
+value as it arrived, with `cause` (the exception that made it unusable, where
+there was one) and `count`/`total` as integers — reports are suppressed after
+the first few, so the counts are the only way to see the true scale, and a
+consumer alerting on drop volume should not have to parse them out of prose.
 
 That callback exists so an absorbed failure is not visible only in a log, and
 these are absorbed failures. A consumer who registered a handler to stop
@@ -72,7 +75,15 @@ still dispatched.
 is this library's work, not the caller's, but it happens inside the per-handler
 `try` — so a `content` the field tables could not read was reported as "your
 handler raised", once per registered handler, uncounted and uncoalesced. It is
-absorbed once per message now.
+absorbed once per message now, and it carries the `service` it belongs to and
+the exception that caused it: `_BookHandler` indexes four levels deep, so the
+`KeyError` is the only thing that says which field moved.
+
+**A response frame with an unreadable request id was logged and nothing else.**
+It was the one unusable-message path that bypassed the counting and the
+callback — so it repeated per re-read inside a single subscribe, and a venue
+emitting a non-numeric `requestid` gave a consumer no programmatic signal at
+all.
 
 **An `UnusableMessage` could not be told from a failure to close after logout.**
 Both arrived as `service=None, message=None`, which the documentation designates
@@ -86,9 +97,14 @@ stream.** `set_json_decoder` is a public hook which promises only "the decoded
 JSON", but the type checks above were written against the concrete types, so a
 decoder returning a `Mapping` which is not a `dict` — or tuples for arrays — had
 every frame dropped, presenting as a permanently dead feed with no exception.
-The checks are duck-typed against the operations used, not against
-`collections.abc` — an ABC matches only real subclasses and registered types,
-which would have narrowed what a decoder may return rather than tolerating it.
+The checks are against the operations used, not against `collections.abc` — an
+ABC matches only real subclasses and registered types, which would have narrowed
+what a decoder may return rather than tolerating it. A JSON array must be
+**indexable**, which tuples are: routing reads `frame['response'][0]`,
+validation reads it again, and handlers get the frame afterwards, so a
+single-pass iterable cannot serve however tolerant the iteration is. One is now
+refused and reported rather than accepted and found empty by whichever function
+read it second.
 
 Separately, and cosmetically: the debug log formatted frames with `json.dumps`,
 which refuses such an object. Logging swallows a formatting failure, so the
