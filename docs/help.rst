@@ -13,9 +13,7 @@ how you can get help and make progress.
 .. note::
 
    Bug reports and questions go to `the tracker
-   <https://github.com/Hu1kSmash/schwaby/issues>`__. There is no maintainer
-   email on purpose: an issue is searchable, shows whether someone has already
-   hit the same thing, and cannot be lost in a mailbox.
+   <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
    If the behaviour is shared with `alexgolec/schwab-py
    <https://github.com/alexgolec/schwab-py>`__ and is not one of the changes in

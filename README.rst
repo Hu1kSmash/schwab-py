@@ -67,9 +67,7 @@ running automated strategies against real accounts.
    Notebook users need neither: there ``easy_client`` uses the manual flow.
 
    **Bug reports and questions go to** `the issue tracker
-   <https://github.com/Hu1kSmash/schwaby/issues>`__, which is the only supported route ---
-   there is deliberately no maintainer email in the package metadata. An issue is searchable,
-   shows you whether someone has already hit the same thing, and cannot be lost in a mailbox.
+   <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
 .. image:: https://github.com/Hu1kSmash/schwaby/workflows/tests/badge.svg
   :target: https://github.com/Hu1kSmash/schwaby/actions?query=workflow%3Atests
