@@ -26,22 +26,9 @@ running automated strategies against real accounts.
 
    **The distribution is** ``schwaby``\ **; the importable package is still** ``schwab``.
 
-   The first PyPI release is not out yet. Until it is, install from ``main``:
-
-   .. code-block:: shell
-
-     pip install "schwaby[login] @ git+https://github.com/Hu1kSmash/schwaby@main"
-
-   Note that must be ``@main`` rather than a tag: every tag so far was published
-   under the old distribution name, and ``pip`` refuses a direct URL whose metadata
-   names a different project than the one you asked for. Once the first release is
-   out this becomes:
-
    .. code-block:: shell
 
      pip install schwaby
-
-   Either way the import does not change:
 
    .. code-block:: python
 

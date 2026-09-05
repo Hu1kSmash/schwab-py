@@ -15,6 +15,61 @@ current model.
 
 ---
 
+## 2.6.0
+
+**First release published to PyPI, as `schwaby`.**
+
+```shell
+pip install schwaby
+```
+
+```python
+import schwab   # unchanged
+```
+
+### Changed
+
+**The distribution is now `schwaby`; the importable package is still `schwab`.**
+Those differ deliberately. Keeping the import means an existing consumer changes
+one line of `requirements.txt` and nothing else — the Pillow and PyCryptodome
+model for a project that began as a fork of a dormant one.
+
+**The cost is that `schwaby` and `schwab-py` cannot be installed together.** Both
+provide the `schwab` package, so whichever lands second silently overwrites the
+other's files. `pip` gives no warning and nothing fails at install time; the
+first sign is behaviour from a version you did not choose. Uninstall `schwab-py`
+before installing this.
+
+**The repository is `Hu1kSmash/schwaby` and is no longer a fork.** Old URLs
+redirect, so existing clones and git-pinned installs keep working.
+
+**The extras command no longer names a version.** A missing `login` or `codegen`
+extra now says `pip install "schwaby[login]"`, which stays correct for every
+release, rather than interpolating a git URL and a tag.
+
+### Documentation
+
+**The project is described as itself rather than as a fork of something else.**
+The README opens with what `schwaby` is and puts the history in a note below it:
+it began from `alexgolec/schwab-py`, which gave it its shape and most of its
+code, and became separate because running systematic strategies against funded
+accounts imposes requirements a general-purpose wrapper has no reason to
+prioritise. Alex Golec's copyright and licence are unchanged.
+
+**Two client endpoints were documented for the first time**, both inherited in
+2024 and never covered: `preview_order`, which asks Schwab whether it would
+accept an order without placing it, and `get_option_expiration_chain`, which is
+cheaper than a full chain when you only need expiry dates. All 31 public client
+methods are now in the documentation.
+
+`get_option_expiration_chain`'s docstring was also wrong — it described
+`get_user_preferences`.
+
+**`set_json_decoder` is documented**, which mattered after 2.5.0 told readers to
+try `HeuristicJsonDecoder` when frames will not parse without saying how. Four
+exceptions a caller might catch, and `OptionSymbol.parse_symbol`, also gained
+entries.
+
 ## 2.5.1
 
 ### Fixed
