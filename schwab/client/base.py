@@ -876,8 +876,15 @@ class BaseClient(EnumEnforcer):
     # Option Expiration Chain
 
     def get_option_expiration_chain(self, symbol):
-        '''Preferences for the logged in account, including all linked
-        accounts.'''
+        '''Returns the expiration dates available for options on ``symbol``,
+        with the type and settlement of each.
+
+        Cheaper than :meth:`get_option_chain` when you only need to know *when*
+        contracts expire rather than what they cost, because it returns the
+        expiration list alone rather than every strike at every date.
+
+        :param symbol: Underlying symbol, e.g. ``AAPL``.
+        '''
         path = '/marketdata/v1/expirationchain'
         return self._get_request(path, {'symbol': symbol})
 

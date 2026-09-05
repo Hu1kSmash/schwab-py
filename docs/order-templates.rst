@@ -161,6 +161,11 @@ and does not validate whether the symbol actually represents a traded option:
 
 .. automethod:: schwab.orders.options.OptionSymbol.build
 
+The reverse is also available: hand it a symbol Schwab gave you and get the
+parts back.
+
+.. automethod:: schwab.orders.options.OptionSymbol.parse_symbol
+
 
 ++++++++++++++
 Single Options

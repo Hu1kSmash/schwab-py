@@ -895,3 +895,45 @@ include an activity token of ``orderfill`` and a benign notice reading
 
 If you learn something this list gets wrong, a pull request correcting it is
 more useful than a private patch.
+
+
+.. _json_decoding:
+
+++++++++++++++++++++++++++++
+When the JSON Will Not Parse
+++++++++++++++++++++++++++++
+
+Schwab sometimes sends the streaming server's messages in a form Python's
+``json`` module refuses. When that happens the frame raises
+:class:`~schwab.streaming.UnparsableMessage`, which is reported to your error
+handler and then ends your receive loop --- see
+:ref:`Reacting to Absorbed Failures <error_handlers>` for why that one is not
+absorbed like the others.
+
+If you see it more than once, try the heuristic decoder before concluding the
+stream is broken. It attempts the plain decoding first and falls back to
+repairing the escaping Schwab is known to get wrong:
+
+.. code-block:: python
+
+  from schwab.contrib.util import HeuristicJsonDecoder
+
+  stream_client.set_json_decoder(HeuristicJsonDecoder())
+
+That this exists at all is the evidence that unparsable frames are a quirk of
+the venue rather than a sign of a dead connection.
+
+You can supply your own decoder by subclassing
+:class:`~schwab.contrib.util.StreamJsonDecoder`. It must return the decoded
+JSON; this library reads it structurally rather than requiring ``dict`` and
+``list`` exactly, so a decoder returning a mapping type of your own works ---
+but a JSON array must be **indexable**, because routing reads element zero and
+handlers are given the frame afterwards. A generator will not serve.
+
+.. automethod:: schwab.streaming::StreamClient.set_json_decoder
+
+.. autoclass:: schwab.contrib.util.StreamJsonDecoder
+  :members:
+
+.. autoclass:: schwab.contrib.util.HeuristicJsonDecoder
+  :members:

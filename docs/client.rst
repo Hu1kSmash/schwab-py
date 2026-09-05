@@ -354,6 +354,11 @@ please follow the instructions in :ref:`contributing` to send in a patch.
   :members:
   :undoc-members:
 
+If you only need to know *when* contracts expire rather than what they cost,
+there is a cheaper call which returns the expiration list on its own:
+
+.. automethod:: schwab.client.Client.get_option_expiration_chain
+
 +++++++++++++++++++++++++++++++++++++
 Instrument Searching and Fundamentals
 +++++++++++++++++++++++++++++++++++++
@@ -391,6 +396,14 @@ instead of creating your own order specs.
 .. _`example order specs`: https://developer.schwab.com/products/trader-api--individual/details/documentation/Retail%20Trader%20API%20Production
 
 .. automethod:: schwab.client.Client.place_order
+
+**Testing an order without placing it.** Schwab will tell you whether it would
+accept an order, and what it would become, without sending it to the market.
+That is worth doing the first time you construct an order type programmatically
+--- a rejection here costs nothing, while a malformed order discovered at
+placement time costs an execution window.
+
+.. automethod:: schwab.client.Client.preview_order
 
 .. _accessing_existing_orders:
 

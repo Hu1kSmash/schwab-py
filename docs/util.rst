@@ -36,3 +36,32 @@ ID can then be used to monitor or modify the order as described in the
   assert order_id is not None
 
 .. automethod:: schwab.utils.Utils.extract_order_id
+
+
+.. _exceptions:
+
+++++++++++
+Exceptions
+++++++++++
+
+The exceptions this library raises that a caller might reasonably catch.
+:class:`~schwab.streaming.UnexpectedResponse`,
+:class:`~schwab.streaming.UnexpectedResponseCode`,
+:class:`~schwab.streaming.UnparsableMessage` and
+:class:`~schwab.streaming.UnusableMessage` are streaming-specific and are
+covered in :ref:`the streaming documentation <error_handlers>`.
+
+.. autoclass:: schwab.utils.UnsuccessfulOrderException
+
+.. autoclass:: schwab.utils.AccountHashMismatchException
+
+.. autoclass:: schwab.orders.common.InvalidOrderException
+
+.. autoclass:: schwab.contrib.orders.UnrepeatableOrderError
+
+``TokenRefreshError`` is documented under :ref:`auth` with the retry guidance it
+needs, and is not repeated here.
+
+.. autoclass:: schwab.auth.RedirectTimeoutError
+
+.. autoclass:: schwab.auth.RedirectServerExitedError
