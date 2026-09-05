@@ -40,6 +40,7 @@ else. Four things need an edit, and only if you use them:
 | pin `schwaby[login]` or `schwaby[codegen]` | Drop the bracket. The pin still installs, with a warning. |
 | call `set_destination_link_name` to pick a venue | Use `set_requested_destination`. The old one was writing to a field that does not select one. |
 | pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
+| check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. |
 
 Nothing else in the public surface moved. If you install a fresh `3.0.0` and
 your imports resolve, you are done.
@@ -74,6 +75,22 @@ order schema, which enumerates those values under `requestedDestination` and
 types `destinationLinkName` as `string`. If you have been relying on the old
 behaviour, check your fills before assuming either version routed as you
 intended.
+
+**`extract_order_id` returned `None` for two different situations, one of them
+dangerous.** No `Location` header, and a `Location` that did not parse. Both
+mean Schwab *accepted* the order and did not give back an ID — so the order is
+very likely live and you have no handle on it — and both shared a return value
+with every harmless thing that returns `None`. The natural handling,
+`if order_id:`, therefore skipped tracking a live order.
+
+Each now raises its own exception: `MissingLocationHeaderError` and
+`UnrecognizedLocationError`, both under `OrderIdNotFoundError`, so catch the
+base unless you need to tell them apart. The response is on the exception, and
+`UnrecognizedLocationError.location` carries the header verbatim — please
+include it in a bug report, because it means Schwab changed the URL format.
+
+The messages say what matters rather than what happened: *the order may be
+live: check get_orders_for_account*.
 
 **A rejected order threw away Schwab's explanation of why.**
 `UnsuccessfulOrderException` carried the HTTP status code and nothing else, so

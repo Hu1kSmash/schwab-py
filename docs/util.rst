@@ -31,9 +31,27 @@ ID can then be used to monitor or modify the order as described in the
   # Assume client and order already exist and are valid
   account_hash = client.get_account_numbers().json()[0]['hashValue']
   r = client.place_order(account_hash, order)
-  assert r.status_code == httpx2.codes.OK, r.raise_for_status()
   order_id = Utils(client, account_hash).extract_order_id(r)
-  assert order_id is not None
+
+Every outcome other than success raises, so there is no ``None`` to check for.
+The one worth handling deliberately is
+:class:`~schwab.utils.OrderIdNotFoundError`: Schwab accepted the order and did
+not give back an ID, which means **the order may be live** and you have no
+handle on it.
+
+.. code-block:: python
+
+  from schwab.utils import OrderIdNotFoundError, UnsuccessfulOrderException
+
+  try:
+      order_id = Utils(client, account_hash).extract_order_id(r)
+  except UnsuccessfulOrderException as exc:
+      # Nothing was placed. Schwab's own reason is in the message.
+      log.error('rejected: %s', exc)
+  except OrderIdNotFoundError as exc:
+      # Something probably was placed. Go and find it.
+      log.error('placed but untracked: %s', exc)
+      reconcile_recent_orders(account_hash)
 
 .. automethod:: schwab.utils.Utils.extract_order_id
 
@@ -53,6 +71,13 @@ covered in :ref:`the streaming documentation <error_handlers>`.
 
 .. autoclass:: schwab.utils.UnsuccessfulOrderException
   :members:
+
+.. autoclass:: schwab.utils.OrderIdNotFoundError
+  :members:
+
+.. autoclass:: schwab.utils.MissingLocationHeaderError
+
+.. autoclass:: schwab.utils.UnrecognizedLocationError
 
 .. autoclass:: schwab.utils.AccountHashMismatchException
 

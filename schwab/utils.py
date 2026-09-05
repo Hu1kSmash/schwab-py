@@ -121,6 +121,47 @@ class UnsuccessfulOrderException(ValueError):
         self.response = response
 
 
+class OrderIdNotFoundError(ValueError):
+    '''
+    Raised by :meth:`Utils.extract_order_id` when Schwab accepted the order but
+    the response did not yield an order ID.
+
+    **The order may be live.** Schwab returned a success status, so the order
+    was very likely placed; what is missing is the handle you would use to
+    watch or cancel it. Treat this as "go and look", not as "nothing
+    happened" --- :meth:`Client.get_orders_for_account` over a recent time
+    window will find it.
+
+    Until 3.0.0 both of the conditions below returned ``None``, which is the
+    same value a caller gets from plenty of harmless things, so the usual
+    handling was ``if order_id:`` and a live order went untracked.
+
+    ``.response`` is the ``place_order`` response. ``.location`` is the raw
+    ``Location`` header, or ``None`` when there was not one.
+    '''
+
+    def __init__(self, response, location, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response = response
+        self.location = location
+
+
+class MissingLocationHeaderError(OrderIdNotFoundError):
+    '''The response carried no ``Location`` header at all.
+
+    Catch :class:`OrderIdNotFoundError` unless you specifically need to tell
+    this apart from :class:`UnrecognizedLocationError`.
+    '''
+
+
+class UnrecognizedLocationError(OrderIdNotFoundError):
+    '''The ``Location`` header was present and did not look like an order URL.
+
+    Most likely Schwab changed the format. The header is on the exception as
+    ``.location`` --- please include it in a bug report.
+    '''
+
+
 class AccountHashMismatchException(ValueError):
     '''
     Raised by :meth:`Utils.extract_order_id` when attempting to extract an
@@ -196,19 +237,31 @@ class Utils(EnumEnforcer):
         self.account_hash = account_hash
 
     def extract_order_id(self, place_order_response):
-        '''Attempts to extract the order hash from a response object returned by
-        :meth:`Client.place_order() <schwab.client.Client.place_order>`. Return
-        ``None`` if the order location is not contained in the response.
+        '''Extracts the order ID from a response returned by
+        :meth:`Client.place_order() <schwab.client.Client.place_order>`.
 
-        :param place_order_response: Order response as returned by
+        Every outcome other than success raises, and each one raises something
+        different, because they call for different handling:
+
+        * :class:`UnsuccessfulOrderException` --- Schwab rejected the order.
+          Its own explanation is in the message and the whole response is on
+          the exception. Nothing was placed.
+        * :class:`MissingLocationHeaderError` and
+          :class:`UnrecognizedLocationError` --- Schwab accepted the order and
+          the ID could not be read. **The order may be live.** Both subclass
+          :class:`OrderIdNotFoundError`, so catch that unless you need to tell
+          them apart.
+        * :class:`AccountHashMismatchException` --- the response belongs to a
+          different account than this :class:`Utils` was built with, which
+          means the wiring is wrong rather than the order.
+
+        Until 3.0.0 the two middle cases returned ``None`` instead, and shared
+        that value with each other. A caller writing ``if order_id:`` therefore
+        skipped tracking an order that had very likely been placed.
+
+        :param place_order_response: Response from
                                      :meth:`Client.place_order()
-                                     <schwab.client.Client.place_order>`. Note this
-                                     method requires that the order was
-                                     successful.
-
-        :raise ValueError: if the order was not succesful or if the order's
-                           account hash is not equal to the account hash set in this
-                           ``Utils`` object.
+                                     <schwab.client.Client.place_order>`.
         '''
         if place_order_response.is_error:
             raise UnsuccessfulOrderException(
@@ -220,14 +273,23 @@ class Utils(EnumEnforcer):
         try:
             location = place_order_response.headers['Location']
         except KeyError:
-            return None
+            raise MissingLocationHeaderError(
+                    place_order_response, None,
+                    'order was accepted but the response carried no Location '
+                    'header, so it has no order ID to return. The order may be '
+                    'live: check get_orders_for_account.')
 
         m = re.match(
                 r'https://api.schwabapi.com/trader/v1/accounts/(\w+)/orders/(\d+)',
                 location)
 
         if m is None:
-            return None
+            raise UnrecognizedLocationError(
+                    place_order_response, location,
+                    'order was accepted but its Location header does not look '
+                    'like an order URL, so it has no order ID to return. The '
+                    'order may be live: check get_orders_for_account. Header '
+                    'was: {!r}'.format(location))
         account_hash, order_id = m.group(1), int(m.group(2))
 
         if str(account_hash) != str(self.account_hash):

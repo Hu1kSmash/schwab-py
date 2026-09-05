@@ -9,9 +9,9 @@ path:
   4. cancel it if it never does
 
 The documentation covers each call. What it cannot show is that step 2 has
-three distinct outcomes -- the venue rejected it, the response was fine but
-carried no order id, or you got an id -- and that they want different
-handling.
+three outcomes wanting three different responses: Schwab rejected it and
+nothing was placed, Schwab accepted it and gave back no id so something is
+probably live and untracked, or you got an id.
 """
 
 import time
@@ -22,6 +22,7 @@ import schwab
 from schwab.orders.equities import equity_buy_limit
 from schwab.utils import (
     AccountHashMismatchException,
+    OrderIdNotFoundError,
     UnsuccessfulOrderException,
     Utils,
 )
@@ -51,16 +52,22 @@ def place(client, account_hash):
     try:
         return Utils(client, account_hash).extract_order_id(response)
     except UnsuccessfulOrderException as exc:
-        # Schwab's own words for the rejection are in the message, and the
-        # whole response is on the exception. A status code alone does not
-        # separate a malformed order from one the account cannot afford.
-        print('rejected: %s' % exc)
-        print('body: %s' % exc.response.text)
+        # Nothing was placed. Schwab's own words for the rejection are in the
+        # message, and the whole response is on the exception -- a status code
+        # alone does not separate a malformed order from one the account cannot
+        # afford.
+        print('rejected, nothing placed: %s' % exc)
+        return None
+    except OrderIdNotFoundError as exc:
+        # Something almost certainly WAS placed and you have no id for it.
+        # This is the branch worth writing properly: a live order nobody is
+        # watching is worse than a rejected one.
+        print('PLACED BUT UNTRACKED: %s' % exc)
+        print('reconcile against get_orders_for_account before trading again')
         return None
     except AccountHashMismatchException:
-        # The response is for a different account than this Utils was built
-        # with. Worth its own branch: it means the wiring is wrong, not the
-        # order.
+        # The response belongs to a different account than this Utils was built
+        # with, which means the wiring is wrong rather than the order.
         raise
 
 
@@ -93,10 +100,8 @@ def main():
     order_id = place(client, account_hash)
 
     if order_id is None:
-        # Either the order was rejected -- already reported above -- or it was
-        # accepted and the response carried no Location header to read an id
-        # from. `extract_order_id` returns None for both, so if you need to
-        # tell them apart, check the response yourself before calling it.
+        # `place` has already reported which of the two happened, and they are
+        # very different situations -- see the handlers there.
         print('no order id; nothing to follow')
         return
 

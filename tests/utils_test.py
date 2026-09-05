@@ -1,6 +1,11 @@
 from unittest.mock import MagicMock
 from schwab.utils import AccountHashMismatchException, Utils
-from schwab.utils import UnsuccessfulOrderException
+from schwab.utils import (
+    MissingLocationHeaderError,
+    OrderIdNotFoundError,
+    UnrecognizedLocationError,
+    UnsuccessfulOrderException,
+)
 from schwab.utils import EnumEnforcer
 from .utils import no_duplicates, MockResponse
 
@@ -106,15 +111,61 @@ class UtilsTest(unittest.TestCase):
         self.assertEqual(5000, len(cm.exception.response.json()['message']))
 
     @no_duplicates
-    def test_extract_order_id_no_location(self):
+    def test_no_location_header_raises_rather_than_returning_none(self):
+        # Both of these used to return None, which is also what plenty of
+        # harmless things return, so `if order_id:` skipped an order Schwab had
+        # very likely placed.
         response = MockResponse({}, 200, headers={})
-        self.assertIsNone(self.utils.extract_order_id(response))
+
+        with self.assertRaises(MissingLocationHeaderError) as cm:
+            self.utils.extract_order_id(response)
+
+        self.assertIsNone(cm.exception.location)
+        self.assertIs(response, cm.exception.response)
+        self.assertIn('may be live', str(cm.exception))
 
     @no_duplicates
-    def test_extract_order_id_no_pattern_match(self):
-        response = MockResponse({}, 200, headers={
-            'Location': 'not-a-match'})
-        self.assertIsNone(self.utils.extract_order_id(response))
+    def test_unparsable_location_raises_and_carries_the_header(self):
+        response = MockResponse({}, 200, headers={'Location': 'not-a-match'})
+
+        with self.assertRaises(UnrecognizedLocationError) as cm:
+            self.utils.extract_order_id(response)
+
+        # The header is the whole of the evidence for a bug report.
+        self.assertEqual('not-a-match', cm.exception.location)
+        self.assertIn('not-a-match', str(cm.exception))
+
+    @no_duplicates
+    def test_both_are_catchable_as_one_thing(self):
+        # A caller that just wants "I have no order id" should not have to name
+        # both, and should not accidentally catch a rejection with them.
+        for headers in ({}, {'Location': 'not-a-match'}):
+            with self.assertRaises(OrderIdNotFoundError):
+                self.utils.extract_order_id(MockResponse({}, 200, headers=headers))
+
+        self.assertFalse(
+                issubclass(UnsuccessfulOrderException, OrderIdNotFoundError))
+
+    @no_duplicates
+    def test_the_two_causes_are_distinguishable(self):
+        # Without this, aliasing the two classes together passes every other
+        # test here: each raise site names its own class, so both
+        # assertRaises calls still match. Found by mutation, not by reading.
+        self.assertIsNot(MissingLocationHeaderError, UnrecognizedLocationError)
+
+        missing = MockResponse({}, 200, headers={})
+        unparsable = MockResponse({}, 200, headers={'Location': 'nope'})
+
+        # Catching one must not catch the other. A caller reconciling a
+        # possibly-live order may want to treat a changed URL format -- which
+        # is our bug -- differently from a header Schwab never sent.
+        with self.assertRaises(MissingLocationHeaderError):
+            self.utils.extract_order_id(missing)
+        with self.assertRaises(UnrecognizedLocationError):
+            try:
+                self.utils.extract_order_id(unparsable)
+            except MissingLocationHeaderError:      # pragma: no cover
+                self.fail('unparsable Location raised the missing-header type')
 
     @no_duplicates
     def test_get_order_nonmatching_account_hash(self):
