@@ -30,25 +30,34 @@ help someone who never reads one.
 **A plain `pip install schwaby` is now the whole library.** The extras are gone
 and the order-code generator is gone with them.
 
+**Upgrading from 2.x.** For most programs this is a version bump and nothing
+else. Four things need an edit, and only if you use them:
+
+| If you | Then |
+|---|---|
+| import `schwab.contrib.orders` | It is gone. Nothing replaces it; the builder it reconstructed is still there. |
+| run `schwab-order-codegen.py` or `schwab-generate-token.py` | Both are gone. `docs/auth.rst` has the four lines that replace the token script. |
+| pin `schwaby[login]` or `schwaby[codegen]` | Drop the bracket. The pin still installs, with a warning. |
+| call `set_destination_link_name` to pick a venue | Use `set_requested_destination`. The old one was writing to a field that does not select one. |
+| pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
+
+Nothing else in the public surface moved. If you install a fresh `3.0.0` and
+your imports resolve, you are done.
+
+
+### Added
+
+**`set_requested_destination`, for routing an order to a specific venue.** The
+`Destination` enum has been exported since the beginning and there was no
+setter that put it on the right field --- see Fixed, below.
+
+**`set_tax_lot_method`.** `TaxLotMethod` was likewise exported from
+`schwab.orders.common` with no way to use it, so `taxLotMethod` could not be
+sent at all. It matters on a closing order: FIFO and LIFO realise different
+gains against the same position.
+
+
 ### Fixed
-
-**The wheel was shipping a top-level `tests` package into your site-packages.**
-`find_packages()` matched it alongside `schwab`, so `pip install schwaby`
-installed 21 test files as an importable top-level `tests` module --- which
-collides file-for-file with any other distribution that ships one, and answers
-`import tests` from any directory that is not your project root. Present in
-every release up to and including 2.6.0. Uninstalling and reinstalling clears
-it; `pip uninstall schwaby` on its own may take files another package put
-there, so check `site-packages/tests` afterwards if you had one.
-
-**A rejected order threw away Schwab's explanation of why.**
-`UnsuccessfulOrderException` carried the HTTP status code and nothing else, so
-`order not successful: status 400` was the whole of what you got --- a status
-code does not distinguish a malformed order from one the account cannot afford.
-Schwab types an error body as `{"message": ..., "errors": [...]}`, and that text
-now appears in the exception message, bounded so it cannot put an entire order
-echo into a log line. The rejected response is on the exception as `.response`
-for the rest of it.
 
 **The venue enum was being written to a field that does not select a venue.**
 `set_destination_link_name` validated its argument against `Destination`, whose
@@ -66,40 +75,23 @@ types `destinationLinkName` as `string`. If you have been relying on the old
 behaviour, check your fills before assuming either version routed as you
 intended.
 
-**A documented example called a method that does not exist.** The level two
-page told readers to use `Client.search_instruments()` and gave a worked
-example; the method is `get_instruments`, so anyone copying it got an
-`AttributeError`. `sphinx -W` does not resolve cross-reference targets, so the
-build had always passed. Every name the documentation points at is now resolved
-against the code by a test.
+**A rejected order threw away Schwab's explanation of why.**
+`UnsuccessfulOrderException` carried the HTTP status code and nothing else, so
+`order not successful: status 400` was the whole of what you got --- a status
+code does not distinguish a malformed order from one the account cannot afford.
+Schwab types an error body as `{"message": ..., "errors": [...]}`, and that text
+now appears in the exception message, bounded so it cannot put an entire order
+echo into a log line. The rejected response is on the exception as `.response`
+for the rest of it.
 
-**`get_instruments`' docstring documented a `symbol` parameter.** The argument
-is `symbols`, so the rendered signature and the rendered parameter list
-disagreed.
-
-**Three dead links, one of them the first click in the onboarding flow.**
-`docs/getting-started.rst` sent new users to `beta-developer.schwab.com` to
-create their developer account and register their app --- a hostname that no
-longer resolves, so step one of the guide failed with nothing else on the page
-to try. It points at `developer.schwab.com` now. A docstring in
-`orders/generic.py` linked to `developer.schwabmeritrade.com`, from the TD
-Ameritrade era, and `auth.py` sent a rejected callback URL to the *original*
-project's documentation site.
-
-**The "Critical Schwab Bug" section is gone from the getting-started guide.** It
-described a July 2024 outage on a developer console that no longer exists, and
-it was the first thing a new reader saw.
-
-**The docs no longer call this project by three different names.**
-`schwab-api`, from two renames ago, appeared four times across the client and
-streaming pages. Prose written in the voice of the original project's community
-("we in the community aren't currently clear...") has been rewritten to say
-what is actually known, and a "July 21, 2024" update notice has become a
-statement that does not need a date attached to stay true.
-
-Documentation examples use `example.com`, which RFC 2606 reserves for the
-purpose, rather than `callback.com` --- a real registrable domain that someone
-else owns.
+**The wheel was shipping a top-level `tests` package into your site-packages.**
+`find_packages()` matched it alongside `schwab`, so `pip install schwaby`
+installed 21 test files as an importable top-level `tests` module --- which
+collides file-for-file with any other distribution that ships one, and answers
+`import tests` from any directory that is not your project root. Present in
+every release up to and including 2.6.0. Uninstalling and reinstalling clears
+it; `pip uninstall schwaby` on its own may take files another package put
+there, so check `site-packages/tests` afterwards if you had one.
 
 **`cryptography` is a declared dependency now.** The callback server runs with
 `ssl_context='adhoc'`, and `werkzeug` builds that certificate with
@@ -109,36 +101,6 @@ the child process would have died inside `app.run` and the parent would have
 reported `RedirectServerExitedError`, blaming your callback port for a missing
 package. The parent checks for it explicitly, alongside `flask`.
 
-**The rendered documentation was titled `schwab-py`.** `docs/conf.py` kept the
-original project's name through the rename, so every page title and browser tab
-named a different library while the text on the page said to install `schwaby`.
-Alex Golec's `author` and `copyright` entries are unchanged and deliberately
-so.
-
-### Added
-
-**`set_requested_destination`, for routing an order to a specific venue.** The
-`Destination` enum has been exported since the beginning and there was no
-setter that put it on the right field --- see Fixed, below.
-
-**`set_tax_lot_method`.** `TaxLotMethod` was likewise exported from
-`schwab.orders.common` with no way to use it, so `taxLotMethod` could not be
-sent at all. It matters on a closing order: FIFO and LIFO realise different
-gains against the same position.
-
-**The web-application login flow is documented.** `get_auth_context`,
-`client_from_received_url` and `AuthContext` have been public for a long time
-with no docstrings and no mention in the documentation. They are how you log in
-when the callback arrives as an ordinary request to a server you already run,
-in a different process from the one that started the login --- the case
-`client_from_login_flow`, which runs a local callback server and blocks, cannot
-serve. `docs/auth.rst` has a worked example.
-
-**The book message structure is documented.** Every other stream had a field
-reference; the three order-book streams had none, so a subscriber received a
-nested structure with nothing describing it. `BookFields`, `BidFields`,
-`AskFields`, `PerExchangeBidFields` and `PerExchangeAskFields` are on the
-streaming page now, with a worked example of the shape.
 
 ### Changed
 
@@ -164,6 +126,22 @@ Keeping empty extras to suppress that would have defended about four hours of
 PyPI history, since `schwaby[login]` was only ever installable from 2.6.0. Drop
 the bracket from your requirements line and there is nothing to notice.
 
+**Copyright is now asserted jointly.** `LICENSE` carries
+`Copyright (c) 2023 Alex Golec` unchanged, as the MIT licence requires, with
+`Copyright (c) 2026 Tom Hirt` added beneath it for the work since. The package
+metadata reads `Author: Tom Hirt and Alex Golec`, and the documentation footer
+says `2023 Alex Golec, 2026 Tom Hirt` rather than describing this as a fork
+someone maintains.
+
+Measured, for the record: of the 8,412 lines under `schwab/`, 4,832 are Alex
+Golec's, 3,113 are Tom Hirt's, and 463 come from other contributors to the
+original project. The licence is unchanged and remains MIT.
+
+**The PyPI classifier said `Development Status :: 1 - Planning`**, inherited and
+never updated, and it is what the project page would have shown. It now says
+`5 - Production/Stable`.
+
+
 ### Removed
 
 **The order-code generator.** `schwab.contrib.orders`, the
@@ -178,83 +156,17 @@ response format that has moved on. Nothing else in the library used it.
 `HeuristicJsonDecoder`, which the streaming documentation recommends for frames
 that will not parse, are still there and still imported the same way.
 
-**`schwab/_optional.py`.** With nothing optional left to import, the
-lazy-import-with-a-helpful-ImportError machinery has nothing to guard.
-`auth.py` imports `flask`, `multiprocess` and `psutil` inside the functions
-that use them, which keeps the parent-process import check that distinguishes a
-broken install from a callback server that exited.
-
-**The PyPI classifier said `Development Status :: 1 - Planning`**, inherited and
-never updated, and it is what the project page would have shown. It now says
-`5 - Production/Stable`.
-
-### Removed, continued
-
-**Two more examples, and a warning that had no code.** `examples/` now holds
-three files, chosen because each teaches an assembly the reference
-documentation cannot: the streaming consumer with its bounded queue,
-`auth/token_lifecycle.py`, and `orders/order_lifecycle.py`.
-
-The token one exists because Schwab's refresh token expires seven days after
-the original authorization and refreshing does not extend it, so every
-unattended program stops within seven days and the only question is whether it
-stops at a moment you chose. The documentation explains that across four
-separate passages and never shows the loop.
-
-The order one exists because `extract_order_id` returns `None` for two
-different reasons --- a rejection, and a response carrying no `Location` header
---- and the snippet in `util.rst` ends in `assert order_id is not None`, which
-papers over exactly that.
-
-Separately, `client.rst` now warns that `httpx2` exceptions are not `httpx`
-exceptions. Catching `httpx.HTTPStatusError` around a call into this library
-fails silently: nothing raises at import, nothing raises at the `try`, and the
-`except` simply never matches. That is what broke a consumer's rate-limit retry
-on the 2.0.0 upgrade, and until now it appeared nowhere as code.
-
 **`StreamClient` no longer takes `account_id`.** It was accepted and never
 used --- the parameter appeared exactly once in `streaming.py`, in the
 signature. It is from the TD Ameritrade streamer, which needed one. The main
 streaming example in the documentation passed it, so readers were being taught
 to supply a value that went nowhere.
 
-**`place_order`'s first argument is an account *hash*, and the order-template
-docs called it `account_id`.** One example passed the literal `1000`. Those are
-different things: the hash comes from `get_account_numbers()`, and an account
-number will not work.
-
-**The one file under `examples/` was four years stale and now has a test.** It
-subscribed to `TWTR`, `FB` and `FIT` --- delisted in 2022, renamed in 2022, and
-acquired in 2021 --- carried two TODOs about API that either works now or never
-existed, and passed the `account_id` above. It has been rewritten around what
-the example is actually for: a bounded queue between the socket and your
-processing, and an error handler, which is the shape a long-running consumer
-wants and the one thing a README snippet cannot show.
-
-Nothing referenced `examples/` and nothing checked it, which is why it drifted.
-The keyword-argument check that covers documentation code blocks now covers
-these files too, and fails if the directory disappears from its walk.
-
-**Copyright is now asserted jointly.** `LICENSE` carries
-`Copyright (c) 2023 Alex Golec` unchanged, as the MIT licence requires, with
-`Copyright (c) 2026 Tom Hirt` added beneath it for the work since. The package
-metadata reads `Author: Tom Hirt and Alex Golec`, and the documentation footer
-says `2023 Alex Golec, 2026 Tom Hirt` rather than describing this as a fork
-someone maintains.
-
-Measured, for the record: of the 8,412 lines under `schwab/`, 4,832 are Alex
-Golec's, 3,113 are Tom Hirt's, and 463 come from other contributors to the
-original project. The licence is unchanged and remains MIT.
-
-**`tox.ini` is gone, and CI runs the suite directly.** tox was not doing what
-it looked like it was doing. It built an sdist, installed it into an isolated
-environment, and then ran `coverage` as an external command --- which executed
-under a different interpreter and imported `schwab` from the working tree, so
-the environment tox had just built was never the one under test. Measured, not
-inferred. The Python version came from `setup-python` either way, which is the
-part that mattered, so the matrix still runs 3.10 through 3.14 on the same
-platforms. `passenv` and `setenv` went with it: the `CI` variable the macOS skip
-reads was only awkward because tox filtered the environment.
+**`schwab/_optional.py`.** With nothing optional left to import, the
+lazy-import-with-a-helpful-ImportError machinery has nothing to guard.
+`auth.py` imports `flask`, `multiprocess` and `psutil` inside the functions
+that use them, which keeps the parent-process import check that distinguishes a
+broken install from a callback server that exited.
 
 **The `schwab-generate-token.py` script is gone.** It fetched a token and wrote
 it to a file without your having to write any Python, and it was the only thing
@@ -267,6 +179,16 @@ The case it existed for is creating a token on a machine with a browser and
 copying the file to one without. That recipe is still in `docs/auth.rst`, now
 with the four lines of `client_from_login_flow` that replace the script. A
 `pip install schwaby` no longer puts anything in `bin/`.
+
+**`tox.ini` is gone, and CI runs the suite directly.** tox was not doing what
+it looked like it was doing. It built an sdist, installed it into an isolated
+environment, and then ran `coverage` as an external command --- which executed
+under a different interpreter and imported `schwab` from the working tree, so
+the environment tox had just built was never the one under test. Measured, not
+inferred. The Python version came from `setup-python` either way, which is the
+part that mattered, so the matrix still runs 3.10 through 3.14 on the same
+platforms. `passenv` and `setenv` went with it: the `CI` variable the macOS skip
+reads was only awkward because tox filtered the environment.
 
 **`MAINTAINING.md` is gone, replaced by `RELEASING.md`.** A quarter of it
 described a fork: the branch model, the `upstream-main` mirror, the pull-request
@@ -287,11 +209,74 @@ The warnings that `schwaby` and `schwab-py` cannot be installed together stay
 too. Those are about a real collision that silently overwrites files, not about
 the relationship between the projects.
 
+
 ### Documentation
 
-The install instructions, the "Optional Extras" table and the `pip freeze`
-warning are gone from `getting-started.rst` and the README, along with the
-codegen section of `order-builder.rst`.
+**A documented example called a method that does not exist.** The level two
+page told readers to use `Client.search_instruments()` and gave a worked
+example; the method is `get_instruments`, so anyone copying it got an
+`AttributeError`. `sphinx -W` does not resolve cross-reference targets, so the
+build had always passed. Every name the documentation points at is now resolved
+against the code by a test.
+
+**A second documentation example could not run.** `client.rst` showed placing
+an order with `easy_client(..., webdriver_func=make_webdriver)` and a
+`selenium` import. There is no `webdriver_func` parameter, and selenium is not
+a dependency and appears nowhere in the library --- it is left over from the TD
+Ameritrade era, when the login flow drove a real browser. A test now checks
+every keyword argument in every documentation example against the signature of
+the thing being called.
+
+**`client_from_login_flow` pointed a `ValueError` at `schwab-py.readthedocs.io`
+--- the original project's documentation site.** A user who got the callback URL
+hostname wrong was sent to read a different project's docs. The callback-URL
+advisory now has its own section in `docs/auth.rst`, which is where the error
+links, and a test fails on any documentation host this project does not
+control.
+
+`easy_client`'s 6.5-day proactive re-authentication is now documented in
+`auth.rst`, where it belongs. It was previously described only as a reason to
+install an extra, so it disappeared with the extras despite being a property of
+`easy_client` rather than of the packaging.
+
+**Three dead links, one of them the first click in the onboarding flow.**
+`docs/getting-started.rst` sent new users to `beta-developer.schwab.com` to
+create their developer account and register their app --- a hostname that no
+longer resolves, so step one of the guide failed with nothing else on the page
+to try. It points at `developer.schwab.com` now. A docstring in
+`orders/generic.py` linked to `developer.schwabmeritrade.com`, from the TD
+Ameritrade era, and `auth.py` sent a rejected callback URL to the *original*
+project's documentation site.
+
+**`get_instruments`' docstring documented a `symbol` parameter.** The argument
+is `symbols`, so the rendered signature and the rendered parameter list
+disagreed.
+
+**`place_order`'s first argument is an account *hash*, and the order-template
+docs called it `account_id`.** One example passed the literal `1000`. Those are
+different things: the hash comes from `get_account_numbers()`, and an account
+number will not work.
+
+**The rendered documentation was titled `schwab-py`.** `docs/conf.py` kept the
+original project's name through the rename, so every page title and browser tab
+named a different library while the text on the page said to install `schwaby`.
+Alex Golec's `author` and `copyright` entries are unchanged and deliberately
+so.
+
+**The docs no longer call this project by three different names.**
+`schwab-api`, from two renames ago, appeared four times across the client and
+streaming pages. Prose written in the voice of the original project's community
+("we in the community aren't currently clear...") has been rewritten to say
+what is actually known, and a "July 21, 2024" update notice has become a
+statement that does not need a date attached to stay true.
+
+Documentation examples use `example.com`, which RFC 2606 reserves for the
+purpose, rather than `callback.com` --- a real registrable domain that someone
+else owns.
+
+**The "Critical Schwab Bug" section is gone from the getting-started guide.** It
+described a July 2024 outage on a developer console that no longer exists, and
+it was the first thing a new reader saw.
 
 **The README is Markdown now, not reStructuredText.** GitHub renders `.rst`
 without admonition styling or much typography, so the repository landing page
@@ -318,25 +303,53 @@ show the whole surface before asking anyone to read prose. The origin story and
 the credit to Alex Golec are the last section rather than the first thing a new
 reader meets. Same for `docs/index.rst`.
 
-**A second documentation example could not run.** `client.rst` showed placing
-an order with `easy_client(..., webdriver_func=make_webdriver)` and a
-`selenium` import. There is no `webdriver_func` parameter, and selenium is not
-a dependency and appears nowhere in the library --- it is left over from the TD
-Ameritrade era, when the login flow drove a real browser. A test now checks
-every keyword argument in every documentation example against the signature of
-the thing being called.
+**The web-application login flow is documented.** `get_auth_context`,
+`client_from_received_url` and `AuthContext` have been public for a long time
+with no docstrings and no mention in the documentation. They are how you log in
+when the callback arrives as an ordinary request to a server you already run,
+in a different process from the one that started the login --- the case
+`client_from_login_flow`, which runs a local callback server and blocks, cannot
+serve. `docs/auth.rst` has a worked example.
 
-**`client_from_login_flow` pointed a `ValueError` at `schwab-py.readthedocs.io`
---- the original project's documentation site.** A user who got the callback URL
-hostname wrong was sent to read a different project's docs. The callback-URL
-advisory now has its own section in `docs/auth.rst`, which is where the error
-links, and a test fails on any documentation host this project does not
-control.
+**The book message structure is documented.** Every other stream had a field
+reference; the three order-book streams had none, so a subscriber received a
+nested structure with nothing describing it. `BookFields`, `BidFields`,
+`AskFields`, `PerExchangeBidFields` and `PerExchangeAskFields` are on the
+streaming page now, with a worked example of the shape.
 
-`easy_client`'s 6.5-day proactive re-authentication is now documented in
-`auth.rst`, where it belongs. It was previously described only as a reason to
-install an extra, so it disappeared with the extras despite being a property of
-`easy_client` rather than of the packaging.
+**Two more examples, and a warning that had no code.** `examples/` now holds
+three files, chosen because each teaches an assembly the reference
+documentation cannot: the streaming consumer with its bounded queue,
+`auth/token_lifecycle.py`, and `orders/order_lifecycle.py`.
+
+The token one exists because Schwab's refresh token expires seven days after
+the original authorization and refreshing does not extend it, so every
+unattended program stops within seven days and the only question is whether it
+stops at a moment you chose. The documentation explains that across four
+separate passages and never shows the loop.
+
+The order one exists because `extract_order_id` returns `None` for two
+different reasons --- a rejection, and a response carrying no `Location` header
+--- and the snippet in `util.rst` ends in `assert order_id is not None`, which
+papers over exactly that.
+
+Separately, `client.rst` now warns that `httpx2` exceptions are not `httpx`
+exceptions. Catching `httpx.HTTPStatusError` around a call into this library
+fails silently: nothing raises at import, nothing raises at the `try`, and the
+`except` simply never matches. That is what broke a consumer's rate-limit retry
+on the 2.0.0 upgrade, and until now it appeared nowhere as code.
+
+**The one file under `examples/` was four years stale and now has a test.** It
+subscribed to `TWTR`, `FB` and `FIT` --- delisted in 2022, renamed in 2022, and
+acquired in 2021 --- carried two TODOs about API that either works now or never
+existed, and passed the `account_id` above. It has been rewritten around what
+the example is actually for: a bounded queue between the socket and your
+processing, and an error handler, which is the shape a long-running consumer
+wants and the one thing a README snippet cannot show.
+
+Nothing referenced `examples/` and nothing checked it, which is why it drifted.
+The keyword-argument check that covers documentation code blocks now covers
+these files too, and fails if the directory disappears from its walk.
 
 ## 2.6.0
 

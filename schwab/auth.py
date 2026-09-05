@@ -410,7 +410,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     parsed = urllib.parse.urlparse(callback_url)
 
     if parsed.hostname != '127.0.0.1':
-        # TODO: document this error
+        # Documented at docs/auth.rst "Callback URL Requirements", which is
+        # where the message below links. A test asserts that anchor exists.
         raise ValueError(
                 ('Disallowed hostname {}. client_from_login_flow only allows '+
                  'callback URLs with hostname 127.0.0.1. See here for ' +
@@ -474,7 +475,9 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         while True:
             # Check if the server is still alive
             if server.exitcode is not None:
-                # TODO: document this error
+                # RedirectServerExitedError is documented in docs/util.rst
+                # under Exceptions. The parent-side imports above exist so that
+                # a broken install does not arrive here wearing this message.
                 raise RedirectServerExitedError(
                         'Redirect server exited. Are you attempting to use a ' +
                         'callback URL without a port number specified?')
