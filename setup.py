@@ -66,12 +66,17 @@ setuptools.setup(
         # now no-ops because everything they named is installed anyway.
         'login': [],
         'codegen': [],
-        # Composed rather than restated. The suite really starts flask servers
-        # through multiprocess, so dev depends on the extras; listing them
-        # twice meant adding a package to an extra and forgetting dev produced
-        # a green local run against a stale virtualenv and a red CI, failing in
-        # auth tests rather than anywhere near the change.
+        # A literal list since 2.7.0. It used to be composed from the other
+        # extras, because the suite starts flask servers through multiprocess
+        # and a package listed in an extra but not in dev produced a green
+        # local run against a stale virtualenv and a red CI. Those packages are
+        # in install_requires now, so dev gets them either way.
+        #
+        # autopep8 is here rather than in `codegen`, which is where it used to
+        # live: `make fix` runs it, and that is a maintainer's tool, not a
+        # feature of the library.
         'dev': [
+            'autopep8',
             'callee',
             'colorama',
             'coverage',

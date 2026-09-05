@@ -3,6 +3,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 import collections
 import contextlib
 import httpx2
+import importlib
 import json
 import logging
 import os
@@ -352,31 +353,13 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     The callback server below needs ``flask``, ``multiprocess`` and ``psutil``.
     They are ordinary dependencies, so a plain ``pip install schwaby`` has them.
 
-    .. _callback_url_advisory:
-
-    **Important Note:** This method operates by starting an HTTP server on the 
-    port specified in your callback URL. When you complete the Schwab login 
-    flow, Schwab sends a request to the callback URL with the required login 
-    data encoded in the request parameters. *Anyone who receives this request 
-    can steal your token and act on your account as though they were you.*
-
-    ``schwab-py`` takes your security seriously. As a result, we only allow
-    ``127.0.0.1`` as a host. We *strongly* recommend using a port number higher 
-    than ``1024``, as most operating systems require superuser privileges to listen 
-    on ports below ``1024``, and some also require changes to system firewalls 
-    to accept connections to those ports, even when the connections originate from
-    the same machine. The vast majority of users should just use
-    ``https://127.0.0.1:8182`` as a callback URL.
-
-    Note in particular that specifying *no* port number is equivalent to 
-    specifying port 443, which is the default port number for HTTPS. Your 
-    operating system will likely refuse to open this port for you, and this 
-    method will fail.
-
-    If you want to use this method but haven't specified a compatible callback 
-    URL, you must update your app's configuration on `Schwab's developer portal 
-    <https://developer.schwab.com/>`__. Note making this change will likely 
-    require app re-approval from Schwab, which typically takes a few days.
+    **Important Note:** this method starts an HTTP server on the port in your
+    callback URL, and Schwab sends your login data to it in the clear. *Anyone
+    who receives that request can act on your account as though they were you.*
+    Only ``127.0.0.1`` is allowed as a host, and the port should be above
+    ``1024``. Most users should use ``https://127.0.0.1:8182``. See
+    :ref:`callback_url_advisory` for the rest, including what to do if your app
+    is registered with a callback URL this will not accept.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret provided upon :ref:`app approval 
@@ -429,7 +412,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                 ('Disallowed hostname {}. client_from_login_flow only allows '+
                  'callback URLs with hostname 127.0.0.1. See here for ' +
                  'more information: https://github.com/Hu1kSmash/schwaby/' +
-                 'blob/main/docs/auth.rst').format(
+                 'blob/main/docs/auth.rst#callback-url-requirements').format(
                      parsed.hostname))
 
     callback_port = parsed.port if parsed.port else 443
@@ -446,7 +429,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     # ImportError there would surface as child stderr and the parent would
     # report RedirectServerExitedError, blaming the callback port for a broken
     # install. Imported here, in the parent, where it can actually be raised.
-    import flask  # noqa: F401
+    #
+    # import_module rather than `import flask`, which pyflakes reports as an
+    # unused import -- it does not honour flake8's noqa, and `python -m
+    # pyflakes schwab/` is the documented way to find dead code here. A lint
+    # channel with one permanent entry in it is one nobody reads.
+    importlib.import_module('flask')
 
     output_queue = multiprocess.Queue()
 

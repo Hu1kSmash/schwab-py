@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import argparse
-import atexit
 import sys
 
 import schwab

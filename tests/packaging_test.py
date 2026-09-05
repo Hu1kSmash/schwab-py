@@ -102,33 +102,65 @@ class SetupPyTest(unittest.TestCase):
         self.assertEqual([], extras['login'])
         self.assertEqual([], extras['codegen'])
 
+    # The two checks below are vacuous against setup.py as it stands, because
+    # every non-dev extra is empty: a subset test and a disjointness test both
+    # hold for [] no matter what the other side contains. They would pass on a
+    # `dev` list emptied by a bad merge, which is the exact failure the first
+    # one exists to catch.
+    #
+    # So each is a function tested twice -- once against setup.py, and once
+    # against a fixture that violates it. The second is the positive control.
+    # Without it the assertions look like protection and are not, which is
+    # worse than not having them. They are kept rather than deleted because the
+    # extras are still declared and an extra with contents is one edit away.
+
+    @staticmethod
+    def extras_missing_from_dev(extras):
+        dev = set(package_name(r) for r in extras.get('dev', ()))
+        return sorted(name for name, packages in extras.items()
+                      if name != 'dev'
+                      and not set(package_name(r) for r in packages) <= dev)
+
+    @staticmethod
+    def extras_duplicating_install_requires(install_requires, extras):
+        hard = set(package_name(r) for r in install_requires)
+        return sorted(name for name, packages in extras.items()
+                      if name != 'dev'
+                      and set(package_name(r) for r in packages) & hard)
+
     @no_duplicates
     def test_dev_covers_every_extra(self):
         # The suite really starts flask servers through multiprocess, so a
         # package in an extra but missing from dev is a green local run against
         # a stale virtualenv and a red CI.
-        extras = self.kwargs['extras_require']
-        dev = set(package_name(r) for r in extras['dev'])
+        self.assertEqual(
+                [], self.extras_missing_from_dev(self.kwargs['extras_require']))
 
-        for name, packages in extras.items():
-            if name == 'dev':
-                continue
-            self.assertLessEqual(
-                    set(package_name(r) for r in packages), dev,
-                    '%r has packages missing from dev' % name)
+    @no_duplicates
+    def test_dev_coverage_check_catches_a_gap(self):
+        self.assertEqual(
+                ['login'],
+                self.extras_missing_from_dev({'login': ['flask'],
+                                              'codegen': [],
+                                              'dev': ['pytest']}))
 
     @no_duplicates
     def test_no_extra_is_in_install_requires(self):
-        install_requires = set(
-                package_name(r) for r in self.kwargs['install_requires'])
+        # An extra which repeats a hard dependency is a package that can never
+        # be absent, advertised as optional.
+        self.assertEqual(
+                [],
+                self.extras_duplicating_install_requires(
+                    self.kwargs['install_requires'],
+                    self.kwargs['extras_require']))
 
-        for name, packages in self.kwargs['extras_require'].items():
-            if name == 'dev':
-                continue
-            self.assertEqual(
-                    set(), set(package_name(r) for r in packages)
-                    & install_requires,
-                    '%r duplicates a hard dependency' % name)
+    @no_duplicates
+    def test_duplicate_check_catches_a_duplicate(self):
+        self.assertEqual(
+                ['login'],
+                self.extras_duplicating_install_requires(
+                    ['flask', 'authlib>=1.8'],
+                    {'login': ['flask'], 'codegen': [], 'dev': ['flask']}))
 
 
 class ShippedProjectReferencesTest(unittest.TestCase):

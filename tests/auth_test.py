@@ -1447,9 +1447,8 @@ class ParentSideImportTest(unittest.TestCase):
     about which process gets to raise.
     """
 
-    def block(self, *module_names, evict=()):
+    def block(self, *module_names):
         blocked = set(module_names)
-        evicted = blocked | set(evict)
 
         class Blocker:
             def find_module(self, fullname, path=None):
@@ -1465,7 +1464,7 @@ class ParentSideImportTest(unittest.TestCase):
         def ctx():
             saved = dict(sys.modules)
             for name in list(sys.modules):
-                if name.split('.')[0] in evicted:
+                if name.split('.')[0] in blocked:
                     del sys.modules[name]
             blocker = Blocker()
             sys.meta_path.insert(0, blocker)
@@ -1480,15 +1479,20 @@ class ParentSideImportTest(unittest.TestCase):
 
     @no_duplicates
     def test_a_missing_flask_is_not_a_redirect_server_failure(self):
+        # Deliberately not assertRaises(ImportError). RedirectServerExitedError
+        # subclasses Exception, not ImportError, so narrowing here and then
+        # adding assertNotIsInstance below gives an assertion that can never
+        # fail, sitting exactly where the guard appears to be. Catch anything,
+        # then say which one it was.
         with self.block('flask'):
-            with self.assertRaises(ImportError) as cm:
+            with self.assertRaises(Exception) as cm:
                 auth.client_from_login_flow(
                         API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
                         '/tmp/does-not-matter.json')
 
-        # An ImportError naming flask, not a RedirectServerExitedError blaming
-        # the port.
-        self.assertNotIsInstance(cm.exception, auth.RedirectServerExitedError)
+        # An ImportError naming flask -- not whatever the parent makes of a
+        # child that died on import, which is the failure this guards against.
+        self.assertIsInstance(cm.exception, ImportError)
         self.assertIn('flask', str(cm.exception))
 
     @no_duplicates

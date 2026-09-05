@@ -65,6 +65,34 @@ your issues `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`
   history = resp.json()
 
 
+.. _callback_url_advisory:
+
+-------------------------
+Callback URL Requirements
+-------------------------
+
+:func:`~schwab.auth.client_from_login_flow` starts an HTTP server on the port in
+your callback URL. When you finish logging in, Schwab sends a request to that
+URL with the login data in the query parameters. **Anyone who receives that
+request can steal your token and act on your account as though they were you.**
+
+So only ``127.0.0.1`` is allowed as a host. Any other hostname raises a
+``ValueError`` --- including ``localhost``, which resolves to the right place
+but is not the same string.
+
+Use a port above ``1024``. Most operating systems require superuser privileges
+to listen below that, and some need firewall changes to accept connections to
+those ports even from the same machine. Specifying *no* port is equivalent to
+port ``443``, which your operating system will almost certainly refuse to open,
+and this method will fail.
+
+**The vast majority of users should use** ``https://127.0.0.1:8182``.
+
+Whatever you choose has to match your app's configuration on `Schwab's developer
+portal <https://developer.schwab.com/>`__ *exactly* --- case and trailing
+slashes included. Changing it there will likely require app re-approval from
+Schwab, which typically takes a few days.
+
 .. _login_flow:
 
 --------------------------------------

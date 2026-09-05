@@ -13,18 +13,19 @@ coverage:
 dist: clean
 	python3 -m build
 
-# There is deliberately no release target. This fork is not published to PyPI:
-# the name `schwab-py` there belongs to the upstream project, so uploading this
-# code would replace someone else's package with a different library under the
-# same name. Releases are git tags, and the steps are in MAINTAINING.md under
-# "Cutting a release".
+# Releasing is not a make target and should not become one. Publishing goes
+# through .github/workflows/publish.yml, which fires on a published GitHub
+# release and uploads with a trusted-publishing token -- so it re-runs the
+# suite on all five Pythons, runs `twine check --strict`, and refuses if the
+# tag and the built version disagree. A local `twine upload` skips every one of
+# those, which is what the target inherited from upstream did.
 #
-# What stood here ran `twine upload dist/*` with the test step commented out,
-# inherited from upstream, where publishing to PyPI is the correct thing to do.
+# The steps are in MAINTAINING.md under "Cutting a release".
 release:
-	@echo 'No. This fork is not on PyPI -- `schwab-py` there is upstream'\''s.'
-	@echo 'Releases here are git tags. See MAINTAINING.md, "Cutting a release".'
+	@echo 'No. Releases publish from CI on a published GitHub release.'
+	@echo 'See MAINTAINING.md, "Cutting a release".'
 	@exit 1
 
 clean:
-	rm -rf build dist docs-build schwab_py.egg-info __pycache__ htmlcov
+	rm -rf build dist docs-build schwaby.egg-info schwab_py.egg-info \
+		__pycache__ htmlcov

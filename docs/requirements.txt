@@ -6,10 +6,15 @@
 # A pin drifts out of agreement with setup.py silently: nothing fails until the
 # documentation build imports something which is not there.
 #
-# Only setup.py's install_requires belongs here. The `login` and `codegen`
-# extras are imported inside the functions that need them, so autodoc reads
-# their docstrings without the packages present -- listing them would make the
-# documentation build the one place that still installs a web framework.
+# This is the subset of setup.py's install_requires that sphinx has to import,
+# not all of it. `flask`, `multiprocess` and `psutil` became hard dependencies
+# again in 2.7.0 and are deliberately still absent: they are imported inside
+# the functions that use them, so autodoc reads those docstrings without the
+# packages present.
+#
+# That makes this file a check on those imports staying function-local. Move
+# one to module scope and the documentation build is where it fails, with
+# nothing else to say why -- so if you do move one, add it here.
 authlib>=1.8
 httpx2>=2.12.0
 websockets>=14.0

@@ -23,7 +23,7 @@ and the order-code generator is gone with them.
 ### Changed
 
 **`flask`, `multiprocess` and `psutil` are hard dependencies again.** They were
-split out into a `login` extra in 2.4.0. The split saved twelve packages for
+split out into a `login` extra in 2.3.0. The split saved twelve packages for
 nobody — every consumer that authenticates at all installed the extra — and cost
 three ways to be wrong, all of which fail late rather than at install time:
 
@@ -62,11 +62,26 @@ lazy-import-with-a-helpful-ImportError machinery has nothing to guard.
 that use them, which keeps the parent-process import check that distinguishes a
 broken install from a callback server that exited.
 
+**The PyPI classifier said `Development Status :: 1 - Planning`**, inherited and
+never updated, and it is what the project page would have shown. It now says
+`5 - Production/Stable`.
+
 ### Documentation
 
 The install instructions, the "Optional Extras" table and the `pip freeze`
 warning are gone from `getting-started.rst` and the README, along with the
 codegen section of `order-builder.rst`.
+
+**The README leads with what the library does.** The origin story and the
+credit to Alex Golec are a section near the bottom rather than the first thing
+a new reader meets. Same for `docs/index.rst`.
+
+**`client_from_login_flow` pointed a `ValueError` at `schwab-py.readthedocs.io`
+--- the original project's documentation site.** A user who got the callback URL
+hostname wrong was sent to read a different project's docs. The callback-URL
+advisory now has its own section in `docs/auth.rst`, which is where the error
+links, and a test fails on any documentation host this project does not
+control.
 
 `easy_client`'s 6.5-day proactive re-authentication is now documented in
 `auth.rst`, where it belongs. It was previously described only as a reason to

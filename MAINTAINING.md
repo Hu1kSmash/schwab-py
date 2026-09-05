@@ -194,7 +194,7 @@ metadata, so `pip` refuses a `schwaby @ git+...@v2.5.1`.
 As of 2.7.0 there are none that install anything. `login` and `codegen` survive as empty names so
 an existing pin does not warn, and there is nothing to add to them: an extra that everybody has to
 install is a hard dependency with a way to get it wrong. `pip freeze` silently drops extras, which
-is what turned the 2.4.0 split from a saving into three late failure modes.
+is what turned the 2.3.0 split from a saving into three late failure modes.
 
 ## Why this fork stopped tracking upstream
 

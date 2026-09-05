@@ -1,9 +1,9 @@
 '''Tests for bin/schwab-generate-token.py.
 
-It is a script rather than a module, so it is loaded by path. Thin as it is,
-it is the one login entry point a plain install still puts on PATH, and it used
-to catch everything -- including the ImportError which says the 'login' extra
-is missing, and including Ctrl-C.
+It is a script rather than a module, so it is loaded by path. Thin as it is, it
+is the one login entry point an install puts on PATH, and it used to catch
+everything with a bare `except:` -- including Ctrl-C, which fell through into
+the manual flow rather than quitting.
 '''
 
 import os
@@ -40,23 +40,28 @@ class GenerateTokenTest(unittest.TestCase):
     @no_duplicates
     @patch('schwab.auth.client_from_manual_flow')
     @patch('schwab.auth.client_from_login_flow')
-    def test_a_missing_extra_is_named_and_the_manual_flow_still_runs(
+    def test_an_import_error_reaches_the_user_verbatim(
             self, login_flow, manual_flow):
+        # This test used to fabricate the 'login' extra's ImportError and
+        # assert that "'login' extra" reached the user. 2.7.0 deleted the code
+        # that raised it and the test stayed green, because it was asserting on
+        # a string it had invented itself. What is worth protecting is that
+        # whatever the ImportError says reaches the user unchanged -- the
+        # script cannot know what broke, so it must not summarise.
         login_flow.side_effect = ImportError(
-                "The interactive login flow requires the 'login' extra, which "
-                "is not installed.")
+                'cannot import name Markup from jinja2')
 
         with patch('builtins.print') as mock_print:
             self.assertEqual(0, self.main())
 
-        # The message the user needs is the one that reaches them. Reported as
-        # a generic browser failure, they would take the manual flow on every
-        # run without ever learning why.
+        # Reported as a generic browser failure, the user would take the manual
+        # flow on every run without ever learning why.
         printed = ' '.join(str(c) for c in mock_print.call_args_list)
-        self.assertIn("'login' extra", printed)
+        self.assertIn('cannot import name Markup from jinja2', printed)
 
-        # And they still get a token: the manual flow needs no optional
-        # package, so refusing here would withhold the one thing that works.
+        # And they still get a token: the manual flow starts no callback server
+        # and imports none of this, so refusing here would withhold the one
+        # thing that still works.
         manual_flow.assert_called_once()
 
     @no_duplicates
@@ -64,9 +69,10 @@ class GenerateTokenTest(unittest.TestCase):
     @patch('schwab.auth.client_from_login_flow')
     def test_a_broken_package_is_named_and_the_manual_flow_still_runs(
             self, login_flow, manual_flow):
-        # import_optional re-raises unchanged when a package is installed but
-        # fails to import itself. That is an ImportError too, and it is no more
-        # a reason to refuse the manual flow than a missing package is.
+        # Since 2.7.0 flask, multiprocess and psutil are ordinary
+        # dependencies, so a damaged environment rather than a missing one is
+        # the usual cause -- a package installed but unable to import itself.
+        # That is an ImportError too, and no more a reason to refuse.
         login_flow.side_effect = ModuleNotFoundError(
                 "No module named 'werkzeug'", name='werkzeug')
 
