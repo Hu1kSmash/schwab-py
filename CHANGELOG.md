@@ -42,9 +42,18 @@ every release up to and including 2.6.0. Uninstalling and reinstalling clears
 it; `pip uninstall schwaby` on its own may take files another package put
 there, so check `site-packages/tests` afterwards if you had one.
 
-**A docstring in `orders/generic.py` linked to
-`developer.schwabmeritrade.com`,** an inherited hostname from the TD Ameritrade
-era that does not resolve. It points at Schwab's own specification now.
+**Three dead links, one of them the first click in the onboarding flow.**
+`docs/getting-started.rst` sent new users to `beta-developer.schwab.com` to
+create their developer account and register their app --- a hostname that no
+longer resolves, so step one of the guide failed with nothing else on the page
+to try. It points at `developer.schwab.com` now. A docstring in
+`orders/generic.py` linked to `developer.schwabmeritrade.com`, from the TD
+Ameritrade era, and `auth.py` sent a rejected callback URL to the *original*
+project's documentation site.
+
+**The "Critical Schwab Bug" section is gone from the getting-started guide.** It
+described a July 2024 outage on a developer console that no longer exists, and
+it was the first thing a new reader saw.
 
 ### Changed
 
