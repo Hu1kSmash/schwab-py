@@ -779,23 +779,60 @@ leg. The other two are fallbacks for shapes that carry only those.
 
 Note ``CANCELED`` with one L.
 
-**``MESSAGE_TYPE`` tokens observed**:
+**``MESSAGE_TYPE`` tokens observed.** These are the tokens **as they appear on
+the wire**, and most of them are CamelCase. ``SUBSCRIBED`` is a genuine
+exception. The upper-case spellings this list carried until 2026-09-05 were
+wrong: a consumer comparing against ``'ORDERCREATED'`` matched nothing.
+
+**Match case-insensitively, and do not assume case is the only difference.**
+``ORDERUROUT`` --- which this list also carried, and which at least one consumer
+copied from it --- is not a case variant of ``OrderUROutCompleted``. Upper-casing
+does not rescue the truncated form; nothing matches it at all.
 
 .. code-block:: python
 
-  ('SUBSCRIBED', 'ORDERCREATED', 'ORDERACCEPTED',
+  # Measured on a live feed 2026-09-05 by driving the states deliberately.
+  ('SUBSCRIBED', 'OrderCreated', 'OrderAccepted',
+   'CancelAccepted', 'ExecutionCreated', 'OrderUROutCompleted',
+
+   # Seen on the same feed over roughly a year, but recorded before the
+   # casing above was measured, so the spelling of these is the observer's
+   # rather than the venue's. Match case-insensitively.
    'EXECUTIONREQUESTED', 'EXECUTIONREQUESTCREATED',
    'EXECUTIONREQUESTCOMPLETED', 'ORDERFILLCOMPLETED',
    'ORDERPARTIALFILL', 'ORDERPARTIALLYFILLED', 'ORDERREJECTED',
-   'ORDERCANCELED', 'ORDERCANCELLED', 'ORDERUROUT', 'ORDEREXPIRED',
-   'ORDERREPLACED',
-   # A resting order's lifecycle -- limit and stop. First seen 2026-07-27.
+   'ORDERCANCELED', 'ORDERCANCELLED', 'ORDEREXPIRED', 'ORDERREPLACED',
+
+   # A resting order's lifecycle. Attested by a note rather than a frame; see
+   # below.
    'ORDERMONITORCREATED', 'ORDERMONITORCOMPLETED',
-   'CHANGECREATED', 'CHANGEACCEPTED', 'EXECUTIONCREATED')
+   'CHANGECREATED', 'CHANGEACCEPTED')
 
 Both ``CANCELED`` and ``CANCELLED`` appear -- the spelling is not consistent
-within Schwab's own tokens, so match on both. ``ORDERUROUT`` is Schwab's
-spelling for an unsolicited out.
+within Schwab's own tokens, so match on both. ``OrderUROutCompleted`` is
+Schwab's unsolicited out, and it is what a *cancel you asked for* produces as
+well as one the venue imposes.
+
+**A cancel you issue yourself looks like this**, measured on 2026-09-05 by
+placing a resting order and cancelling it::
+
+  place   -> OrderCreated, OrderAccepted
+  cancel  -> CancelAccepted, ExecutionCreated, OrderUROutCompleted
+
+and ``get_order`` then reads ``CANCELED``. Identical for a limit and a stop.
+
+**A buy rejected for buying power looks almost the same**, and this is worth
+knowing because the HTTP response does not tell you::
+
+  place   -> HTTP 201 with a real order id
+             OrderCreated, OrderAccepted, CancelAccepted, OrderUROutCompleted
+
+about a second later, with ``get_order`` reading ``REJECTED`` and a
+``statusDescription`` naming the buying power. **A caller which checks only the
+HTTP status believes the order was accepted.** Re-read the order.
+
+Note the two sequences differ only by ``ExecutionCreated``, so do not use the
+presence of ``OrderUROutCompleted`` alone to tell a cancel from a rejection.
 
 **The last five belong to resting orders.** They are the lifecycle of a limit or
 stop order sitting on the book, and a program that places only market orders

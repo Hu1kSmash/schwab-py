@@ -19,6 +19,23 @@ current model.
 
 ### Documentation
 
+**The `ACCT_ACTIVITY` `MESSAGE_TYPE` tokens were documented in the wrong case,
+and one of them in the wrong spelling.** Measured on 2026-09-05 by driving the
+states deliberately against a live account: the tokens are CamelCase on the
+wire — `OrderCreated`, `OrderAccepted`, `CancelAccepted`, `ExecutionCreated`,
+`OrderUROutCompleted` — with `SUBSCRIBED` a genuine exception.
+
+A consumer comparing against `'ORDERCREATED'` matched nothing. Worse,
+`ORDERUROUT` is not a case variant of `OrderUROutCompleted`, so upper-casing
+does not rescue it — and at least one consumer had copied that token from this
+list, where it would have alerted on an ordinary cancel.
+
+The two sequences a caller most needs to tell apart are now written down: a
+cancel you issue yourself, and a buy rejected for buying power. They differ only
+by `ExecutionCreated`, and the rejection returns **HTTP 201 with a real order
+id** and only becomes `REJECTED` about a second later — so a caller checking
+only the HTTP status believes it worked.
+
 **Five more `ACCT_ACTIVITY` `MESSAGE_TYPE` tokens.** `ORDERMONITORCREATED`,
 `ORDERMONITORCOMPLETED`, `CHANGECREATED`, `CHANGEACCEPTED` and
 `EXECUTIONCREATED` — the lifecycle of a resting limit or stop order, observed on
