@@ -1,6 +1,6 @@
 import setuptools
 
-with open('README.rst', 'r') as f:
+with open('README.md', 'r') as f:
     long_description = f.read()
 
 with open('schwab/version.py', 'r') as f:
@@ -10,7 +10,7 @@ with open('schwab/version.py', 'r') as f:
 
 setuptools.setup(
     # The distribution is `schwaby`; the importable package is still `schwab`.
-    # Those differ deliberately -- see the note in README.rst. It means a
+    # Those differ deliberately -- see the note in README.md. It means a
     # drop-in replacement for the original at the cost of never being
     # installable alongside it.
     name='schwaby',
@@ -30,7 +30,7 @@ setuptools.setup(
     description=('Unofficial Python client for the Charles Schwab API, built '
                  'for systematic trading against live accounts'),
     long_description=long_description,
-    long_description_content_type='text/x-rst',
+    long_description_content_type='text/markdown',
     url='https://github.com/Hu1kSmash/schwaby',
     # include= rather than a bare find_packages(), which also matched `tests`
     # and shipped a top-level `tests` module into every user's site-packages.
@@ -40,6 +40,14 @@ setuptools.setup(
     packages=setuptools.find_packages(include=['schwab', 'schwab.*']),
     classifiers=[
         'Programming Language :: Python :: 3',
+        # Named individually as well as generically: shields.io and PyPI's own
+        # sidebar read these, and with only the bare '3' the version badge says
+        # "3" rather than the range actually supported and tested.
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Intended Audience :: Developers',
@@ -98,6 +106,7 @@ setuptools.setup(
             'pytz',
             'setuptools',
             'sphinx_rtd_theme',
+            'readme_renderer[md]',
             'twine',
             'wheel',
         ]

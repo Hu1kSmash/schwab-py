@@ -45,13 +45,20 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install build twine
+      # readme_renderer[md] is not optional. Measured: with a markdown
+      # long_description and without that extra, `twine check --strict` prints
+      # PASSED for both artifacts having rendered nothing -- it warns on import
+      # and moves on. So the gate does not fail loudly when it stops working,
+      # it just stops working.
+      - run: pip install build twine "readme_renderer[md]"
       - run: python -m build
 
-      # twine check is not optional. It is the only thing that verifies
-      # README.rst renders the way PyPI will render it -- sphinx passes on
-      # markup PyPI rejects, because they are different parsers. A title
-      # underline one character short publishes a release with no description.
+      # twine check verifies the long_description renders at all. Note it is a
+      # much weaker gate for markdown than it was for rst: measured, it rejects
+      # only an empty or whitespace-only document, where rst also rejected
+      # malformed markup. The real check is the suite's
+      # test_the_readme_renders_to_a_real_page, which asserts the rendered HTML
+      # is substantial and contains what a PyPI page has to carry. Both run.
       - run: python -m twine check --strict dist/*
 
       # The version in the artifact must match the tag being released.

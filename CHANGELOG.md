@@ -193,6 +193,25 @@ The install instructions, the "Optional Extras" table and the `pip freeze`
 warning are gone from `getting-started.rst` and the README, along with the
 codegen section of `order-builder.rst`.
 
+**The README is Markdown now, not reStructuredText.** GitHub renders `.rst`
+without admonition styling or much typography, so the repository landing page
+was the plainest version of the text; PyPI takes `text/markdown` natively. The
+documentation under `docs/` is unchanged and still reStructuredText, so the
+Sphinx and Read the Docs build is untouched --- verified by building it in a
+clean environment from `docs/requirements.txt` alone.
+
+One thing this costs, recorded because it is not obvious: `twine check
+--strict` was a real gate on the `.rst` README --- reStructuredText rejects
+malformed markup, which is what caught a title underline one character short
+that would have published a release with a blank description. Markdown rejects
+almost nothing. Measured against `readme_renderer`, it refuses an empty
+document and a whitespace-only one and accepts unclosed HTML tags and broken
+link syntax. And without `readme_renderer[md]` installed, `twine check
+--strict` reports PASSED having rendered nothing at all. So the release
+workflow installs that extra, and the suite asserts the property directly: the
+description renders, it is substantial, it still has its headings and its
+table, and it names what a reader needs.
+
 **The README leads with what the library does.** It opens with the claim, then
 four short examples --- authenticate, fetch, place an order, stream --- that
 show the whole surface before asking anyone to read prose. The origin story and

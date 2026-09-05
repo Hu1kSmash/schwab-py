@@ -113,7 +113,7 @@ fail together. It costs four seconds.
 3. **Anything naming a version**, which goes stale silently:
 
    ```shell
-   grep -rn 'schwaby@v\|schwaby==' README.rst docs/ schwab/
+   grep -rn 'schwaby@v\|schwaby==' README.md docs/ schwab/
    ```
 
    Should be empty. Since 2.6.0 the install instructions say `pip install
@@ -157,7 +157,7 @@ Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
 `sphinx-build -W docs/ docs-build`.
 
 `twine check` is not optional and its output must be read, not glanced at. It
-is the only thing that checks `README.rst` renders as PyPI will render it —
+is the only thing that checks `README.md` renders as PyPI will render it —
 `sphinx -W` passes on markup PyPI rejects, because they are different parsers.
 A title whose underline is one character short fails `twine check` and would
 publish a release with no description at all.

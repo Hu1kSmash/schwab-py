@@ -31,7 +31,7 @@ SETUP_PY = os.path.join(REPO_ROOT, 'setup.py')
 
 @contextlib.contextmanager
 def in_repo_root():
-    '''setup.py opens README.rst and schwab/version.py by relative path, the
+    '''setup.py opens README.md and schwab/version.py by relative path, the
     way pip runs it. Every other test here is independent of the working
     directory and this one has to be too, so run it where it expects to be
     rather than from wherever pytest was invoked.'''
@@ -228,6 +228,7 @@ class LinkTest(unittest.TestCase):
 
     ALLOWED_HOSTS = frozenset((
         'github.com',                       # ours, plus httpx2's changelog
+        'img.shields.io',                   # README badges
         'api.schwabapi.com',                # the API itself
         'developer.schwab.com',             # Schwab's own portal
         'www.schwab.com',
@@ -378,7 +379,7 @@ class LinkTest(unittest.TestCase):
         self.assertGreater(len(files), 20)
         for expected in (os.path.join(REPO_ROOT, 'schwab', 'auth.py'),
                          os.path.join(REPO_ROOT, 'docs', 'getting-started.rst'),
-                         os.path.join(REPO_ROOT, 'README.rst')):
+                         os.path.join(REPO_ROOT, 'README.md')):
             self.assertIn(expected, files)
 
         self.assertEqual([], self.disallowed_hosts_in(files))
@@ -528,7 +529,7 @@ class DocReferenceTest(unittest.TestCase):
         found = [os.path.join(REPO_ROOT, 'docs', n)
                  for n in sorted(os.listdir(os.path.join(REPO_ROOT, 'docs')))
                  if n.endswith('.rst')]
-        found.append(os.path.join(REPO_ROOT, 'README.rst'))
+        found.append(os.path.join(REPO_ROOT, 'README.md'))
         return found
 
     @classmethod
@@ -773,3 +774,77 @@ class DocExampleTest(unittest.TestCase):
                 "        callback_url='https://127.0.0.1:8182',\n"
                 "        token_path='/path/to/token.json')\n")
         self.assertEqual([], self.bad_keywords_in([('doc.rst', 1, code)]))
+
+
+class LongDescriptionTest(unittest.TestCase):
+    """The README as PyPI will render it.
+
+    Until 3.0.0 the README was reStructuredText, and `twine check --strict` was
+    a real gate on it: rst rejects malformed markup, which is how a title
+    underline one character short -- enough to publish a release with a blank
+    description -- was caught before it shipped.
+
+    Markdown is far more permissive. Measured against `readme_renderer`, it
+    rejects an empty document and a whitespace-only one and accepts everything
+    else, including unclosed HTML tags and broken link syntax. So `twine check`
+    alone no longer covers the failure that actually happened, and this asserts
+    the property directly instead: the description renders, it is substantial,
+    and it contains what the page has to carry.
+    """
+
+    @staticmethod
+    def rendered():
+        import readme_renderer.markdown
+        with in_repo_root():
+            with open('README.md', encoding='utf-8') as f:
+                text = f.read()
+        return readme_renderer.markdown.render(text)
+
+    @no_duplicates
+    def test_setup_py_declares_the_matching_content_type(self):
+        # A markdown README declared as text/x-rst renders on PyPI as a wall of
+        # unformatted text, and nothing fails to tell you.
+        self.assertEqual('text/markdown',
+                         setup_kwargs()['long_description_content_type'])
+
+    @no_duplicates
+    def test_the_readme_renders_to_a_real_page(self):
+        html = self.rendered()
+        self.assertIsNotNone(html)
+
+        # Substantial, not merely non-empty: the failure being guarded is a
+        # description that publishes as blank or near-blank.
+        self.assertGreater(len(html), 4000)
+
+        # Prose only. A code block comes back syntax-highlighted, so
+        # `pip install schwaby` renders as `pip<span class="w"> </span>install`
+        # -- asserting the literal command against the HTML checks the
+        # highlighter, not the README. The raw file is checked below instead.
+        for required in ('schwaby', 'schwab-py', 'easy_client',
+                         'Do not install'):
+            self.assertIn(required, html)
+
+        # Structure, not just length: a description that lost its headings is
+        # not a page even if it is long.
+        self.assertGreater(html.count('<h2'), 5)
+        self.assertIn('<table>', html)
+
+    @no_duplicates
+    def test_the_install_command_is_in_the_readme(self):
+        # Against the source, where it is one string. The rendered form is
+        # broken up by the syntax highlighter.
+        with in_repo_root():
+            with open('README.md', encoding='utf-8') as f:
+                text = f.read()
+        self.assertIn('pip install schwaby', text)
+        self.assertNotIn('pip install schwab-py', text)
+
+    @no_duplicates
+    def test_setup_py_ships_what_was_rendered(self):
+        # The assertions above are about README.md on disk. This one is about
+        # the string setup.py actually puts in the metadata, which is the thing
+        # that reaches PyPI.
+        self.assertEqual(self.rendered() is not None, True)
+        with in_repo_root():
+            with open('README.md', encoding='utf-8') as f:
+                self.assertEqual(f.read(), setup_kwargs()['long_description'])
