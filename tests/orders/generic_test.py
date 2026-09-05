@@ -150,28 +150,90 @@ class OrderBuilderTest(unittest.TestCase):
     # RequestedDestination
 
     @no_duplicates
-    def test_destination_link_name_success(self):
-        self.order_builder.set_destination_link_name(Destination.INET)
+    def test_requested_destination_success(self):
+        self.order_builder.set_requested_destination(Destination.INET)
         self.assertFalse(has_diff({
-            'destinationLinkName': 'INET'
+            'requestedDestination': 'INET'
+        }, self.order_builder.build()))
+
+        self.order_builder.clear_requested_destination()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_requested_destination_wrong_type(self):
+        with self.assertRaisesRegex(
+                ValueError, 'schwab.orders.common.Destination.INET'):
+            self.order_builder.set_requested_destination('INET')
+
+    @no_duplicates
+    def test_requested_destination_wrong_type_no_check(self):
+        self.order_builder = OrderBuilder(enforce_enums=False)
+        self.order_builder.set_requested_destination('INET')
+        self.assertFalse(has_diff({
+            'requestedDestination': 'INET'
+        }, self.order_builder.build()))
+
+    @no_duplicates
+    def test_the_venue_enum_lands_on_the_field_schwab_enumerates(self):
+        # Until 3.0.0 the Destination enum was applied to destinationLinkName,
+        # which Schwab's schema types as a free string; requestedDestination is
+        # the field whose enumeration is exactly these twelve values. An order
+        # asking for NYSE therefore carried the venue in a field that does not
+        # select one, and nothing rejected it -- the request was well-formed,
+        # so the only symptom was routing you did not choose.
+        built = (OrderBuilder()
+                 .set_requested_destination(Destination.NYSE)
+                 .build())
+        self.assertEqual({'requestedDestination': 'NYSE'}, built)
+        self.assertNotIn('destinationLinkName', built)
+
+    ##########################################################################
+    # DestinationLinkName
+
+    @no_duplicates
+    def test_destination_link_name_takes_a_free_string(self):
+        # Schwab's schema says `destinationLinkName: string`, with no
+        # enumeration. Validating it against Destination refused every legal
+        # value and accepted only twelve that belong to another field.
+        self.order_builder.set_destination_link_name('anything at all')
+        self.assertFalse(has_diff({
+            'destinationLinkName': 'anything at all'
         }, self.order_builder.build()))
 
         self.order_builder.clear_destination_link_name()
         self.assertFalse(has_diff({}, self.order_builder.build()))
 
-    @no_duplicates
-    def test_destination_link_name_wrong_type(self):
-        with self.assertRaisesRegex(
-                ValueError, 'schwab.orders.common.Destination.INET'):
-            self.order_builder.set_destination_link_name('INET')
+    ##########################################################################
+    # TaxLotMethod
 
     @no_duplicates
-    def test_destination_link_name_wrong_type_no_check(self):
-        self.order_builder = OrderBuilder(enforce_enums=False)
-        self.order_builder.set_destination_link_name('INET')
+    def test_tax_lot_method_success(self):
+        # The enum was exported from schwab.orders.common from the beginning
+        # and had no setter, so the field could not be sent at all. It matters
+        # on a closing order: FIFO and LIFO realise different gains.
+        self.order_builder.set_tax_lot_method(TaxLotMethod.LIFO)
         self.assertFalse(has_diff({
-            'destinationLinkName': 'INET'
+            'taxLotMethod': 'LIFO'
         }, self.order_builder.build()))
+
+        self.order_builder.clear_tax_lot_method()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_tax_lot_method_wrong_type(self):
+        with self.assertRaisesRegex(
+                ValueError, 'schwab.orders.common.TaxLotMethod.FIFO'):
+            self.order_builder.set_tax_lot_method('FIFO')
+
+    @no_duplicates
+    def test_every_tax_lot_method_schwab_lists_is_available(self):
+        # Schwab's order schema enumerates these seven. An enum that advertises
+        # values the venue rejects, or omits ones it accepts, is the defect
+        # this asserts against -- it has happened here before.
+        self.assertEqual(
+                ['AVERAGE_COST', 'FIFO', 'HIGH_COST', 'LIFO', 'LOSS_HARVESTER',
+                 'LOW_COST', 'SPECIFIC_LOT'],
+                sorted(m.value for m in TaxLotMethod))
 
     ##########################################################################
     # StopPrice

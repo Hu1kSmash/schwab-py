@@ -313,14 +313,42 @@ class OrderBuilder(EnumEnforcer):
         self._quantity = None
         return self
 
+    # RequestedDestination
+    def set_requested_destination(self, requested_destination):
+        '''
+        Ask for the order to be routed to a specific venue. See
+        :class:`~schwab.orders.common.Destination` for the values Schwab
+        accepts. Omit it and Schwab routes the order itself, which is what
+        almost everyone wants.
+        '''
+        requested_destination = self.convert_enum(
+            requested_destination, common.Destination)
+        self._requestedDestination = requested_destination
+        return self
+
+    def clear_requested_destination(self):
+        '''
+        Clear the requested destination, returning the order to Schwab's own
+        routing.
+        '''
+        self._requestedDestination = None
+        return self
+
     # DestinationLinkName
     def set_destination_link_name(self, destination_link_name):
         '''
-        Set the destination link name. See
-        :class:`~schwab.orders.common.Destination` for details.
+        Set the destination link name, which Schwab's schema types as a free
+        string rather than an enumeration.
+
+        **This is probably not the method you want.** To route an order to a
+        particular venue, use
+        :meth:`~schwab.orders.generic.OrderBuilder.set_requested_destination`.
+        Until 3.0.0 this method validated its argument against
+        :class:`~schwab.orders.common.Destination`, whose values are the ones
+        Schwab lists for ``requestedDestination`` -- so it both refused legal
+        values for this field and looked like the way to pick a venue. It now
+        takes the string Schwab's schema says it takes.
         '''
-        destination_link_name = self.convert_enum(
-            destination_link_name, common.Destination)
         self._destinationLinkName = destination_link_name
         return self
 
@@ -536,6 +564,24 @@ class OrderBuilder(EnumEnforcer):
         Clear the activation price.
         '''
         self._activationPrice = None
+        return self
+
+    # TaxLotMethod
+    def set_tax_lot_method(self, tax_lot_method):
+        '''
+        Set the tax lot selection method for a closing order. See
+        :class:`~schwab.orders.common.TaxLotMethod` for details.
+        '''
+        tax_lot_method = self.convert_enum(
+            tax_lot_method, common.TaxLotMethod)
+        self._taxLotMethod = tax_lot_method
+        return self
+
+    def clear_tax_lot_method(self):
+        '''
+        Clear the tax lot selection method, leaving the account default.
+        '''
+        self._taxLotMethod = None
         return self
 
     # SpecialInstruction

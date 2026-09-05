@@ -51,7 +51,7 @@ of slightly increased application complexity.
   async def main():
       c = easy_client(
               api_key='APIKEY',
-              redirect_uri='https://localhost',
+              redirect_uri='https://127.0.0.1:8182',
               token_path='/tmp/token.json',
               asyncio=True)
 
@@ -220,7 +220,7 @@ Here is an example of how to fetch an account hash and use it to place an order:
           token_path='/path/to/token.json',
           api_key='api-key',
           app_secret='app-secret',
-          callback_url='https://callback.com',
+          callback_url='https://callback.example.com',
           webdriver_func=make_webdriver)
 
   resp = c.get_account_numbers()
@@ -388,7 +388,7 @@ documentation
 <https://developer.schwab.com/products/trader-api--individual/details/specifications/Retail%20Trader%20API%20Production>`__, 
 but beyond that we're on our own.
 
-``schwab-api`` includes some helpers, described in :ref:`order_templates`, which 
+``schwaby`` includes some helpers, described in :ref:`order_templates`, which 
 provide an incomplete utility for creating various order types. While it only 
 scratches the surface of what's possible, we encourage you to use that module 
 instead of creating your own order specs.

@@ -395,7 +395,7 @@ labels:
   }
 
 These labels are tricky to decode, and require a knowledge of the documentation 
-to decode properly. ``schwab-api`` makes your life easier by doing this decoding 
+to decode properly. ``schwaby`` makes your life easier by doing this decoding 
 for you, replacing numerical labels with strings proposed by the community For 
 instance, the message above would be relabeled as:
 
@@ -455,8 +455,9 @@ As a result, some streams may have been carried over which don't actually work.
 Some never worked at all, and were implemented only because now-defunct 
 documentation referred to them.
 
-The community is in the process of making sense of this new world. You are 
-encouraged to try and use this streaming library and report what you find back 
+Which of them still work is not documented anywhere, so it is worked out by
+trying them. If you find one that behaves differently from what is described
+here, please report it
 `on the issue tracker <https://github.com/Hu1kSmash/schwaby/issues>`__. We'll be updating 
 this page as we discover new things.
 
@@ -630,7 +631,7 @@ particular, it also lists ``FOREX_BOOK``, ``FUTURES_BOOK``, and
 ``FUTURES_OPTIONS_BOOK`` as accessible streams. All experimentation has resulted 
 in these streams refusing to connect, typically returning errors about 
 unavailable services. Due to this behavior and the lack of official 
-documentation for book streams generally, ``schwab-api`` assumes these streams are not
+documentation for book streams generally, ``schwaby`` assumes these streams are not
 actually implemented, and so excludes them. If you have any insight into using
 them, please `let us know <https://github.com/Hu1kSmash/schwaby/issues>`__.
 
@@ -639,7 +640,7 @@ them, please `let us know <https://github.com/Hu1kSmash/schwaby/issues>`__.
 Equities Order Books: NYSE and NASDAQ
 -------------------------------------
 
-``schwab-api`` supports level two data for NYSE and NASDAQ, which are the two major 
+``schwaby`` supports level two data for NYSE and NASDAQ, which are the two major 
 exchanges dealing in equities, ETFs, etc. Stocks are typically listed on one or 
 the other, and it is useful to learn about the differences between them:
 
@@ -652,13 +653,14 @@ the other, and it is useful to learn about the differences between them:
    <https://www.investopedia.com/ask/answers/05/stockmultipleexchanges.asp>`__
 
 You can identify on which exchange a symbol is listed by using
-:meth:`Client.search_instruments() <schwab.client.Client.search_instruments>`:
+:meth:`Client.get_instruments() <schwab.client.Client.get_instruments>`:
 
 .. code-block:: python
 
-  r = c.search_instruments(['GOOG'], projection=c.Instrument.Projection.FUNDAMENTAL)
+  r = c.get_instruments(
+          ['GOOG'], projection=c.Instrument.Projection.FUNDAMENTAL)
   assert r.status_code == httpx2.codes.OK, r.raise_for_status()
-  print(r.json()['GOOG']['exchange'])  # Outputs NASDAQ
+  print(r.json())
 
 However, many symbols have order books available on these streams even though 
 this API call returns neither NYSE nor NASDAQ. The only sure-fire way to find out
@@ -695,6 +697,67 @@ exchanges, although this is an admittedly an uneducated guess.
 .. automethod:: schwab.streaming::StreamClient.options_book_unsubs
 .. automethod:: schwab.streaming::StreamClient.options_book_add
 .. automethod:: schwab.streaming::StreamClient.add_options_book_handler
+
+
+.. _book_fields:
+
+---------------------
+Book Message Contents
+---------------------
+
+All three book streams deliver the same shape, and it is nested where the other
+services are flat. A message has a symbol, a timestamp, and two lists of price
+levels; each level carries its total size and a further list breaking that size
+down by exchange:
+
+.. code-block:: python
+
+  {
+      'SYMBOL': 'GOOG',
+      'BOOK_TIME': 1757088000000,
+      'BIDS': [
+          {
+              'BID_PRICE': 207.42,
+              'TOTAL_VOLUME': 900,
+              'NUM_BIDS': 3,
+              'BIDS': [
+                  {'EXCHANGE': 'NSDQ', 'BID_VOLUME': 500, 'SEQUENCE': 12},
+                  {'EXCHANGE': 'ARCA', 'BID_VOLUME': 400, 'SEQUENCE': 15},
+              ],
+          },
+          ...
+      ],
+      'ASKS': [...],   # the same, with ASK_PRICE, NUM_ASKS and ASK_VOLUME
+  }
+
+Note that ``BIDS`` names two different things one level apart: the list of price
+levels, and the per-exchange breakdown inside each level. That is Schwab's
+numbering, kept as-is rather than renamed, so the labels match the field
+numbers if you ever have to read a raw frame.
+
+As with everything on this page, these labels are reverse engineered --- see
+the caveat at the top of :ref:`level_two`. Field *numbers* come from Schwab;
+the names attached to them are a best-effort reading.
+
+.. autoclass:: schwab.streaming::StreamClient.BookFields
+  :members:
+  :undoc-members:
+
+.. autoclass:: schwab.streaming::StreamClient.BidFields
+  :members:
+  :undoc-members:
+
+.. autoclass:: schwab.streaming::StreamClient.AskFields
+  :members:
+  :undoc-members:
+
+.. autoclass:: schwab.streaming::StreamClient.PerExchangeBidFields
+  :members:
+  :undoc-members:
+
+.. autoclass:: schwab.streaming::StreamClient.PerExchangeAskFields
+  :members:
+  :undoc-members:
 
 
 .. _screener:

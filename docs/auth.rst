@@ -127,6 +127,62 @@ calling each when appropriate:
 
 .. autofunction:: schwab.auth.easy_client
 
+.. _webapp_flow:
+
+------------------------------
+Logging In From a Web Backend
+------------------------------
+
+The functions above assume the login and the callback happen in the same
+process on the same machine. In a web application they do not: you send the
+user to Schwab from one request and the redirect arrives as another, possibly
+minutes later and possibly on a different host, and there is nothing for a
+local callback server to do.
+
+For that case, start the login with
+:func:`~schwab.auth.get_auth_context` and finish it with
+:func:`~schwab.auth.client_from_received_url`.
+
+.. code-block:: python
+
+  from schwab.auth import get_auth_context, client_from_received_url
+
+  # In the handler that begins a login:
+  context = get_auth_context(API_KEY, 'https://your-app.example.com/callback')
+  save_to_session(context)          # it is a namedtuple of strings
+  redirect(context.authorization_url)
+
+  # In the handler your callback URL is routed to:
+  context = load_from_session()
+  c = client_from_received_url(
+          API_KEY, APP_SECRET, context,
+          received_url=full_url_of_this_request,
+          token_write_func=lambda token, *a, **kw: store_token(user, token))
+
+Two things are easy to get wrong here.
+
+**Pass the whole callback URL, query string included.** That query string
+carries the authorization code, which is what makes the token. Treat the value
+as you would the token itself --- in particular, keep it out of your request
+logs, which record full URLs by default.
+
+**Keep the** :class:`~schwab.auth.AuthContext` **with the session that created
+it.** Its ``state`` is checked against the redirect, so a callback belonging to
+a different login is rejected instead of quietly authenticating the wrong
+person.
+
+The callback URL is not restricted to ``127.0.0.1`` here, since nothing in this
+process listens on it. Everything in :ref:`callback_url_advisory` about who can
+read that request still applies, and applies more, because the request now
+crosses a network rather than a loopback interface.
+
+.. autofunction:: schwab.auth.get_auth_context
+
+.. autoclass:: schwab.auth.AuthContext
+
+.. autofunction:: schwab.auth.client_from_received_url
+
+
 If you don't want to create a client and just want to fetch a token, you can use
 the ``schwab-generate-token.py`` script that's installed with the library. This 
 method is particularly useful if you want to create your token on one machine 

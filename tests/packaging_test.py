@@ -11,6 +11,7 @@ contents, so adding a package does not require editing a test.
 
 import collections
 import contextlib
+import importlib
 import os
 import re
 import tempfile
@@ -244,7 +245,12 @@ class LinkTest(unittest.TestCase):
 
     # Hostnames that appear only inside example code, where they stand for a
     # value the reader replaces. They are not links and nobody clicks them.
-    EXAMPLE_HOSTS = frozenset(('127.0.0.1', 'localhost', 'callback.com'))
+    # RFC 2606 reserves example.com for documentation, and loopback is the
+    # callback server rather than a link. `callback.com` used to be here: a
+    # real registrable domain standing in for one the reader supplies, which is
+    # someone else's host to send a reader to.
+    EXAMPLE_HOSTS = frozenset(('127.0.0.1', 'localhost'))
+    EXAMPLE_SUFFIXES = ('.example.com', '.example.org', '.example.net')
 
     OURS = 'https://github.com/Hu1kSmash/schwaby/blob/main/'
 
@@ -310,7 +316,10 @@ class LinkTest(unittest.TestCase):
         for path in files:
             contents = cls.read_joined(path)
             for host in cls.URL.findall(contents):
-                if host.split(':')[0] in cls.EXAMPLE_HOSTS:
+                bare = host.split(':')[0]
+                if (bare in cls.EXAMPLE_HOSTS
+                        or bare == 'example.com'
+                        or bare.endswith(cls.EXAMPLE_SUFFIXES)):
                     continue
                 if host not in cls.ALLOWED_HOSTS:
                     offenders.append((os.path.relpath(path, REPO_ROOT), host))
@@ -475,3 +484,133 @@ class DocsConfigTest(unittest.TestCase):
 
         self.assertIn('Alex Golec', namespace['author'])
         self.assertIn('Alex Golec', namespace['copyright'])
+
+
+class DocReferenceTest(unittest.TestCase):
+    """Every name the documentation points at, resolved against the code.
+
+    `streaming.rst` told readers to call `Client.search_instruments()` and gave
+    a worked example using it. No such method exists -- it is `get_instruments`
+    -- so anyone copying the example got an AttributeError. The reference was
+    inherited and nothing noticed, because `sphinx -W` does not resolve a
+    `:meth:` target to a real attribute: an unresolvable one renders as plain
+    text and the build succeeds.
+
+    Two forms have to be handled, and only handling the first is how this was
+    missed the first time it was checked by hand:
+
+        :meth:`schwab.client.Client.get_quote`
+        :meth:`Client.get_quote() <schwab.client.Client.get_quote>`
+
+    The second puts the real target inside the angle brackets, so a pattern
+    that reads the visible label sees `Client.get_quote()` -- which does not
+    start with `schwab`, gets skipped as somebody else's name, and the broken
+    target behind it is never looked at.
+    """
+
+    ROLE = re.compile(r':(?:func|meth|class|attr|obj|data|exc):`([^`]+)`')
+    AUTODOC = re.compile(
+            r'\.\.\s+auto(?:function|class|method|attribute|data|exception)::'
+            r'\s+([\w.:]+)')
+
+    # Bare class names the docs use as shorthand, and where they live.
+    SHORTHAND = {
+        'Client': 'schwab.client',
+        'AsyncClient': 'schwab.client',
+        'StreamClient': 'schwab.streaming',
+        'OrderBuilder': 'schwab.orders.generic',
+    }
+
+    @staticmethod
+    def doc_files():
+        found = [os.path.join(REPO_ROOT, 'docs', n)
+                 for n in sorted(os.listdir(os.path.join(REPO_ROOT, 'docs')))
+                 if n.endswith('.rst')]
+        found.append(os.path.join(REPO_ROOT, 'README.rst'))
+        return found
+
+    @classmethod
+    def references_in(cls, files):
+        """Returns {dotted name: {'file:line', ...}} for every code reference."""
+        refs = {}
+        for path in files:
+            with open(path, encoding='utf-8') as f:
+                contents = f.read()
+            for pattern, take_target in ((cls.ROLE, True),
+                                         (cls.AUTODOC, False)):
+                for m in pattern.finditer(contents):
+                    body = m.group(1)
+                    if take_target:
+                        inner = re.search(r'<([^>]+)>', body)
+                        body = inner.group(1) if inner else body
+                    name = body.strip().lstrip('~').replace('()', '')
+                    name = name.replace('::', '.')
+                    line = contents[:m.start()].count('\n') + 1
+                    refs.setdefault(name, set()).add(
+                            '%s:%d' % (os.path.basename(path), line))
+        return refs
+
+    @classmethod
+    def unresolvable(cls, refs):
+        broken = []
+        for name, where in sorted(refs.items()):
+            parts = name.split('.')
+            if parts[0] in cls.SHORTHAND:
+                obj = importlib.import_module(cls.SHORTHAND[parts[0]])
+                rest = parts
+            elif parts[0] == 'schwab':
+                obj, rest = None, None
+                for i in range(len(parts), 0, -1):
+                    try:
+                        obj = importlib.import_module('.'.join(parts[:i]))
+                    except ImportError:
+                        continue
+                    rest = parts[i:]
+                    break
+                if obj is None:
+                    broken.append((name, sorted(where)))
+                    continue
+            else:
+                # Not one of ours -- a python.org type, or prose in a role.
+                continue
+            for attr in rest:
+                if not hasattr(obj, attr):
+                    broken.append((name, sorted(where)))
+                    break
+                obj = getattr(obj, attr)
+        return broken
+
+    @no_duplicates
+    def test_every_documented_name_resolves(self):
+        files = self.doc_files()
+
+        # Positive control for the collection, twice over: an empty file list
+        # and a pattern that matches nothing both produce an empty broken list.
+        self.assertGreater(len(files), 8)
+        refs = self.references_in(files)
+        self.assertGreater(len(refs), 150)
+        self.assertIn('schwab.client.Client.get_quote', refs)
+
+        broken = self.unresolvable(refs)
+        self.assertEqual([], broken)
+
+    @no_duplicates
+    def test_the_check_reads_the_target_not_the_label(self):
+        # The form that hid `search_instruments`: the visible label is not the
+        # target, and a checker reading the label skips it as foreign.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'doc.rst')
+            with open(path, 'w') as f:
+                f.write(
+                    'Use :meth:`Client.search_instruments() '
+                    '<schwab.client.Client.search_instruments>` for this.\n'
+                    'And :meth:`schwab.client.Client.get_quote` for that.\n'
+                    '.. autoclass:: schwab.streaming::StreamClient.NoSuchEnum\n')
+
+            refs = self.references_in([path])
+            broken = self.unresolvable(refs)
+
+        self.assertEqual(
+                ['schwab.client.Client.search_instruments',
+                 'schwab.streaming.StreamClient.NoSuchEnum'],
+                sorted(name for name, _ in broken))

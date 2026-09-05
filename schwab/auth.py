@@ -812,8 +812,49 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
 
 AuthContext = collections.namedtuple(
         'AuthContext', ['callback_url', 'authorization_url', 'state'])
+AuthContext.__doc__ = '''The half of a login that has to survive between two
+requests: the ``callback_url`` the flow was started with, the
+``authorization_url`` to send the user to, and the OAuth ``state`` that ties
+the two together.
+
+It is a plain :class:`collections.namedtuple` of strings so that it can be
+serialised into a session, a cookie or a database row. That is deliberate --
+the ``OAuth2Client`` it came from cannot be, which is why
+:func:`client_from_received_url` rebuilds one rather than being handed it.'''
+
 
 def get_auth_context(api_key, callback_url, state=None):
+    '''
+    Start a login without opening a browser, for when the callback lands
+    somewhere this process cannot listen.
+
+    :func:`client_from_login_flow` runs a callback server on ``127.0.0.1`` and
+    blocks until the user finishes. That is wrong for a web application, where
+    the redirect arrives as an ordinary request to a server you already have,
+    in a different process from the one that started the login and possibly on
+    a different machine. Use this and :func:`client_from_received_url` instead:
+
+    1. Call this to get an :class:`AuthContext`.
+    2. Send the user to ``context.authorization_url``, and store the context
+       somewhere you can retrieve it in the next request.
+    3. When Schwab redirects back, pass the full URL it was received at,
+       together with the stored context, to :func:`client_from_received_url`.
+
+    :param api_key: Your Schwab application's app key.
+    :param app_secret: Not required here. It is needed in step 3.
+    :param callback_url: Your application's callback URL, exactly as registered
+                         with Schwab. Unlike :func:`client_from_login_flow`,
+                         this is not restricted to ``127.0.0.1`` -- nothing
+                         here listens on it, so it can be a real host you
+                         control. Everything in
+                         :ref:`callback_url_advisory` about who can read that
+                         request still applies, and applies more, because the
+                         request now crosses a network.
+    :param state: An opaque value echoed back by Schwab, which
+                  :func:`client_from_received_url` checks. Leave it unset to
+                  have one generated. Set it only if you have your own scheme
+                  for tying a redirect to the session that started it.
+    '''
     api_key = __normalize_credential(api_key, 'api_key')
     oauth = OAuth2Client(api_key, redirect_uri=callback_url)
     authorization_url, state = oauth.create_authorization_url(
@@ -826,6 +867,33 @@ def get_auth_context(api_key, callback_url, state=None):
 def client_from_received_url(
         api_key, app_secret, auth_context, received_url, token_write_func, 
         asyncio=False, enforce_enums=True):
+    '''
+    Finish a login started by :func:`get_auth_context` and return a client.
+
+    Call this from whatever handles your callback URL, with the request URL it
+    was reached at.
+
+    Note this takes a ``token_write_func`` rather than a path: there is no
+    ``token_path`` variant, because a server that just authenticated a user
+    usually wants the token in the same place as the rest of that user's state
+    rather than in a file. See
+    :func:`client_from_access_functions` for what the function has to accept.
+
+    :param api_key: Your Schwab application's app key.
+    :param app_secret: Application secret provided upon :ref:`app approval
+                       <approved_pending>`.
+    :param auth_context: The :class:`AuthContext` returned by
+                         :func:`get_auth_context` when this login was started.
+                         Its ``state`` is checked against the one in
+                         ``received_url``, so a redirect belonging to a
+                         different login is rejected rather than accepted.
+    :param received_url: The *full* URL your callback was requested at, query
+                         string included. That query string carries the
+                         authorization code, so this value is as sensitive as
+                         the token it becomes: do not log it.
+    :param token_write_func: Called with the token when it is created and on
+                             every refresh thereafter.
+    '''
     # XXX: The AuthContext must be serializable, which means the original 
     #      OAuth2Client created in get_auth_context cannot be passed around. 
     #      Instead, we reconstruct it here.

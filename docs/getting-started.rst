@@ -39,11 +39,11 @@ required fields.
 
 .. figure:: _static/setting-up-api-product.png
 
-The first thing you'll select is the API Product. We in the community aren't 
-currently clear on the difference between the options ("Accounts and Trading 
-Production" and "Market Data"). It seems that selecting "Accounts and Trading 
-Production" grants access to all APIs supported by ``schwaby``, so unless you 
-have a reason to do differently, we recommend selecting that option.
+The first thing you'll select is the API Product. Schwab does not document the
+difference between "Accounts and Trading Production" and "Market Data" in a way
+that settles the question, but the former grants access to every endpoint
+``schwaby`` supports, including quotes and price history. Choose that one unless
+you have a specific reason not to.
 
 **Order Limit**
 
@@ -83,11 +83,12 @@ number is not require to use ``schwaby``, but it is required to use
 use a non-local callback URL, but this documentation assumes they are advanced 
 enough not to need our help creating such a setup.
 
-*Update July 21, 2024:* There were intermittent reports that Schwab was 
-refusing to create apps with callback URLs containing ``127.0.0.1``. If you 
-encounter this, please `open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__ so it can be tracked.
+If Schwab refuses to create an app with a ``127.0.0.1`` callback URL, please
+`open an issue <https://github.com/Hu1kSmash/schwaby/issues>`__ --- it has
+happened intermittently in the past and it is worth knowing if it is still
+happening.
 
-In any case, note that whatever callback URL you choose, you must pass it to 
+Note that whatever callback URL you choose, you must pass it to 
 ``schwaby`` *exactly* in the same way as you specified it while creating your 
 app.  Any deviation (including adding or removing a trailing slash!) can cause 
 difficult-to-debug issues. Be careful not to mis-copy this value.

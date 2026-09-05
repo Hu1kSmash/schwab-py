@@ -42,6 +42,33 @@ every release up to and including 2.6.0. Uninstalling and reinstalling clears
 it; `pip uninstall schwaby` on its own may take files another package put
 there, so check `site-packages/tests` afterwards if you had one.
 
+**The venue enum was being written to a field that does not select a venue.**
+`set_destination_link_name` validated its argument against `Destination`, whose
+twelve values are the ones Schwab lists for `requestedDestination`.
+`destinationLinkName` is a free string in Schwab's schema, so an order asking
+for NYSE was well-formed and nothing rejected it --- the only symptom would
+have been routing you did not choose. Use
+`set_requested_destination`. `set_destination_link_name` still exists and now
+takes the string its field is typed as, which also means it no longer refuses
+legal values.
+
+*Not verified against a live account.* This is read from Schwab's published
+order schema, which enumerates those values under `requestedDestination` and
+types `destinationLinkName` as `string`. If you have been relying on the old
+behaviour, check your fills before assuming either version routed as you
+intended.
+
+**A documented example called a method that does not exist.** The level two
+page told readers to use `Client.search_instruments()` and gave a worked
+example; the method is `get_instruments`, so anyone copying it got an
+`AttributeError`. `sphinx -W` does not resolve cross-reference targets, so the
+build had always passed. Every name the documentation points at is now resolved
+against the code by a test.
+
+**`get_instruments`' docstring documented a `symbol` parameter.** The argument
+is `symbols`, so the rendered signature and the rendered parameter list
+disagreed.
+
 **Three dead links, one of them the first click in the onboarding flow.**
 `docs/getting-started.rst` sent new users to `beta-developer.schwab.com` to
 create their developer account and register their app --- a hostname that no
@@ -54,6 +81,17 @@ project's documentation site.
 **The "Critical Schwab Bug" section is gone from the getting-started guide.** It
 described a July 2024 outage on a developer console that no longer exists, and
 it was the first thing a new reader saw.
+
+**The docs no longer call this project by three different names.**
+`schwab-api`, from two renames ago, appeared four times across the client and
+streaming pages. Prose written in the voice of the original project's community
+("we in the community aren't currently clear...") has been rewritten to say
+what is actually known, and a "July 21, 2024" update notice has become a
+statement that does not need a date attached to stay true.
+
+Documentation examples use `example.com`, which RFC 2606 reserves for the
+purpose, rather than `callback.com` --- a real registrable domain that someone
+else owns.
 
 **`cryptography` is a declared dependency now.** The callback server runs with
 `ssl_context='adhoc'`, and `werkzeug` builds that certificate with
@@ -68,6 +106,31 @@ original project's name through the rename, so every page title and browser tab
 named a different library while the text on the page said to install `schwaby`.
 Alex Golec's `author` and `copyright` entries are unchanged and deliberately
 so.
+
+### Added
+
+**`set_requested_destination`, for routing an order to a specific venue.** The
+`Destination` enum has been exported since the beginning and there was no
+setter that put it on the right field --- see Fixed, below.
+
+**`set_tax_lot_method`.** `TaxLotMethod` was likewise exported from
+`schwab.orders.common` with no way to use it, so `taxLotMethod` could not be
+sent at all. It matters on a closing order: FIFO and LIFO realise different
+gains against the same position.
+
+**The web-application login flow is documented.** `get_auth_context`,
+`client_from_received_url` and `AuthContext` have been public for a long time
+with no docstrings and no mention in the documentation. They are how you log in
+when the callback arrives as an ordinary request to a server you already run,
+in a different process from the one that started the login --- the case
+`client_from_login_flow`, which runs a local callback server and blocks, cannot
+serve. `docs/auth.rst` has a worked example.
+
+**The book message structure is documented.** Every other stream had a field
+reference; the three order-book streams had none, so a subscriber received a
+nested structure with nothing describing it. `BookFields`, `BidFields`,
+`AskFields`, `PerExchangeBidFields` and `PerExchangeAskFields` are on the
+streaming page now, with a worked example of the shape.
 
 ### Changed
 
