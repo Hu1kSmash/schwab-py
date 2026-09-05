@@ -17,6 +17,34 @@ current model.
 
 ## Unreleased
 
+### Added
+
+**`add_error_handler` now reports a fourth kind of absorbed failure: a message
+this client cannot use at all.** A frame which is not an object, an element of
+`data` or `notify` which is not an object, a `service` which is not a name.
+These arrive as the new `UnusableMessage`, whose `message` is the offending
+value as it arrived.
+
+That callback exists so an absorbed failure is not visible only in a log, and
+these are absorbed failures. A consumer who registered a handler to stop
+scraping logs would otherwise watch a subscription go silent after a framing
+change with no programmatic signal at all — the state 2.2.0 added the callback
+to eliminate.
+
+`UnusableMessage` rather than the existing `UnparsableMessage`, which means the
+JSON did not decode and carries the parse exception. Here the JSON is fine and
+the structure is not; one type meaning two shapes is a trap this library has
+been bitten by before.
+
+### Changed
+
+**A systematically malformed channel no longer logs one line per element.** The
+first few are logged, then every thousandth with a running total. A framing
+change on a `LEVELONE_EQUITIES` subscription across a few hundred symbols
+previously produced a warning per element per tick indefinitely — a log-volume
+incident on top of the data outage. Every occurrence still reaches
+`add_error_handler`.
+
 ### Fixed
 
 **A malformed message ended the caller's receive loop.** Three related cases,
@@ -28,10 +56,36 @@ them as the stream having failed:
   handlers;
 * a `service` which is not a name, since the handler lookup is evaluated in the
   same place;
-* a frame which is not an object at all — a top-level JSON array or string.
+* a frame which is not an object at all — a top-level JSON array or string;
+* a top-level JSON `null`, which was indistinguishable from the internal
+  sentinel meaning "this response was routed to its waiter", so it was dropped
+  without even a log line.
 
 Each is now logged and skipped, and well-formed elements beside a bad one are
 still dispatched.
+
+**A custom JSON decoder returning anything but `dict` and `list` broke the
+stream.** `set_json_decoder` is a public hook which promises only "the decoded
+JSON", but the type checks above were written against the concrete types, so a
+decoder returning a `Mapping` which is not a `dict` — or tuples for arrays — had
+every frame dropped, presenting as a permanently dead feed with no exception.
+The checks are duck-typed. Separately, the debug log formatted frames with
+`json.dumps`, which refuses such an object, so turning on debug logging ended
+the receive loop for exactly those users.
+
+**A mismatched request id was reported as a malformed frame.** All five fields
+were read before any was compared, so a frame carrying an id this client never
+issued *and* missing another field said `malformed response frame: KeyError:
+'service'`. The id mismatch is the more diagnostic fact — it means the server
+and this client disagree about what was asked — and it was hidden behind
+whichever field happened to be absent. The id is compared before the rest is
+read.
+
+**`set_json_decoder` looked its base class up through `schwab.contrib.util`,**
+which raises `AttributeError` unless the caller happened to have imported that
+module. Someone subclassing `StreamJsonDecoder` where it is actually defined,
+in `schwab.streaming`, has no reason to have done so. It is the same class
+either way; the local name is used now.
 
 **A malformed answer took down the receive loop as well as its own request.**
 `_validate_response` read four fields straight after the request id, unguarded.

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
+from collections.abc import Mapping, Sequence
 from enum import Enum
 
 import asyncio
@@ -77,6 +78,24 @@ class UnparsableMessage(Exception):
         super().__init__(*args, **kwargs)
         self.raw_msg = raw_msg
         self.json_parse_exception = json_parse_exception
+
+
+class UnusableMessage(Exception):
+    '''A message which decoded successfully but which this client cannot use.
+
+    Distinct from :class:`UnparsableMessage`, which means the JSON itself did
+    not decode and carries the parse exception. Here the JSON is fine and the
+    structure is not what the protocol allows -- a frame which is not an
+    object, an element of ``data`` which is not an object, a ``service`` which
+    is not a name. Reusing ``UnparsableMessage`` would make one type mean two
+    shapes, with ``json_parse_exception`` set for one of them and ``None`` for
+    the other.
+
+    ``message`` is the offending value, exactly as it arrived.
+    '''
+    def __init__(self, message, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.message = message
 
 
 class _Handler:
@@ -170,6 +189,12 @@ class ResponseTimeoutError(Exception):
         self.timeout = timeout
 
 
+# Returned by _read_and_route for a frame it delivered to a waiting request.
+# A plain None cannot serve: a top-level JSON null is a frame a server can
+# send, and treating it as "already routed" dropped it silently.
+ROUTED = object()
+
+
 class StreamClient(EnumEnforcer):
 
     #: Seconds to wait for the streaming server to respond to a request before
@@ -228,6 +253,10 @@ class StreamClient(EnumEnforcer):
         # oldest loses nothing that was not already written down.
         self._pending_reports = deque(maxlen=64)
 
+        # How many messages this connection could not use. Only
+        # the first few are logged; this keeps the total honest.
+        self._absorbed = 0
+
         # Logging-related fields
         self.logger = get_logger()
         self.request_number = 0
@@ -259,10 +288,30 @@ class StreamClient(EnumEnforcer):
                              incoming JSON strings. See
                              :class:`StreamJsonDecoder` for details.
         '''
-        if not isinstance(json_decoder, schwab.contrib.util.StreamJsonDecoder):
+        # The local name, not schwab.contrib.util's. They are the same class
+        # -- contrib.util imports it from here -- but reaching it through the
+        # package attribute raises AttributeError unless the caller happens to
+        # have imported schwab.contrib.util, which someone subclassing the
+        # class where it is actually defined has no reason to have done.
+        if not isinstance(json_decoder, StreamJsonDecoder):
             raise ValueError('Custom JSON parser must be a subclass of ' +
                              'schwab.contrib.util.StreamJsonDecoder')
         self.json_decoder = json_decoder
+
+    @staticmethod
+    def _pretty(obj):
+        """json.dumps for a debug line, without letting it take the stream down.
+
+        set_json_decoder is a public hook and only promises "the decoded JSON",
+        so a decoder returning a Mapping which is not a dict, or tuples for
+        arrays, produces something json.dumps refuses. That raised from inside
+        a logger.debug call -- so turning on debug logging ended the receive
+        loop, and only for the people who had customised the decoder.
+        """
+        try:
+            return json.dumps(obj, indent=4)
+        except (TypeError, ValueError):
+            return repr(obj)
 
     def req_num(self):
         self.request_number += 1
@@ -274,7 +323,7 @@ class StreamClient(EnumEnforcer):
                 'Socket not open. Did you forget to call login()?')
 
         self.logger.debug('Send %s: Sending %s',
-                self.req_num(), LazyLog(lambda: json.dumps(obj, indent=4)))
+                self.req_num(), LazyLog(lambda: self._pretty(obj)))
 
         await self._socket.send(json.dumps(obj))
 
@@ -294,7 +343,7 @@ class StreamClient(EnumEnforcer):
 
         self.logger.debug(
             'Receive %s: Returning message from stream: %s',
-            self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+            self.req_num(), LazyLog(lambda: self._pretty(ret)))
 
         return ret
 
@@ -308,7 +357,7 @@ class StreamClient(EnumEnforcer):
 
             self.logger.debug(
                 'Receive %s: Returning message from overflow: %s',
-                self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+                self.req_num(), LazyLog(lambda: self._pretty(ret)))
 
             return ret
 
@@ -397,6 +446,17 @@ class StreamClient(EnumEnforcer):
         try:
             first = resp['response'][0]
             resp_request_id = int(first['requestid'])
+
+            # Compared before the rest is read. Reading all five first meant a
+            # frame carrying an id this client never issued *and* missing some
+            # other field was reported as "malformed response frame: KeyError:
+            # 'service'". The id mismatch is the more diagnostic fact -- it
+            # means the server and this client disagree about what was asked --
+            # and it was hidden behind whichever field happened to be absent.
+            if resp_request_id != request_id:
+                return UnexpectedResponse(
+                    resp, 'unexpected requestid: {}'.format(resp_request_id))
+
             resp_service = first['service']
             resp_command = first['command']
             content = first['content']
@@ -422,10 +482,7 @@ class StreamClient(EnumEnforcer):
     def _validate_response_fields(resp, request_id, service, command,
                                   resp_request_id, resp_service, resp_command,
                                   content, resp_code):
-        # Validate request ID
-        if resp_request_id != request_id:
-            return UnexpectedResponse(
-                resp, 'unexpected requestid: {}'.format(resp_request_id))
+        # The request id was compared before the other fields were read.
 
         # Validate service
         if resp_service != service:
@@ -455,9 +512,14 @@ class StreamClient(EnumEnforcer):
         which is what guarantees a single reader: ``websockets`` raises if two
         coroutines call ``recv()`` concurrently.
 
-        Returns the frame if it is for the caller to deal with, or ``None`` if
-        it was a response which has been delivered to the operation waiting on
-        it.
+        Returns the frame if it is for the caller to deal with, or ``ROUTED``
+        if it was a response which has been delivered to the operation waiting
+        on it.
+
+        ``ROUTED`` rather than ``None`` because ``None`` is a frame a server
+        can send: a top-level JSON ``null`` was indistinguishable from a routed
+        response, so it was dropped without the warning every other unusable
+        frame gets.
 
         ``use_overflow`` is ``False`` for a caller waiting on a response, which
         must read from the socket rather than from the queue of frames set
@@ -471,7 +533,7 @@ class StreamClient(EnumEnforcer):
         # and raises on a top-level JSON number. Handed back rather than
         # dropped here, so handle_message logs it in one place along with every
         # other frame this cannot route.
-        if not isinstance(frame, dict):
+        if not isinstance(frame, Mapping):
             return frame
 
         if 'response' not in frame:
@@ -558,7 +620,7 @@ class StreamClient(EnumEnforcer):
         # handle_message, which holds neither lock and runs under no deadline.
         self._log_extra_responses(frame, first_unclaimed)
 
-        return None
+        return ROUTED
 
     def _iter_responses(self, frame, start=0):
         '''Yields ``(response, code, content)`` for the responses in a frame.
@@ -597,6 +659,34 @@ class StreamClient(EnumEnforcer):
 
             yield response, code, content
 
+    def _absorb(self, what, offender, service=None):
+        """Records a message this client cannot use.
+
+        Three things happen to it, and each earns its place:
+
+        * a WARNING, so it is visible without code changes -- but only for the
+          first few. A systematically malformed high-volume channel would
+          otherwise emit one line per element per tick indefinitely, turning a
+          data outage into a log-volume incident as well. Powers of ten, so the
+          running total stays visible without the flood.
+        * a report through add_error_handler, because that callback's whole
+          purpose is that a failure this client absorbs should not be visible
+          only in a log. Queued the same way a batched rejection is, and
+          delivered from the same drain, so no user code runs here.
+        """
+        self._absorbed += 1
+        n = self._absorbed
+        if n <= 3 or n % 1000 == 0:
+            self.logger.warning(
+                    'Ignoring %s: %r. (%d absorbed on this connection.)',
+                    what, offender, n)
+
+        self._pending_reports.append((
+                UnusableMessage(
+                    offender, 'Ignoring {}'.format(what)),
+                service,
+                offender))
+
     def _iter_channel(self, msg, channel):
         '''Yields the well-formed elements of ``msg[channel]``.
 
@@ -614,17 +704,15 @@ class StreamClient(EnumEnforcer):
         if elements is None:
             return
 
-        if not isinstance(elements, list):
-            self.logger.warning(
-                    'Ignoring a %s frame whose %r is not a list: %r',
-                    channel, channel, elements)
+        if (not isinstance(elements, Sequence)
+                or isinstance(elements, (str, bytes))):
+            self._absorb('a %s frame whose %r is not a list'
+                         % (channel, channel), elements)
             return
 
         for element in elements:
-            if not isinstance(element, dict):
-                self.logger.warning(
-                        'Ignoring an unparseable %s element: %r',
-                        channel, element)
+            if not isinstance(element, Mapping):
+                self._absorb('an unparseable %s element' % channel, element)
                 continue
 
             yield element
@@ -749,7 +837,7 @@ class StreamClient(EnumEnforcer):
                         # request. Fail it with the same error.
                         self._fail_pending_request(exc)
                         raise
-                    if frame is not None:
+                    if frame is not ROUTED:
                         # Not ours, so it belongs to handle_message. Set it
                         # aside as it arrives rather than at the end: a
                         # concurrent handle_message reads between our reads, so
@@ -868,7 +956,7 @@ class StreamClient(EnumEnforcer):
         Registers a callback for failures this client absorbs rather than
         raising.
 
-        Three things reach it, all of them failures this client is right to
+        Four things reach it, all of them failures this client is right to
         absorb and none of which the caller could otherwise react to:
 
         * a stream handler which raises, synchronous or coroutine, because one
@@ -882,7 +970,16 @@ class StreamClient(EnumEnforcer):
           request you are waiting on. The rejected element is what arrives as
           ``message``;
         * a connection which fails to close after logout, because the logout
-          itself succeeded.
+          itself succeeded;
+        * a message this client cannot use at all -- a frame which is not an
+          object, an element of ``data`` or ``notify`` which is not an object,
+          a ``service`` which is not a name. These arrive as
+          :class:`UnusableMessage`, whose ``message`` is the offending value as
+          it arrived. A systematically malformed channel logs only the first
+          few occurrences and then every thousandth, so a data outage does not
+          become a log-volume incident as well -- but every one of them is
+          reported here, which is the point of having a callback rather than a
+          log to read.
 
         Each is logged as it was before. The callback is what makes them
         something other than a log record.
@@ -1077,9 +1174,7 @@ class StreamClient(EnumEnforcer):
             # here rather than in each caller: this is the funnel they all go
             # through, and adding it to one of them is how the response path
             # got hardened while the data path did not.
-            self.logger.warning(
-                    'Ignoring a message whose service is not a name: %r',
-                    service)
+            self._absorb('a message whose service is not a name', service)
             return
 
         for handler in handlers:
@@ -1158,16 +1253,15 @@ class StreamClient(EnumEnforcer):
                     self._fail_pending_request(exc)
                     raise
 
-            if msg is not None:
+            if msg is not ROUTED:
                 break
 
         # Every read below assumes a mapping. `'data' in msg` happened to
         # tolerate a top-level JSON array or string; `msg.get('data')` does
         # not, so hardening the channels made a non-dict frame raise where it
         # used to be ignored. Guarded once, here, rather than at each read.
-        if not isinstance(msg, dict):
-            self.logger.warning(
-                    'Ignoring a message which is not an object: %r', msg)
+        if not isinstance(msg, Mapping):
+            self._absorb('a message which is not an object', msg)
             return
 
         # response

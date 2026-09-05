@@ -7292,7 +7292,8 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         ]}
         self.client._overflow_items.appendleft(frame)
 
-        self.assertIsNone(await self.client._read_and_route())
+        self.assertIs(schwab.streaming.ROUTED,
+                      await self.client._read_and_route())
 
         queued = [str(exc) for exc, _, _ in self.client._pending_reports]
         self.assertEqual(2, len(queued))
@@ -7876,6 +7877,140 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         socket.recv.side_effect = [json.dumps({'data': [good]})]
         await self.client.handle_message()
         self.assertEqual([good], handled)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_null_frame_is_logged_like_any_other(self, ws_connect):
+        # A top-level JSON null was indistinguishable from the sentinel meaning
+        # "this was routed to its waiter", so it was dropped without the
+        # warning every other unusable frame gets.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(exc))
+
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps(None), json.dumps({'data': [good]})]
+        await self.client.handle_message()
+        # Drained at the top of the loop, so it goes out on the next call --
+        # the same as any other queued report.
+        await self.client.handle_message()
+
+        self.assertEqual(1, len(errors))
+        self.assertIsInstance(errors[0], schwab.streaming.UnusableMessage)
+        self.assertIsNone(errors[0].message)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_absorbed_message_reaches_the_error_handler(
+            self, ws_connect):
+        # add_error_handler exists so an absorbed failure is not visible only
+        # in a log. These are absorbed failures.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((exc, msg)))
+
+        for frame in ({'data': ['not a dict']},
+                      {'data': 'oops'},
+                      {'data': [{'service': ['a list'], 'command': 'SUBS'}]},
+                      'hello'):
+            with self.subTest(frame=frame):
+                socket.recv.side_effect = [json.dumps(frame)]
+                await self.client.handle_message()
+
+        # One more pass to drain the last one.
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+        socket.recv.side_effect = [json.dumps({'data': [good]})]
+        await self.client.handle_message()
+
+        self.assertEqual(4, len(errors))
+        for exc, message in errors:
+            self.assertIsInstance(exc, schwab.streaming.UnusableMessage)
+            self.assertIs(exc.message, message)
+
+    @no_duplicates
+    def test_absorbed_warnings_do_not_flood(self):
+        # Before this, a systematically malformed high-volume channel logged
+        # one line per element per tick, forever -- a log-volume incident on
+        # top of the data outage.
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        handler = Capture()
+        logging.getLogger('schwab.streaming').addHandler(handler)
+        try:
+            for _ in range(5000):
+                self.client._absorb('a thing', 'offender')
+        finally:
+            logging.getLogger('schwab.streaming').removeHandler(handler)
+
+        # First few, then powers of ten -- not 5000 lines.
+        self.assertLess(len(records), 20)
+        self.assertGreater(len(records), 0)
+        # The running total stays visible.
+        self.assertIn('5000 absorbed', records[-1])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_custom_decoder_returning_a_mapping_still_works(
+            self, ws_connect):
+        # set_json_decoder is a public hook which promises only "the decoded
+        # JSON". A decoder returning a Mapping which is not a dict, or tuples
+        # for arrays, worked before the type guards were added and must still.
+        import collections
+
+        socket = await self.login_and_get_socket(ws_connect)
+
+        good = {'service': 'LEVELONE_EQUITIES', 'command': 'SUBS',
+                'timestamp': 1590116673258}
+
+        from schwab.contrib.util import StreamJsonDecoder
+
+        class MappingDecoder(StreamJsonDecoder):
+            def decode_json_string(self, raw):
+                loaded = json.loads(raw)
+                return collections.ChainMap(
+                        {'data': (collections.ChainMap(good),)}, loaded)
+
+        self.client.set_json_decoder(MappingDecoder())
+
+        handled = []
+        self.client.add_level_one_equity_handler(handled.append)
+        socket.recv.side_effect = ['{}']
+
+        await self.client.handle_message()
+
+        self.assertEqual(1, len(handled))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_a_mismatched_request_id_is_named_as_such(self, ws_connect):
+        # Reading all five fields first meant a frame with an id this client
+        # never issued AND a missing field was reported as "malformed response
+        # frame: KeyError: 'service'". The id mismatch is the more diagnostic
+        # fact and was hidden behind whichever field happened to be absent.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        frame = self.success_response(
+                self.client._request_id, 'LEVELONE_EQUITIES', 'SUBS')
+        frame['response'][0]['requestid'] = '999'
+        del frame['response'][0]['service']
+        socket.recv.side_effect = [json.dumps(frame)]
+
+        with self.assertRaises(schwab.streaming.UnexpectedResponse) as cm:
+            await asyncio.wait_for(
+                    self.client.level_one_equity_subs(['GOOG']), timeout=5)
+
+        self.assertIn('unexpected requestid: 999', str(cm.exception))
+        self.assertNotIn('malformed', str(cm.exception))
 
     @no_duplicates
     def test_the_report_queue_is_bounded(self):

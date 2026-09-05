@@ -233,9 +233,14 @@ an error handler:
 
   stream_client.add_error_handler(on_stream_error)
 
-It is called for three things: a stream handler which raised, a late rejection
-of a request nobody was waiting on, and a connection which failed to close after
-logout. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
+It is called for four things: a stream handler which raised, a late rejection of
+a request nobody was waiting on, a connection which failed to close after logout,
+and a message this client cannot use at all — a frame which is not an object, an
+element of ``data`` or ``notify`` which is not an object, or a ``service`` which
+is not a name. That last group arrives as ``UnusableMessage``, whose ``message``
+attribute is the offending value exactly as it arrived; only the first few are
+logged, so that a systematically malformed channel does not turn a data outage
+into a log-volume incident, but every one is reported here. For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
 ``message`` rather than from ``exception.response['response'][0]``. ``service``
 and ``message`` are ``None`` where they do not apply. Registering none keeps the
