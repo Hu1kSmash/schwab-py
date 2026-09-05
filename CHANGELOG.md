@@ -15,6 +15,27 @@ current model.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+**`UnparsableMessage` reached `add_error_handler` from only one of the two
+readers, so 2.5.0's headline claim was false on the other.** Two coroutines can
+be holding the read lock when a frame arrives — `handle_message`, and a request
+waiting on its response — and the report was added only to the first. Whenever a
+subscribe won the read lock, an unparsable frame raised out of that subscribe
+with the callback never firing. Which coroutine reads any given frame is a lock
+race the caller cannot see, so the callback fired or did not fire for reasons
+nothing in the API explains.
+
+Both readers now report, through one guarded helper rather than two copies.
+
+**The comment claiming the raw text makes the pair "never both empty" was
+wrong.** `raw_msg` is the empty string for an empty text frame, so a report is
+distinguishable from the logout-close failure under `is None` but not under a
+falsy test. The limitation is documented and pinned by a test rather than
+overclaimed; the documented discriminator remains the exception type.
+
 ## 2.5.0
 
 ### Added

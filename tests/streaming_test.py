@@ -8398,6 +8398,80 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_empty_frame_is_reported_with_an_empty_message(
+            self, ws_connect):
+        # raw_msg is '' for an empty text frame, so the pair is distinguishable
+        # from the close failure under `is None` but not under a falsy test.
+        # Pinned so the limitation is visible rather than discovered: the
+        # documented discriminator is the exception type, not the emptiness.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        seen = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: seen.append((service, msg)))
+
+        socket.recv.side_effect = ['']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.handle_message()
+
+        service, message = seen[0]
+        self.assertIsNone(service)
+        self.assertEqual('', message)
+        # Distinguishable the documented way...
+        self.assertFalse(service is None and message is None)
+        # ...and not by emptiness, which is why the docs say to use the type.
+        self.assertTrue(not service and not message)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unparsable_frame_reports_from_the_request_path_too(
+            self, ws_connect):
+        # Two coroutines can be holding the read lock when a frame arrives, and
+        # v2.5.0 reported from only one of them. Which one reads any given
+        # frame is a lock race the caller cannot see, so a callback wired on
+        # one path and not the other fires or does not fire for reasons nothing
+        # in the API explains.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append((exc, msg)))
+
+        socket.recv.side_effect = ['this is not json at all']
+
+        # The subscribe is the reader here, not handle_message.
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.level_one_equity_subs(['GOOG'])
+
+        self.assertEqual(1, len(errors))
+        exc, message = errors[0]
+        self.assertIsInstance(exc, schwab.streaming.UnparsableMessage)
+        self.assertEqual('this is not json at all', message)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_the_request_path_report_holds_no_lock(self, ws_connect):
+        # Same guarantee as the handle_message path: the read lock is released
+        # by _await_response's finally and the request lock by the `async
+        # with`, so neither is held when user code runs.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        observed = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: observed.append(
+                    (self.client._read_lock.locked(),
+                     self.client._request_lock.locked())))
+
+        socket.recv.side_effect = ['{not json']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.level_one_equity_subs(['GOOG'])
+
+        self.assertEqual([(False, False)], observed)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_reporting_an_unparsable_frame_holds_no_lock(
             self, ws_connect):
         # Reporting from inside the `async with` would call a handler under the

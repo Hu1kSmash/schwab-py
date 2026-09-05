@@ -113,6 +113,11 @@ class UnusableMessage(Exception):
 
     ``message`` is the offending value, exactly as it arrived.
 
+    Note ``raw_msg`` can be the empty string --- an empty text frame gives
+    ``json.loads`` nothing to parse --- so a report of this kind is
+    distinguishable from the close failure under ``is None`` but *not* under a
+    falsy test. Discriminate on the type.
+
     ``cause`` is the exception which made it unusable, where there was one --
     a relabeling failure carries the ``KeyError`` from the field tables, which
     is the only thing that says *which* field moved. ``None`` where the message
@@ -890,6 +895,37 @@ class StreamClient(EnumEnforcer):
                         response.get('service'),
                         response))
 
+    async def _report_unparsable(self, exc):
+        """Reports a frame whose JSON did not decode, then lets it propagate.
+
+        Called by *both* readers. There are two coroutines which can be holding
+        the read lock when a frame arrives -- handle_message and a request
+        waiting on its response -- and the first version of this reported from
+        only one of them. Which one reads any given frame is decided by a lock
+        race the caller cannot see, so a callback wired on one path and not the
+        other fires or does not fire for reasons nothing in the API explains.
+
+        The caller must invoke this with the read lock released. Reporting from
+        inside the block that holds it would run a user handler under the lock,
+        which is the hazard the queue-and-drain design exists to avoid.
+        """
+        try:
+            # message=raw, not nothing. There is no service to name -- nothing
+            # decoded, so there is no frame to read one from -- and reporting
+            # neither would give this the same shape as the logout-close
+            # failure. Note raw can be the empty string for an empty frame, so
+            # the pair is distinguishable under `is None` but not under a
+            # falsy test; the documented discriminator is the exception type.
+            await self._report_error(exc, message=exc.raw_msg)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            # Must not replace the parse failure the caller needs to see, for
+            # the same reason logout() guards its own report.
+            self.logger.exception(
+                    'Error handler raised while reporting an unparsable '
+                    'message. Ignoring it.')
+
     async def _drain_pending_reports(self):
         '''Delivers reports queued by _log_extra_responses.
 
@@ -1026,6 +1062,12 @@ class StreamClient(EnumEnforcer):
                         future.cancel()
                     elif not future.cancelled():
                         future.exception()
+        except UnparsableMessage as exc:
+            # The other reader. _await_response releases the read lock in its
+            # own finally and the request lock is released by the `async with`
+            # above, so this runs with neither held.
+            await self._report_unparsable(exc)
+            raise
         except asyncio.CancelledError:
             # Noted so the finally can skip the drain. Running a user handler
             # to completion while unwinding a cancellation makes close(), a
@@ -1417,39 +1459,9 @@ class StreamClient(EnumEnforcer):
                         self._fail_pending_request(exc)
                         raise
             except UnparsableMessage as exc:
-                # Reported, then re-raised. Deliberately not absorbed: see the
-                # note on UnparsableMessage for why a frame which will not
-                # decode is treated differently from one which decodes into
-                # something unusable.
-                #
                 # Outside the `async with`, so the read lock is released before
-                # any user code runs. Reporting from inside the except above
-                # would call a handler under the lock, which is the hazard the
-                # whole queue-and-drain design exists to avoid.
-                try:
-                    # message=raw, not nothing. There is no service to name --
-                    # nothing decoded, so there is no frame to read one from --
-                    # and reporting (None, None) would give this the same
-                    # signature as the logout-close failure, which the docs
-                    # designate as *the* both-empty case. A consumer keyed that
-                    # way would answer a dead feed with "could not close the
-                    # stream connection after logout": confidently, wrongly,
-                    # and with nothing to contradict it.
-                    #
-                    # This is the absence-as-discriminator trap recorded
-                    # against UnusableMessage, recreated on the parse path in
-                    # the commit that fixed it on the structural one. The raw
-                    # text costs nothing to pass and is what a caller wants
-                    # anyway.
-                    await self._report_error(exc, message=exc.raw_msg)
-                except asyncio.CancelledError:
-                    raise
-                except BaseException:
-                    # Must not replace the parse failure the caller needs to
-                    # see, for the same reason logout() guards its own report.
-                    self.logger.exception(
-                            'Error handler raised while reporting an '
-                            'unparsable message. Ignoring it.')
+                # any user code runs.
+                await self._report_unparsable(exc)
                 raise
 
             if msg is not ROUTED:
