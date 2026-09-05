@@ -1493,14 +1493,17 @@ class ParentSideImportTest(unittest.TestCase):
 
     @no_duplicates
     def test_easy_client_reaches_the_same_check(self):
-        tmp = tempfile.TemporaryDirectory()
-        token_path = os.path.join(tmp.name, 'token.json')
-        with open(token_path, 'w') as f:
-            json.dump({'token': {'token': 'yes'},
-                       'creation_timestamp': 0}, f)
+        with tempfile.TemporaryDirectory() as tmp:
+            token_path = os.path.join(tmp, 'token.json')
+            # creation_timestamp 0 makes the token older than max_token_age, so
+            # easy_client discards it and takes the login flow. That is the
+            # case the docs call out: having a token file is not enough.
+            with open(token_path, 'w') as f:
+                json.dump({'token': {'token': 'yes'},
+                           'creation_timestamp': 0}, f)
 
-        with self.block('flask'):
-            with self.assertRaises(ImportError):
-                auth.easy_client(
-                        API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
-                        token_path)
+            with self.block('flask'):
+                with self.assertRaises(ImportError):
+                    auth.easy_client(
+                            API_KEY, APP_SECRET, 'https://127.0.0.1:8182',
+                            token_path)
