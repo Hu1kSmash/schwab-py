@@ -93,6 +93,12 @@ class UnparsableMessage(Exception):
     frame-level quirk rather than a dead stream. If your feed hits this often
     and a reconnect is worse for you than a gap, set that decoder before
     concluding the stream is broken.
+
+    ``raw_msg`` is what arrived, and reaches ``add_error_handler`` as the
+    ``message`` argument. It can be the empty string --- an empty text frame
+    gives ``json.loads`` nothing to parse --- so such a report is
+    distinguishable from the logout-close failure under ``is None`` but *not*
+    under a falsy test. Discriminate on the exception type.
     '''
     def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -112,11 +118,6 @@ class UnusableMessage(Exception):
     the other.
 
     ``message`` is the offending value, exactly as it arrived.
-
-    Note ``raw_msg`` can be the empty string --- an empty text frame gives
-    ``json.loads`` nothing to parse --- so a report of this kind is
-    distinguishable from the close failure under ``is None`` but *not* under a
-    falsy test. Discriminate on the type.
 
     ``cause`` is the exception which made it unusable, where there was one --
     a relabeling failure carries the ``KeyError`` from the field tables, which
@@ -908,7 +909,23 @@ class StreamClient(EnumEnforcer):
         The caller must invoke this with the read lock released. Reporting from
         inside the block that holds it would run a user handler under the lock,
         which is the hazard the queue-and-drain design exists to avoid.
+
+        Reports each exception once. handle_message hands the same object to
+        the waiting request through _fail_pending_request before reporting it,
+        so it arrives here twice for one bad frame -- and both reports carry an
+        identical (None, exc, raw_msg), which a consumer cannot tell from two
+        genuinely distinct bad frames. Marking the object is what makes "once"
+        true regardless of which coroutine won the read; the first version of
+        this fix turned "fires or does not fire" into "fires once or twice",
+        which is the same lock race wearing a different symptom.
         """
+        if getattr(exc, '_schwab_reported', False):
+            return
+        try:
+            exc._schwab_reported = True
+        except AttributeError:      # pragma: no cover -- Exception allows it
+            pass
+
         try:
             # message=raw, not nothing. There is no service to name -- nothing
             # decoded, so there is no frame to read one from -- and reporting
@@ -1066,7 +1083,17 @@ class StreamClient(EnumEnforcer):
             # The other reader. _await_response releases the read lock in its
             # own finally and the request lock is released by the `async with`
             # above, so this runs with neither held.
-            await self._report_unparsable(exc)
+            try:
+                await self._report_unparsable(exc)
+            except asyncio.CancelledError:
+                # Sibling except clauses do not see each other, so a
+                # cancellation arriving inside the report would leave
+                # `cancelled` False and let the finally drain while unwinding
+                # -- blocking a close() or a TaskGroup shutdown for a user
+                # handler's full duration, which is exactly what the flag
+                # exists to prevent.
+                cancelled = True
+                raise
             raise
         except asyncio.CancelledError:
             # Noted so the finally can skip the drain. Running a user handler

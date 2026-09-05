@@ -8425,6 +8425,51 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unparsable_frame_is_reported_exactly_once(
+            self, ws_connect):
+        # handle_message hands the same exception to the waiting request
+        # through _fail_pending_request before reporting it, so both readers
+        # see one object for one bad frame. Reporting from both -- which is
+        # what fixing the missing-report bug first produced -- turned "fires or
+        # does not" into "fires once or twice", and both reports carry an
+        # identical triple a consumer cannot tell from two distinct frames.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        errors = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: errors.append(id(exc)))
+
+        release = asyncio.Event()
+        served = [False]
+
+        async def recv():
+            if not served[0]:
+                # Park until handle_message is the reader AND the subscribe is
+                # registered and waiting, which is the interleaving that
+                # produces two reports.
+                await release.wait()
+                served[0] = True
+                return 'this is not json at all'
+            await asyncio.Event().wait()
+
+        socket.recv = recv
+
+        handling = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0.02)
+        subscribing = asyncio.create_task(
+                self.client.level_one_equity_subs(['GOOG']))
+        await asyncio.sleep(0.02)
+        release.set()
+
+        for task in (handling, subscribing):
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(task, timeout=5)
+
+        self.assertEqual(1, len(errors))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_an_unparsable_frame_reports_from_the_request_path_too(
             self, ws_connect):
         # Two coroutines can be holding the read lock when a frame arrives, and

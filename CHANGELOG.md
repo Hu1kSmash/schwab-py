@@ -28,13 +28,21 @@ with the callback never firing. Which coroutine reads any given frame is a lock
 race the caller cannot see, so the callback fired or did not fire for reasons
 nothing in the API explains.
 
-Both readers now report, through one guarded helper rather than two copies.
+Both readers now report, through one guarded helper rather than two copies —
+and exactly once. `handle_message` hands the same exception to the waiting
+request through `_fail_pending_request` before reporting it, so both readers see
+one object for one bad frame; reporting from each would have replaced "fires or
+does not fire" with "fires once or twice", still decided by a lock race the
+caller cannot see, and with both reports carrying an identical triple a consumer
+cannot distinguish from two genuinely different bad frames.
 
 **The comment claiming the raw text makes the pair "never both empty" was
 wrong.** `raw_msg` is the empty string for an empty text frame, so a report is
 distinguishable from the logout-close failure under `is None` but not under a
 falsy test. The limitation is documented and pinned by a test rather than
-overclaimed; the documented discriminator remains the exception type.
+overclaimed; the documented discriminator remains the exception type. The note
+now sits on `UnparsableMessage`, which is the class that has a `raw_msg`, rather
+than on `UnusableMessage`, which does not.
 
 ## 2.5.0
 
