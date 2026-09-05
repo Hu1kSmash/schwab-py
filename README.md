@@ -1,3 +1,5 @@
+<div align="center">
+
 # schwaby
 
 **A Python client for the Charles Schwab API, built for code that trades real money.**
@@ -7,9 +9,28 @@
 [![Python](https://img.shields.io/pypi/pyversions/schwaby.svg)](https://pypi.org/project/schwaby/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+</div>
+
 ```shell
 pip install schwaby
 ```
+
+Every endpoint Schwab publishes, an order builder that produces JSON Schwab
+accepts, and a streaming client that turns this:
+
+```python
+{'key': 'AAPL', '1': 421.55, '2': 421.60, '3': 421.58}
+```
+
+into this:
+
+```python
+{'key': 'AAPL', 'BID_PRICE': 421.55, 'ASK_PRICE': 421.60, 'LAST_PRICE': 421.58}
+```
+
+Synchronous and `asyncio` over the same interface. Python 3.10+.
+
+---
 
 ## What is `schwaby`?
 
@@ -19,38 +40,43 @@ capable API, and a raw one.
 
 Raw in specific ways:
 
-- **You run the OAuth flow yourself** and keep the token alive — against a refresh
-  token that expires seven days after authorization, so an unattended program
-  eventually just stops.
-- **The streamer identifies every field by number**, and the same number means
-  different things on different services. Field `2` is the ask price on
-  `LEVELONE_EQUITIES` and the open price on `CHART_EQUITY`.
-- **Order JSON is deeply nested**, and a malformed order comes back rejected with
-  little hint as to what was wrong.
-- **Parameters are strings the server validates**, so a typo becomes an HTTP 400
-  halfway through a session rather than an error where you wrote it.
-- **The developer portal is behind a login**, so there is not much to read while
-  you work any of this out.
+| | |
+|---|---|
+| **You run the OAuth flow yourself** | …against a refresh token that expires seven days after authorization, so an unattended program eventually just stops |
+| **The streamer numbers its fields** | …and the same number means different things on different services. Field `2` is the ask price on `LEVELONE_EQUITIES` and the open price on `CHART_EQUITY` |
+| **Order JSON is deeply nested** | …and a malformed order comes back rejected with little hint as to what was wrong |
+| **Parameters are server-validated strings** | …so a typo becomes an HTTP 400 halfway through a session rather than an error where you wrote it |
+| **The developer portal is behind a login** | …so there is not much to read while you work any of this out |
 
 `schwaby` is the Python layer over all of that. One method per endpoint, with the
 legal parameter values as enums. An order builder that assembles Schwab's JSON from
 named parts, plus ready-made templates for the orders and option strategies most
 people place. A streaming client that logs in, matches responses to requests, and
-hands your handler `{'ASK_PRICE': 421.60, ...}` instead of `{'2': 421.60, ...}`.
-Token refresh handled and written to disk. Synchronous and `asyncio` over the same
-interface.
+relabels every message before your handler sees it. Token refresh handled and
+written to disk.
 
 Everywhere it can, it gets out of the way: you pass raw values and get back the raw
 `httpx2` response, to interpret however you like. Anything you can do with
 hand-rolled HTTP you can do here, with less of it.
 
+---
+
 ## Why use it
 
 Wrapping the tedious parts is table stakes. What follows is what `schwaby` does
-*differently*, and what each one costs you when it is missing. If your code places
-orders you did not personally review, these are the reasons to pick this one.
+*differently* — and, more to the point, what each one costs you when it is missing.
 
-### Your prices arrive exactly as you wrote them
+| What you get | What happens without it |
+|---|---|
+| **Prices go out exactly as written** | A float is rounded somewhere, and your order goes in a cent low with nothing to say so |
+| **A token file that survives a crash** | A process killed mid-refresh leaves a corrupt token that only a browser can repair |
+| **A stream that reports what it swallowed** | A feed that died an hour ago looks exactly like a quiet market |
+| **Errors that name the actual fault** | You debug the callback port when the real problem was a missing package |
+| **Enums for every parameter** | A typo returns HTTP 400 from the venue instead of failing on the line you wrote |
+
+The detail behind each:
+
+### Prices go out exactly as written
 
 `set_price` takes a string or a `decimal.Decimal` and **refuses a `float`**, because
 a float cannot represent most prices exactly and converting one has to round
@@ -68,7 +94,7 @@ that can only be repaired by sitting down at a browser.
 window closes, counted from the original authorization rather than the last refresh,
 which is the number that actually governs expiry.
 
-### A stream that says what it swallowed
+### A stream that reports what it swallowed
 
 A websocket client has to absorb some failures: a handler that raised, a response to
 a request nobody is waiting for any more, a frame that will not parse. Absorbing them
@@ -78,24 +104,25 @@ quietly makes a broken feed look like a slow one.
 strategy can tell the difference between a quiet market and a stream that stopped
 working an hour ago.
 
-### Failures that are specific
+### Errors that name the actual fault
 
-An error should name what went wrong rather than the last thing that happened to
-fail. A rejected order carries Schwab's own explanation, not just a status code. A
-missing package is reported as a missing package, not as a callback server that
-exited. A stream request the server accepts but never answers raises
-`ResponseTimeoutError` instead of waiting forever behind a keepalive that is still
-cheerfully replying to pings.
+A rejected order carries Schwab's own explanation, not just a status code. A missing
+package is reported as a missing package, not as a callback server that exited. A
+stream request the server accepts but never answers raises `ResponseTimeoutError`
+instead of waiting forever behind a keepalive that is still cheerfully replying to
+pings.
 
-### Complete coverage, and enums instead of magic strings
+### Enums for every parameter
 
 Every endpoint Schwab publishes has a method, and every endpoint's legal parameter
 values are enums on the client — so a misspelled projection or an invalid order
 duration fails immediately in Python, where you can see which line did it.
 
+---
+
 ## Sixty seconds in
 
-**Authenticate once.** A browser opens, you log in, and the token is written to disk
+**1. Authenticate.** A browser opens, you log in, and the token is written to disk
 and refreshed for you from then on.
 
 ```python
@@ -108,7 +135,7 @@ c = easy_client(
         token_path='/path/to/token.json')
 ```
 
-**Ask for data.** You get back the raw `httpx2` response.
+**2. Ask for data.** You get back the raw `httpx2` response.
 
 ```python
 r = c.get_price_history_every_day('AAPL')
@@ -116,7 +143,7 @@ r.raise_for_status()
 candles = r.json()['candles']
 ```
 
-**Place an order** from a template, without touching Schwab's order JSON.
+**3. Place an order** from a template, without touching Schwab's order JSON.
 
 ```python
 from schwab.orders.equities import equity_buy_limit
@@ -125,10 +152,10 @@ account_hash = c.get_account_numbers().json()[0]['hashValue']
 c.place_order(account_hash, equity_buy_limit('AAPL', 10, '210.50'))
 ```
 
-The price is a **string** — see [Your prices arrive exactly as you wrote
-them](#your-prices-arrive-exactly-as-you-wrote-them) for why.
+The price is a string on purpose — see [Prices go out exactly as
+written](#prices-go-out-exactly-as-written).
 
-**Stream quotes**, with fields you can read.
+**4. Stream quotes**, with fields you can read.
 
 ```python
 import asyncio
@@ -148,8 +175,10 @@ async def main():
 asyncio.run(main())
 ```
 
-New here? The [getting started guide](docs/getting-started.rst) walks through
+New here? The **[getting started guide](docs/getting-started.rst)** walks through
 registering an app with Schwab and getting your first token.
+
+---
 
 ## What it covers
 
@@ -162,9 +191,27 @@ registering an app with Schwab and getting your first token.
 | **Accounts** | Balances, positions, orders and transaction history |
 | **Sync and async** | Swap `Client` for `AsyncClient`, add `await`, change nothing else |
 
-The [documentation](docs/index.rst) is worth reading even if you end up calling the
-API directly. Schwab's own portal is behind a login, so for much of this API those
-pages are the most accessible description of how it actually behaves.
+The **[documentation](docs/index.rst)** is worth reading even if you end up calling
+the API directly. Schwab's own portal is behind a login, so for much of this API
+those pages are the most accessible description of how it actually behaves.
+
+<details>
+<summary><b>What it does not do</b></summary>
+
+<br>
+
+A few things people ask for that Schwab's API does not offer:
+
+- **No paper trading.** Orders placed through this API are real.
+- **No historical options pricing.** Current chains only.
+- **No thinkorswim.** Schwab owns
+  [thinkorswim](https://www.schwab.com/trading/thinkorswim/desktop), but this API is
+  unaffiliated with it. You can trade the same accounts; some of what TOS does has no
+  API equivalent.
+
+</details>
+
+---
 
 ## Installing
 
@@ -190,16 +237,7 @@ import schwab
 > behaviour from a version you did not choose. Uninstall one before installing the
 > other.
 
-## What it does not do
-
-A few things people ask for that Schwab's API does not offer:
-
-- **No paper trading.** Orders placed through this API are real.
-- **No historical options pricing.** Current chains only.
-- **No thinkorswim.** Schwab owns
-  [thinkorswim](https://www.schwab.com/trading/thinkorswim/desktop), but this API is
-  unaffiliated with it. You can trade the same accounts; some of what TOS does has no
-  API equivalent.
+---
 
 ## Getting help and contributing
 
