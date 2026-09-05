@@ -158,10 +158,12 @@ three ways to be wrong, all of which fail late rather than at install time:
   and then failed on a routine refresh.
 - An extra is a second thing to get right in a pin, and nothing checks it.
 
-**An existing `schwaby[login]` or `schwaby[codegen]` pin keeps working.** Both
-names survive as empty extras, so `pip` installs them without the
-"does not provide the extra" warning that reads like a fault. They install
-nothing beyond the base, because everything they named is in the base now.
+**The `login` and `codegen` extras are gone entirely.** A `schwaby[login]` pin
+still installs correctly --- `pip` treats an unknown extra as a warning, not an
+error --- it just prints `does not provide the extra 'login'` while doing it.
+Keeping empty extras to suppress that would have defended about four hours of
+PyPI history, since `schwaby[login]` was only ever installable from 2.6.0. Drop
+the bracket from your requirements line and there is nothing to notice.
 
 ### Removed
 

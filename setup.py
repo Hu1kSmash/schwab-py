@@ -82,11 +82,11 @@ setuptools.setup(
         'cryptography',
     ],
     extras_require={
-        # Kept, and deliberately empty. Anyone pinned to `schwaby[login]` or
-        # `schwaby[codegen]` keeps working with no pip warning; the extras are
-        # now no-ops because everything they named is installed anyway.
-        'login': [],
-        'codegen': [],
+        # `dev` is the only extra, and there is deliberately no `login` or
+        # `codegen` shim beside it. They were kept empty for a release so an
+        # old pin would not warn, which turned out to defend four hours of PyPI
+        # history: `schwaby[login]` was only ever installable from 2.6.0, and
+        # `pip` treats an unknown extra as a warning and installs anyway.
         # A literal list since 3.0.0. It used to be composed from the other
         # extras, because the suite starts flask servers through multiprocess
         # and a package listed in an extra but not in dev produced a green

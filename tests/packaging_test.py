@@ -104,20 +104,18 @@ class SetupPyTest(unittest.TestCase):
                  'psutil', 'websockets'], names)
 
     @no_duplicates
-    def test_the_extras_survive_as_no_ops(self):
-        # Kept so an existing `schwaby[login]` pin installs without a pip
-        # warning. Empty because everything they named is a hard dependency
-        # now. Removing the names would break nobody's install but would print
-        # 'does not provide the extra', which reads like a fault.
-        extras = self.kwargs['extras_require']
-        self.assertEqual([], extras['login'])
-        self.assertEqual([], extras['codegen'])
+    def test_dev_is_the_only_extra(self):
+        # No `login` or `codegen` shim. They were kept empty through 3.0.0's
+        # development so an old pin would not warn, then removed: measured,
+        # that defended four hours of PyPI history, and pip treats an unknown
+        # extra as a warning rather than an error.
+        self.assertEqual(['dev'], sorted(self.kwargs['extras_require']))
 
     # The two checks below are vacuous against setup.py as it stands, because
-    # every non-dev extra is empty: a subset test and a disjointness test both
-    # hold for [] no matter what the other side contains. They would pass on a
-    # `dev` list emptied by a bad merge, which is the exact failure the first
-    # one exists to catch.
+    # `dev` is the only extra and both loops skip it: a subset test and a
+    # disjointness test over nothing hold whatever the other side contains.
+    # They would pass on a `dev` list emptied by a bad merge, which is the
+    # exact failure the first one exists to catch.
     #
     # So each is a function tested twice -- once against setup.py, and once
     # against a fixture that violates it. The second is the positive control.

@@ -200,10 +200,15 @@ metadata, so `pip` refuses a `schwaby @ git+...@v2.5.1`.
 
 ## No extras
 
-As of 3.0.0 there are none that install anything. `login` and `codegen` survive as empty names so
-an existing pin does not warn, and there is nothing to add to them: an extra that everybody has to
-install is a hard dependency with a way to get it wrong. `pip freeze` silently drops extras, which
-is what turned the 2.3.0 split from a saving into three late failure modes.
+As of 3.0.0 the only extra is `dev`, and nothing a user installs is optional. Do not add one back:
+an extra that everybody has to install is a hard dependency with a way to get it wrong, and
+`pip freeze` silently drops extras, which is what turned the 2.3.0 split from a saving into three
+late failure modes.
+
+`login` and `codegen` were briefly kept as empty names so an old pin would not warn. That went too,
+once measured: `schwaby[login]` was installable from PyPI for about four hours, in 2.6.0 alone, and
+pip treats an unknown extra as a warning and installs anyway. A shim defending that is legacy on
+the day it ships.
 
 ## Why this fork stopped tracking upstream
 
