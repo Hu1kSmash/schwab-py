@@ -8372,6 +8372,32 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_an_unparsable_frame_is_not_reported_as_a_close_failure(
+            self, ws_connect):
+        # (service=None, message=None) is the logout-close signature, and a
+        # parse failure has no service to name. Reporting nothing alongside it
+        # would give a dead feed the same shape as a failed teardown -- the
+        # absence-as-discriminator trap, recreated on the parse path by the
+        # commit which fixed it on the structural one. The raw text is passed
+        # as `message` so the pair is never both empty.
+        socket = await self.login_and_get_socket(ws_connect)
+
+        seen = []
+        self.client.add_error_handler(
+                lambda service, exc, msg: seen.append((service, msg)))
+
+        socket.recv.side_effect = ['definitely not json']
+
+        with self.assertRaises(schwab.streaming.UnparsableMessage):
+            await self.client.handle_message()
+
+        self.assertEqual(1, len(seen))
+        service, message = seen[0]
+        self.assertFalse(service is None and message is None)
+        self.assertEqual('definitely not json', message)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_reporting_an_unparsable_frame_holds_no_lock(
             self, ws_connect):
         # Reporting from inside the `async with` would call a handler under the

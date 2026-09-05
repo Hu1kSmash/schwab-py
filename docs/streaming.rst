@@ -255,7 +255,8 @@ For the late rejection, the ``UnexpectedResponseCode`` carries the whole
 frame — which can hold several responses — so read the rejected one from
 ``message`` rather than from ``exception.response['response'][0]``. ``service``
 and ``message`` are ``None`` where they do not apply --- but do not use that as
-a discriminator. Only the close failure leaves both unset *by design*; an
+a discriminator. ``UnparsableMessage`` carries the raw undecodable text as
+``message`` for exactly this reason. Only the close failure leaves both unset *by design*; an
 ``UnusableMessage`` reports the containing frame as ``message``, which is
 non-``None`` in every case but a top-level JSON ``null``. Test
 ``isinstance(exception, UnusableMessage)`` before anything else if you branch

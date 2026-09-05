@@ -1171,10 +1171,14 @@ class StreamClient(EnumEnforcer):
         * ``service`` is the stream service the failure belongs to, or ``None``
           where it has none -- the close failure, or a message which named no
           service. **Do not discriminate on ``service`` and ``message`` both
-          being ``None``.** Only the close failure leaves both unset by design;
-          an :class:`UnusableMessage` carries the containing frame as
-          ``message``, which is non-``None`` in every case but a top-level JSON
-          ``null``. Test ``isinstance(exception, UnusableMessage)`` first.
+          being ``None``.** The close failure is the only report which leaves
+          both unset by design, and every other site passes at least one:
+          :class:`UnusableMessage` carries the containing frame and
+          :class:`UnparsableMessage` carries the raw text. But that is a
+          property of today's call sites, not a contract --- a category added
+          later with nothing to say would join the signature for free, which is
+          how this warning came to be written twice. **Discriminate on the
+          exception type.**
         * ``exception`` is the exception that was raised.
         * ``message`` is the message being handled, or ``None``.
 
@@ -1423,7 +1427,21 @@ class StreamClient(EnumEnforcer):
                 # would call a handler under the lock, which is the hazard the
                 # whole queue-and-drain design exists to avoid.
                 try:
-                    await self._report_error(exc)
+                    # message=raw, not nothing. There is no service to name --
+                    # nothing decoded, so there is no frame to read one from --
+                    # and reporting (None, None) would give this the same
+                    # signature as the logout-close failure, which the docs
+                    # designate as *the* both-empty case. A consumer keyed that
+                    # way would answer a dead feed with "could not close the
+                    # stream connection after logout": confidently, wrongly,
+                    # and with nothing to contradict it.
+                    #
+                    # This is the absence-as-discriminator trap recorded
+                    # against UnusableMessage, recreated on the parse path in
+                    # the commit that fixed it on the structural one. The raw
+                    # text costs nothing to pass and is what a caller wants
+                    # anyway.
+                    await self._report_error(exc, message=exc.raw_msg)
                 except asyncio.CancelledError:
                     raise
                 except BaseException:
