@@ -15,7 +15,7 @@ current model.
 
 ---
 
-## Unreleased
+## 2.4.0
 
 ### Added
 

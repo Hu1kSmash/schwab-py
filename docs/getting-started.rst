@@ -171,7 +171,7 @@ PyPI, so install it from git, pinned to a release. Plain
 
 .. code-block:: shell
 
-  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.3.0"
+  pip install "schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.0"
 
 The ``[login]`` part matters for this guide: the interactive login flow below
 runs a local HTTPS callback server, and the packages for that are an optional
@@ -252,7 +252,7 @@ and streams needs neither extra. So does one built on
 
   .. code-block:: text
 
-    schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.3.0
+    schwab-py[login] @ git+https://github.com/Hu1kSmash/schwab-py@v2.4.0
 
   installs correctly with ``pip install -r``, but ``pip freeze`` writes it back
   out as ``schwab-py @ git+...@<commit sha>`` --- no ``[login]``, and no
