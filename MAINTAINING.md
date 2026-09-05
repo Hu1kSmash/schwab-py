@@ -132,6 +132,20 @@ fail together. It costs four seconds.
 4. Commit, then `git tag -a vX.Y.Z`.
 5. `git push origin main && git push origin vX.Y.Z`.
 6. `gh release create vX.Y.Z -R Hu1kSmash/schwab-py --notes-file ...`
+7. **Re-check any claim about the release against the tag, after tagging.**
+
+   A statement like "nothing under `schwab/` changed" is checkable, so a reader
+   will run it. The range you can check while preparing the release is
+   `vPREV..HEAD`, and it excludes the commit that bumps `version.py` — which is
+   the commit that makes the tag a tag. So the convenient range is
+   systematically the one that makes the claim look truer than it is, and it
+   will be true every time right up until you publish.
+
+   This is not hypothetical: "v2.4.1 touches nothing under `schwab/`" was
+   measured before the release commit, asserted about `v2.4.0..v2.4.1`, and a
+   consumer ran the command and found `schwab/version.py` in it. The substance
+   was fine and the checkable form was false, which is the worse half to get
+   wrong. Prefer the weaker sentence you can defend after tagging.
 
 Verify before tagging: full suite on **both** CPython 3.12 and 3.14,
 `python -m build --sdist`, and `sphinx-build -W docs/ docs-build`.
