@@ -48,7 +48,7 @@ any time in the next six months:
   client = ... # See "Authentication and Client Creation"
 
   client.place_order(
-      1000,  # account_id
+      account_hash,  # from client.get_account_numbers(), not the account number
       equity_buy_limit('GOOG', 1, '1250.00')
           .set_duration(Duration.GOOD_TILL_CANCEL)
           .set_session(Session.SEAMLESS)
@@ -242,20 +242,20 @@ orders and then passing the results to the utility methods:
 
 .. code-block:: python
 
-  order_one = c.place_order(config.account_id, 
+  order_one = c.place_order(config.account_hash, 
                     option_buy_to_open_limit(trade_symbol, contracts, safety_ask)
                     .set_duration(Duration.GOOD_TILL_CANCEL)
                     .set_session(Session.NORMAL)
                     .build())
 
-  order_two = c.place_order(config.account_id, 
+  order_two = c.place_order(config.account_hash, 
                     option_sell_to_close_limit(trade_symbol, half, double)
                     .set_duration(Duration.GOOD_TILL_CANCEL)
                     .set_session(Session.NORMAL)
                     .build())
 
   # THIS IS BAD, DO NOT DO THIS
-  exec_trade =  c.place_order(config.account_id, first_triggers_second(order_one, order_two))
+  exec_trade =  c.place_order(config.account_hash, first_triggers_second(order_one, order_two))
 
 What's happening here is both constituent orders are being executed, and then 
 ``place_order`` will fail. Creating an ``OrderBuilder`` defers their execution, 

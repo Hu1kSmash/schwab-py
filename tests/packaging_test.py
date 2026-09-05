@@ -662,11 +662,31 @@ class DocExampleTest(unittest.TestCase):
         for path in files:
             with open(path, encoding='utf-8') as f:
                 contents = f.read()
+            if path.endswith('.py'):
+                # A file under examples/ is one big block. It is checked the
+                # same way as a doc snippet because it rots the same way and
+                # had nothing watching it: the one example here passed
+                # `account_id=` to StreamClient for years after that parameter
+                # stopped meaning anything.
+                blocks.append((os.path.relpath(path, REPO_ROOT), 1, contents))
+                continue
             for m in cls.CODE_BLOCK.finditer(contents):
                 line = contents[:m.start()].count('\n') + 1
                 blocks.append((os.path.basename(path), line,
                                cls.dedent(m.group(1))))
         return blocks
+
+    @staticmethod
+    def example_files():
+        root = os.path.join(REPO_ROOT, 'examples')
+        assert os.path.isdir(root), 'examples/ is gone'
+        found = []
+        for dirpath, _, filenames in os.walk(root):
+            if '__pycache__' in dirpath:
+                continue
+            found.extend(os.path.join(dirpath, n)
+                         for n in filenames if n.endswith('.py'))
+        return found
 
     @staticmethod
     def resolve_callable(name, imported):
@@ -738,8 +758,18 @@ class DocExampleTest(unittest.TestCase):
         return sorted(set(problems))
 
     @no_duplicates
+    def test_the_examples_directory_is_covered(self):
+        # Named separately so that examples/ going unchecked is a failure
+        # rather than a silently smaller number.
+        files = self.example_files()
+        self.assertGreater(len(files), 0)
+        blocks = self.code_blocks_in(files)
+        self.assertEqual(len(files), len(blocks))
+        self.assertEqual([], self.bad_keywords_in(blocks))
+
+    @no_duplicates
     def test_no_example_passes_an_argument_that_does_not_exist(self):
-        blocks = DocReferenceTest.doc_files()
+        blocks = DocReferenceTest.doc_files() + self.example_files()
         blocks = self.code_blocks_in(blocks)
 
         # Positive control for the collection: an empty block list makes the

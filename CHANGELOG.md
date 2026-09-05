@@ -190,6 +190,29 @@ never updated, and it is what the project page would have shown. It now says
 
 ### Removed, continued
 
+**`StreamClient` no longer takes `account_id`.** It was accepted and never
+used --- the parameter appeared exactly once in `streaming.py`, in the
+signature. It is from the TD Ameritrade streamer, which needed one. The main
+streaming example in the documentation passed it, so readers were being taught
+to supply a value that went nowhere.
+
+**`place_order`'s first argument is an account *hash*, and the order-template
+docs called it `account_id`.** One example passed the literal `1000`. Those are
+different things: the hash comes from `get_account_numbers()`, and an account
+number will not work.
+
+**The one file under `examples/` was four years stale and now has a test.** It
+subscribed to `TWTR`, `FB` and `FIT` --- delisted in 2022, renamed in 2022, and
+acquired in 2021 --- carried two TODOs about API that either works now or never
+existed, and passed the `account_id` above. It has been rewritten around what
+the example is actually for: a bounded queue between the socket and your
+processing, and an error handler, which is the shape a long-running consumer
+wants and the one thing a README snippet cannot show.
+
+Nothing referenced `examples/` and nothing checked it, which is why it drifted.
+The keyword-argument check that covers documentation code blocks now covers
+these files too, and fails if the directory disappears from its walk.
+
 **Copyright is now asserted jointly.** `LICENSE` carries
 `Copyright (c) 2023 Alex Golec` unchanged, as the MIT licence requires, with
 `Copyright (c) 2026 Tom Hirt` added beneath it for the work since. The package

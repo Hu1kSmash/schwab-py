@@ -283,7 +283,7 @@ class StreamClient(EnumEnforcer):
     #: block every subsequent one.
     DEFAULT_RESPONSE_TIMEOUT = 60.0
 
-    def __init__(self, client, *, account_id=None,
+    def __init__(self, client, *,
                  enforce_enums=True, ssl_context=None,
                  response_timeout=DEFAULT_RESPONSE_TIMEOUT):
         super().__init__(enforce_enums)

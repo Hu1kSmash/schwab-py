@@ -32,7 +32,7 @@ run this outside regular trading hours you may not see anything):
           app_secret='YOUR_APP_SECRET',
           callback_url='https://127.0.0.1',
           token_path='/path/to/token.json')
-  stream_client = StreamClient(client, account_id=1234567890)
+  stream_client = StreamClient(client)
 
   async def read_stream():
       await stream_client.login()
