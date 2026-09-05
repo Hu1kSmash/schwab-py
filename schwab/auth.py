@@ -349,10 +349,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     refresh the token as necessary, writing each updated version to 
     ``token_path``.
 
-    The callback server
-    below needs ``flask``, ``multiprocess`` and ``psutil``, which a plain
-    install leaves out because nothing else in the library uses them. Calling
-    this without them raises an ``ImportError`` naming the extra.
+    The callback server below needs ``flask``, ``multiprocess`` and ``psutil``.
+    They are ordinary dependencies, so a plain ``pip install schwaby`` has them.
 
     .. _callback_url_advisory:
 
@@ -430,8 +428,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         raise ValueError(
                 ('Disallowed hostname {}. client_from_login_flow only allows '+
                  'callback URLs with hostname 127.0.0.1. See here for ' +
-                 'more information: https://schwab-py.readthedocs.io/en/' +
-                 'latest/auth.html#callback-url-advisory').format(
+                 'more information: https://github.com/Hu1kSmash/schwaby/' +
+                 'blob/main/docs/auth.rst').format(
                      parsed.hostname))
 
     callback_port = parsed.port if parsed.port else 443

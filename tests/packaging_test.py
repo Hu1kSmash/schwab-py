@@ -129,3 +129,59 @@ class SetupPyTest(unittest.TestCase):
                     set(), set(package_name(r) for r in packages)
                     & install_requires,
                     '%r duplicates a hard dependency' % name)
+
+
+class ShippedProjectReferencesTest(unittest.TestCase):
+    '''Strings in the installed package that name a project by URL.
+
+    These are user-facing and nothing else checks them. `auth.py` raised a
+    ValueError pointing at `schwab-py.readthedocs.io` --- the *original*
+    project's documentation site, inherited and never updated --- so a user who
+    got a callback URL wrong was sent to read someone else's docs about a
+    different codebase. It survived the rename because it is a string inside an
+    error message, which no build step and no doc build looks at.
+
+    The test greps for the shape rather than that one instance: any
+    documentation host in shipped code has to be one this project controls.
+    '''
+
+    # `alexgolec/schwab-py` is deliberately not here. Naming the origin project
+    # in prose is correct and the README, CHANGELOG and docs all do it. What is
+    # wrong is *sending a user there for instructions*, which only a docs host
+    # does.
+    FOREIGN_DOC_HOSTS = (
+            'schwab-py.readthedocs.io',
+            'schwab-py.rtfd.io',
+    )
+
+    def shipped_files(self):
+        for directory in ('schwab', 'bin'):
+            root = os.path.join(REPO_ROOT, directory)
+            for dirpath, _, filenames in os.walk(root):
+                if '__pycache__' in dirpath:
+                    continue
+                for name in filenames:
+                    if name.endswith('.py'):
+                        yield os.path.join(dirpath, name)
+
+    @no_duplicates
+    def test_no_foreign_documentation_hosts(self):
+        offenders = []
+        for path in self.shipped_files():
+            with open(path, encoding='utf-8') as f:
+                contents = f.read()
+            for host in self.FOREIGN_DOC_HOSTS:
+                if host in contents:
+                    offenders.append(
+                            '{}: {}'.format(os.path.relpath(path, REPO_ROOT),
+                                            host))
+        self.assertEqual([], offenders)
+
+    @no_duplicates
+    def test_the_check_would_have_caught_the_instance_it_was_written_for(self):
+        # Red-proofing, kept rather than described: the assertion above passes
+        # on an empty repository too, so it proves nothing on its own.
+        contents = ("raise ValueError('See https://schwab-py.readthedocs.io/"
+                    "en/latest/auth.html for more information')")
+        self.assertTrue(any(host in contents
+                            for host in self.FOREIGN_DOC_HOSTS))
