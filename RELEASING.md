@@ -24,6 +24,11 @@ it green. One mutation was reported as unnoticed here and was in fact caught,
 by a subtest, which is the worst direction for that error: it invites deleting a
 guard that works.
 
+**Use `../audit/redproof.py` rather than a shell loop.** It checks pytest's
+return code; a grep for `FAILED` misses `SUBFAILED`, and it requires the failure
+to carry the message you named. Adding cases for one release's work immediately
+caught two claims that were wrong about which message a mutation produced.
+
 **Check the mutation actually applied.** A `sed` expression spanning two lines
 matches nothing, and a restore within the same second reuses stale bytecode
 (CPython invalidates on mtime and size). Both have produced a false green here.
