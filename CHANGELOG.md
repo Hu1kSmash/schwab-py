@@ -16,7 +16,8 @@ current model.
 
 ## 3.0.2
 
-One fix, to the collision warning 3.0.1 added.
+One fix, to the collision warning 3.0.1 added, and the defects found while
+making it.
 
 ### The warning fired on this project's own working tree
 
@@ -29,59 +30,59 @@ itself. It fired on every `pytest` run in this repository.
 The check now requires both names — `schwaby` **and** `schwab-py` — before it
 says anything, which is what "both are installed" was always supposed to mean.
 
-Three smaller things came out of the same fix. Only the first was needed to
-stop the false positive; the other two are defects the same code path had:
+### What else changed in the same code
 
-- **`.egg-info` no longer counts.** Not because it is old, but because it is
-  ambiguous: the same name is written into `site-packages` by a legacy install
-  *and* into a source tree as a build artefact, and nothing about the name
-  separates them. A checkout is on `sys.path` for every `pytest` run from its
-  root and carries one, so counting them means calling a project installed
-  because its source is present. `.dist-info` has no such ambiguity and is what
-  `pip` writes for both of these distributions under every install method since
-  PEP 660, editable included.
+Everything below is a defect the check had independently of the false positive,
+found by reviewing the fix for it.
+
+- **One working tree registered under both names is not a collision.** `pip`
+  uninstalls by project name, so a virtualenv that carried a pre-2.6.0 editable
+  install and then received `pip install -e .` holds both registrations, and
+  both editable finders resolve to the same single source tree. Nothing is
+  duplicated — and the remedy this warning prints would have deleted the
+  developer's editable install and replaced their checkout with the PyPI
+  release. `direct_url.json` distinguishes the two, and the recorded path is
+  resolved with `realpath` so one checkout reached by a symlink or a trailing
+  separator is still one checkout.
+
+  Both names have to be seen *and* agree. A name that could not have said
+  anything — a `schwab-py` registered as `.egg-info`, which has no
+  `direct_url.json` by construction — must not be read as agreement, or a
+  single editable install silences a real collision.
+
+- **Both `.dist-info` and `.egg-info` count, with a discriminator.** On a
+  Debian or Ubuntu system interpreter the distro-packaged modules register as
+  `.egg-info` and almost nothing else does — 73 against 35 `.dist-info` on the
+  machine this was measured on — so skipping the layout would hide a
+  legacy-installed `schwab-py`, which is exactly the old install this check
+  exists to find. What separates a real install from the build artefact a
+  source tree accumulates is the directory: an install directory never contains
+  `setup.py` or `pyproject.toml`, and a checkout always does.
+
 - **The distribution name is split at the version, not at a hyphen.** A name
-  can end in one — `schwab-py.dist-info`, the unversioned unescaped spelling —
-  and splitting at the last hyphen gave up its `py`. A version component always
-  begins with a digit and a name never does, which is what separates the two
-  readings.
-- **The `warn()` call moved outside the `except Exception` guard.** Under
-  `PYTHONWARNINGS=error` a warning *is* an exception, so the one configuration
-  that asked to be told loudly was the only one told nothing at all. The
-  consequence is deliberate and now documented: under `-W error` this warning
-  fails the import, because that is what the operator asked for.
+  can contain one (`schwab-py-2.5.1`) and can end in one (`schwab-py`,
+  unversioned), so neither the first nor the last hyphen is the boundary. A
+  version component always begins with a digit and a name never does. The
+  legacy `setup.py install` spelling, `<name>-<version>-py<X.Y>.egg-info`, is
+  handled too.
 
-### Four more, from reviewing the fix
-
-- **`.egg-info` counts again, with a discriminator.** Skipping the layout
-  outright was too blunt: on a Debian or Ubuntu system interpreter the
-  distro-packaged modules register that way and nothing else does — 73
-  `.egg-info` against 35 `.dist-info` on the machine this was measured on — so
-  a legacy-installed `schwab-py`, exactly the old install this check exists to
-  find, was invisible. What separates the two uses is the directory: an install
-  directory never contains `setup.py` or `pyproject.toml`, and a source tree
-  always does.
-- **One working tree registered under both names is no longer a collision.**
-  `pip` uninstalls by project name, so a virtualenv that carried a pre-2.6.0
-  editable install and then received `pip install -e .` holds both
-  registrations, and both editable finders resolve to the same single source
-  tree. Nothing is duplicated — and the remedy this warning prints would have
-  deleted the developer's editable install and replaced their checkout with the
-  PyPI release. `direct_url.json` distinguishes the two situations.
-- **Warnings-as-errors is told without the import dying.** Under
+- **Warnings-as-errors is told, and the import still survives.** Under
   `PYTHONWARNINGS=error`, `-W error`, or a consumer's pytest
-  `filterwarnings = error`, `warnings.warn` raises. Raising would fail
-  `import schwab` over a condition where the files on disk still work, which is
-  the opposite of what this check is for; swallowing would leave the
-  configuration that asked to be told loudest the only one told nothing. The
-  raise is now caught and the same text printed to stderr.
-- **The install-order caveat is documented.** Both projects ship a
-  `schwab/__init__.py`, so whichever is installed *second* overwrites the
-  other's — install `schwab-py` over `schwaby` and the file carrying this check
-  is the one that goes. The README and the getting-started guide said "`import
-  schwab` warns" without that condition, which would have let a user read
-  silence as confirmation that the install was fine. That is the precise
-  sequence ending in `pip uninstall schwab-py` and a destroyed install.
+  `filterwarnings = error`, `warnings.warn` raises. Failing `import schwab`
+  over a condition where the files on disk still work is the opposite of what
+  this check is for; swallowing the raise would leave the configuration that
+  asked to be told loudest the only one told nothing. The raise is caught and
+  the same text printed to stderr — as is a `warnings.showwarning` replacement
+  that raises something else, and a stderr closed by the time the fallback
+  runs. No diagnostic fails this import.
+
+- **The install order is documented, because it decides whether you are
+  warned at all.** Both projects ship a `schwab/__init__.py`, so whichever is
+  installed *second* overwrites the other's — install `schwab-py` over
+  `schwaby` and the file carrying this check is the one that goes. The README
+  and the getting-started guide said "`import schwab` warns" without that
+  condition, which would let a user read silence as confirmation the install
+  was fine, and then run the `pip uninstall schwab-py` that destroys it.
 
 If you are on 3.0.1 and have never installed `schwab-py`, you will not have
 seen any of this. Upgrading is worthwhile only if you did see a warning you

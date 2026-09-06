@@ -539,21 +539,34 @@ class CollisionWarningTest(unittest.TestCase):
                 self.assertEqual(1, len(self.call_it(
                         [old_name, 'schwaby-3.0.2.dist-info'])), old_name)
 
-    def two_editables(self, first_url, second_url):
-        """Builds two editable registrations and returns what was warned."""
+    def two_editables(self, first, second, names=None, payloads=None):
+        """Builds two registrations and returns what was warned.
+
+        `first`/`second` are source directories -- `None` for "not an editable
+        install". `payloads` overrides the `direct_url.json` text outright, so
+        a malformed one can be tested.
+        """
         import json
         import os
         import schwab
 
+        names = names or ('schwab_py-2.0.0.dist-info',
+                          'schwaby-3.0.2.dist-info')
+        payloads = payloads or {}
+
         with tempfile.TemporaryDirectory() as tmp:
-            for name, url in (('schwab_py-2.0.0.dist-info', first_url),
-                              ('schwaby-3.0.2.dist-info', second_url)):
+            for name, path in zip(names, (first, second)):
                 os.mkdir(os.path.join(tmp, name))
-                if url is None:
+                if name in payloads:
+                    body = payloads[name]
+                elif path is not None:
+                    body = json.dumps({'url': 'file://' + path,
+                                       'dir_info': {'editable': True}})
+                else:
                     continue
                 with open(os.path.join(tmp, name, 'direct_url.json'),
                           'w', encoding='utf-8') as f:
-                    json.dump({'url': url, 'dir_info': {'editable': True}}, f)
+                    f.write(body)
 
             with patch.object(sys, 'path', [tmp]):
                 with warnings.catch_warnings(record=True) as caught:
@@ -572,7 +585,7 @@ class CollisionWarningTest(unittest.TestCase):
         # in that state, delete the developer's editable registration and
         # replace their checkout with the PyPI release.
         self.assertEqual([], self.two_editables(
-                'file:///home/dev/schwaby', 'file:///home/dev/schwaby'))
+                '/home/dev/schwaby', '/home/dev/schwaby'))
 
     @no_duplicates
     def test_two_different_checkouts_are_still_a_collision(self):
@@ -580,7 +593,7 @@ class CollisionWarningTest(unittest.TestCase):
         # trees are two copies of `schwab/` claiming the same import name,
         # which is the thing being warned about.
         self.assertEqual(1, len(self.two_editables(
-                'file:///home/dev/schwab-py', 'file:///home/dev/schwaby')))
+                '/home/dev/schwab-py', '/home/dev/schwaby')))
 
     @no_duplicates
     def test_a_registration_pip_did_not_make_from_a_path_is_a_collision(self):
@@ -589,8 +602,54 @@ class CollisionWarningTest(unittest.TestCase):
         # not read as "same tree" -- that would make the ordinary case, one
         # real install from PyPI beside one editable, silently exempt.
         self.assertEqual(1, len(self.two_editables(
-                None, 'file:///home/dev/schwaby')))
+                None, '/home/dev/schwaby')))
         self.assertEqual(1, len(self.two_editables(None, None)))
+
+    @no_duplicates
+    def test_a_name_that_cannot_be_editable_is_not_agreement(self):
+        # The suppression above needs both names to agree that they are one
+        # tree. A `schwab-py` registered as `.egg-info` has no
+        # `direct_url.json` by construction, so it contributes nothing --- and
+        # an earlier version unioned the two names' path sets, which made
+        # "contributed nothing" indistinguishable from "agreed". A single
+        # editable `schwaby` was then enough to silence a real collision.
+        #
+        # Absence is not agreement. This is the shape `add_error_handler` had.
+        self.assertEqual(1, len(self.two_editables(
+                None, '/home/dev/schwaby',
+                names=('schwab_py-2.5.1.egg-info',
+                       'schwaby-3.0.2.dist-info'))))
+
+    @no_duplicates
+    def test_a_malformed_direct_url_does_not_disable_the_check(self):
+        # `json.load` returns whatever the file held. A list and a bare string
+        # are both valid JSON and both raise on `.get`, which escaped a
+        # narrower `except (OSError, ValueError)`, reached the module-level
+        # guard, and silently turned the whole check off -- a collision went
+        # unreported because a *third* package's metadata was odd.
+        for body in ('[1, 2, 3]', '"a string"', 'null', '{"url": ',
+                     '{"url": 42, "dir_info": {"editable": true}}',
+                     '{"dir_info": {"editable": true}}'):
+            with self.subTest(direct_url=body):
+                self.assertEqual(1, len(self.two_editables(
+                        None, None,
+                        payloads={'schwaby-3.0.2.dist-info': body})), body)
+
+    @no_duplicates
+    def test_one_tree_reached_by_two_spellings_is_still_one_tree(self):
+        # pip records `path_to_url(os.path.abspath(path))`, which neither
+        # follows symlinks nor normalises a trailing separator. Comparing the
+        # raw strings calls one checkout two, and the remedy that then prints
+        # would replace it with the PyPI release.
+        import os
+
+        with tempfile.TemporaryDirectory() as tree:
+            link = os.path.join(tempfile.mkdtemp(), 'link')
+            os.symlink(tree, link)
+
+            for spelling in (tree + '/', link, link + '/'):
+                with self.subTest(spelling=spelling):
+                    self.assertEqual([], self.two_editables(tree, spelling))
 
     @no_duplicates
     def test_a_nameless_dist_info_contributes_no_name(self):
@@ -720,6 +779,57 @@ class CollisionWarningTest(unittest.TestCase):
         printed = stderr.getvalue()
         self.assertIn('RuntimeWarning', printed)
         self.assertIn('pip uninstall -y schwab-py schwaby', printed)
+
+    @no_duplicates
+    def test_a_hostile_warning_system_cannot_kill_the_import(self):
+        # `warnings.showwarning` is a documented replacement point and
+        # daemonised hosts replace it. If the replacement raises something
+        # that is not a `Warning`, a narrow `except Warning` misses it and the
+        # import dies -- over a diagnostic, in a library that places orders.
+        import io
+        import os
+        import schwab
+
+        def hostile(*args, **kwargs):
+            raise RuntimeError('this host does not do warnings')
+
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('schwab_py-2.5.1.dist-info',
+                         'schwaby-3.0.2.dist-info'):
+                os.mkdir(os.path.join(tmp, name))
+            with patch.object(sys, 'path', [tmp]):
+                with patch.object(sys, 'stderr', stderr):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('always')
+                        warnings.showwarning = hostile
+                        # Must not raise.
+                        schwab._warn_if_schwab_py_is_also_installed()
+
+        self.assertIn('pip uninstall -y schwab-py schwaby',
+                      stderr.getvalue())
+
+    @no_duplicates
+    def test_a_closed_stderr_cannot_kill_the_import_either(self):
+        # The last resort. Both ways of saying it have failed, so there is
+        # nowhere left to say it -- but the import still has to survive.
+        import io
+        import os
+        import schwab
+
+        closed = io.StringIO()
+        closed.close()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('schwab_py-2.5.1.dist-info',
+                         'schwaby-3.0.2.dist-info'):
+                os.mkdir(os.path.join(tmp, name))
+            with patch.object(sys, 'path', [tmp]):
+                with patch.object(sys, 'stderr', closed):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('error')
+                        # Must not raise.
+                        schwab._warn_if_schwab_py_is_also_installed()
 
     @no_duplicates
     def test_nothing_is_printed_to_stderr_in_the_ordinary_case(self):

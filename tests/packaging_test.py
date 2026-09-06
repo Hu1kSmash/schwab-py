@@ -1029,18 +1029,29 @@ class LongDescriptionTest(unittest.TestCase):
         opens = [n for n in ast.walk(ast.parse(source)) if is_open(n)]
         self.assertGreater(len(opens), 1)       # it does read files
 
-        # Where `encoding` sits when it is passed positionally --
-        # `open(file, mode, buffering, encoding)`,
-        # `Path.read_text(encoding, errors)`,
-        # `Path.write_text(data, encoding, errors)`. Reporting one of these
-        # as missing an encoding it did pass is the false failure this test
-        # already had once, in the regex it replaced.
-        ENCODING_POSITION = {'open': 4, 'read_text': 1, 'write_text': 2}
+        # How many positional arguments a call must have before one of them
+        # IS the encoding. The builtin and `io.open` take
+        # `(file, mode, buffering, encoding)`, but `Path.open` takes
+        # `(mode, buffering, encoding)` -- no `file`, because it is the
+        # receiver -- so the same name needs different numbers depending on
+        # how it was reached. `Path.read_text(encoding, errors)` and
+        # `Path.write_text(data, encoding, errors)` are shorter still.
+        #
+        # Reporting a call as missing an encoding it did pass is the false
+        # failure this test already had once, in the regex it replaced.
+        BUILTIN_POSITION = {'open': 4}
+        METHOD_POSITION = {'open': 3, 'read_text': 1, 'write_text': 2}
 
         for call in opens:
-            name = getattr(call.func, 'id', None) or call.func.attr
+            if isinstance(call.func, ast.Name):
+                name, table = call.func.id, BUILTIN_POSITION
+            elif getattr(call.func.value, 'id', None) == 'io':
+                name, table = call.func.attr, BUILTIN_POSITION
+            else:
+                name, table = call.func.attr, METHOD_POSITION
+
             named = 'encoding' in [kw.arg for kw in call.keywords]
-            positional = len(call.args) >= ENCODING_POSITION[name]
+            positional = len(call.args) >= table[name]
             self.assertTrue(
                     named or positional,
                     'setup.py reads a file without an encoding, at line %d'

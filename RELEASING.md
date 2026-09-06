@@ -119,11 +119,14 @@ turned the 2.3.0 `login` split from a saving into three late failure modes.
 
    The first should be empty. Prose naming a version is worse than a pin,
    because it will not match a pin grep and the release may land under a
-   different number than the one written --- 3.0.2 shipped "Since 3.0.1
-   `import schwab` warns" past a review that ran this step, because the step
-   only looked for pins. Hence the second grep, which will have hits: read
-   each one and keep only those describing something that already shipped and
-   stays true. Say what changed, not which release changed it.
+   different number than the one written. That is not hypothetical: "Since
+   3.0.1 `import schwab` warns" was written into `README.md` and
+   `docs/getting-started.rst` while preparing 3.0.2 and survived a review
+   round, because this step only looked for pins. It was caught before the
+   tag, which is luck rather than process. Hence the second grep, which will
+   have hits: read each one and keep only those describing something that
+   already shipped and stays true. Say what changed, not which release
+   changed it.
 
 4. Verify, on **3.11, 3.12 and 3.14** — 3.14 is what the downstream consumer
    runs, and `asyncio` semantics differ below 3.12 as well as above it:

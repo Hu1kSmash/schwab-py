@@ -18,8 +18,13 @@ import warnings as _warnings
 _DIST_STEM = r'^(?P<name>.+?)-\d[^-]*(?:-py\d[\d.]*)?$'
 
 
-def _installed_distribution_names():
-    """Returns the normalised names of the distributions on `sys.path`.
+def _distribution_records():
+    """Yields `(normalised name, metadata directory)` for what is installed.
+
+    The single walk of `sys.path`. Both callers below go through it, and they
+    have to: an earlier version had two walks that each decided for themselves
+    which layouts to read, they disagreed about `.egg-info`, and the
+    disagreement silently suppressed the warning this module exists to emit.
 
     A directory listing rather than `importlib.metadata.distributions()`,
     which opens and parses a metadata file for every installed package. Both
@@ -34,15 +39,15 @@ def _installed_distribution_names():
     Both `.dist-info` and `.egg-info` count. `.egg-info` cannot simply be
     skipped: on a Debian or Ubuntu system interpreter the distro-packaged
     modules register that way and nothing else does --- measured here at 73
-    `.egg-info` against 35 `.dist-info`, so ignoring the layout would hide
+    `.egg-info` against 35 `.dist-info` --- so ignoring the layout would hide
     two thirds of what is installed and make this function's name a lie.
 
     What it does need is a discriminator, because setuptools writes the same
     spelling into a *source tree* as a build artefact, and a checkout is on
     `sys.path` for every `pytest` run from its root. An install directory
     never contains `setup.py` or `pyproject.toml` and a source tree always
-    does, so the parent directory settles it --- one `os.path.isfile` per
-    `sys.path` entry, not per name.
+    does, so the entry's own listing settles it -- no extra syscall, just a
+    membership test against names already fetched.
 
     Best effort by construction, and a miss costs a warning rather than
     correctness -- the documentation covers the same ground.
@@ -55,7 +60,6 @@ def _installed_distribution_names():
     import re as _re
     import sys as _sys
 
-    names = set()
     for entry in _sys.path:
         if not entry or not _os.path.isdir(entry):
             continue
@@ -66,9 +70,9 @@ def _installed_distribution_names():
 
         # A source tree's `.egg-info` says "this is the project you are
         # standing in", not "this project is installed".
-        is_source_tree = any(
-                marker in listing
-                for marker in ('setup.py', 'pyproject.toml', 'setup.cfg'))
+        names = set(listing)
+        is_source_tree = bool(
+                names & {'setup.py', 'pyproject.toml', 'setup.cfg'})
 
         for name in listing:
             # Lowercased before matching: a case-insensitive filesystem can
@@ -86,56 +90,56 @@ def _installed_distribution_names():
 
             normalised = _re.sub(r'[-_.]+', '-', project)
             if normalised:
-                names.add(normalised)
-    return names
+                yield normalised, _os.path.join(entry, name)
 
 
-def _editable_source_directories():
-    """Returns the source directories of the two names' editable installs.
+def _installed_distribution_names():
+    """Returns the normalised names of the distributions on `sys.path`."""
+    return {name for name, _ in _distribution_records()}
 
-    A `dict` of normalised distribution name -> set of directories, built from
-    the `direct_url.json` pip writes beside an install it made from a local
-    path. Only the two names this module cares about are looked up, and only
-    when a collision has already been detected, so this reads at most a
-    handful of small files and never runs on a clean install.
+
+def _editable_source_path(metadata_directory):
+    """Returns the source tree an editable install was made from, or `None`.
+
+    `None` means "not an editable install of a local directory", and covers
+    every way of not being one: no `direct_url.json` at all (pip writes it
+    only for an install made from a URL or a path, so anything from PyPI has
+    none), a non-editable install, an `.egg-info` that has no such file by
+    construction, or a file that cannot be read or understood.
+
+    The path is resolved with `realpath`, because pip records
+    `path_to_url(os.path.abspath(path))` without following symlinks or
+    normalising a trailing separator -- so one checkout installed as
+    `/home/dev/schwaby` and again as `/home/dev/schwaby/` is one tree written
+    two ways, and comparing the raw strings would call it two.
     """
     import json as _json
     import os as _os
-    import re as _re
-    import sys as _sys
 
-    found = {}
-    for entry in _sys.path:
-        if not entry or not _os.path.isdir(entry):
-            continue
-        try:
-            listing = _os.listdir(entry)
-        except OSError:
-            continue
-        for name in listing:
-            lowered = name.lower()
-            if not lowered.endswith('.dist-info'):
-                continue
-            match = _re.match(_DIST_STEM, lowered[:-len('.dist-info')])
-            project = match.group('name') if match else lowered[:-10]
-            project = _re.sub(r'[-_.]+', '-', project)
-            if project not in ('schwaby', 'schwab-py'):
-                continue
-            try:
-                with open(_os.path.join(entry, name, 'direct_url.json'),
-                          encoding='utf-8') as f:
-                    info = _json.load(f)
-            except (OSError, ValueError):
-                # No `direct_url.json` at all is the ordinary case: pip writes
-                # one only for an install made from a URL or a local path, so
-                # anything from PyPI has none. Treated as "not editable",
-                # which is what it is.
-                found.setdefault(project, set()).add(None)
-                continue
-            url = info.get('url')
-            editable = (info.get('dir_info') or {}).get('editable')
-            found.setdefault(project, set()).add(url if editable else None)
-    return found
+    try:
+        with open(_os.path.join(metadata_directory, 'direct_url.json'),
+                  encoding='utf-8') as f:
+            info = _json.load(f)
+    except Exception:
+        # Anything at all: this is a diagnostic reading a file written by
+        # another tool, and no shape it can be in justifies an exception.
+        return None
+
+    # `json.load` returns whatever the file held -- a list and a bare string
+    # are both valid JSON, and `.get` on either raises. That escaped the
+    # narrower `except (OSError, ValueError)` this used to have, reached the
+    # module-level guard, and silently disabled the whole check.
+    if not isinstance(info, dict):
+        return None
+    if not (info.get('dir_info') or {}).get('editable'):
+        return None
+
+    url = info.get('url')
+    if not isinstance(url, str) or not url.startswith('file://'):
+        return None
+
+    from urllib.parse import unquote as _unquote, urlparse as _urlparse
+    return _os.path.realpath(_unquote(_urlparse(url).path))
 
 
 def _is_one_working_tree_registered_twice():
@@ -152,14 +156,32 @@ def _is_one_working_tree_registered_twice():
     that state delete the developer's editable registration and replace their
     checkout with the PyPI release.
 
-    `direct_url.json` settles it: two editable installs naming the same
-    directory are one tree, and anything else --- a missing file, a
-    non-editable install, two different directories --- is not.
+    Absence is not agreement. An earlier version unioned the two names' path
+    sets and asked only whether one path came out, so a name that could not
+    have contributed --- a `schwab-py` registered as `.egg-info`, which has no
+    `direct_url.json` by construction --- read exactly like one that agreed,
+    and a single editable `schwaby` was enough to suppress a real collision.
+
+    `None not in paths` is what prevents that: a name with nothing to say
+    contributes `None`, which is a value rather than a gap. The `not ours or
+    not theirs` guard above it cannot currently fire --- a name with no
+    metadata still lands in `seen` as `{None}` --- and is kept only against
+    the two walks over `sys.path` disagreeing again, which is how the defect
+    arose. `redproof.py` records it as superseded rather than load-bearing.
     """
-    directories = _editable_source_directories()
-    urls = directories.get('schwaby', set()) | directories.get(
-            'schwab-py', set())
-    return len(urls) == 1 and None not in urls
+    seen = {}
+    for name, directory in _distribution_records():
+        if name not in ('schwaby', 'schwab-py'):
+            continue
+        seen.setdefault(name, set()).add(_editable_source_path(directory))
+
+    ours = seen.get('schwaby')
+    theirs = seen.get('schwab-py')
+    if not ours or not theirs:
+        return False
+
+    paths = ours | theirs
+    return len(paths) == 1 and None not in paths
 
 
 def _schwab_py_is_also_installed():
@@ -213,7 +235,9 @@ def _warn_if_schwab_py_is_also_installed():
     configuration that asked to be told loudest as the only one told nothing.
     So the `warn()` is caught and the same text printed to stderr instead.
     The operator is told either way, and `import schwab` does not die of a
-    diagnostic.
+    diagnostic -- unconditionally: a replaced `warnings.showwarning` that
+    raises something other than a `Warning`, and a stderr that is closed by
+    the time the fallback runs, are both absorbed too.
     """
     try:
         detected = _schwab_py_is_also_installed()
@@ -239,16 +263,25 @@ def _warn_if_schwab_py_is_also_installed():
         'Until then you may be running code from either version, and '
         'modules removed in this one may still be importable.')
 
-    # Deliberately outside the `except Exception` above, and deliberately
-    # narrow. `except Warning` catches only the warnings-as-errors case --
-    # anything else still propagates -- and the fallback means that case is
-    # told rather than silenced. Catching it here is what keeps the promise
-    # three paragraphs up: no diagnostic fails this import.
+    # Deliberately outside the `except Exception` around the detection above:
+    # swallowing there would leave warnings-as-errors the one configuration
+    # told nothing.
+    #
+    # Two layers, because emission has two ways to fail and the promise three
+    # paragraphs up is unconditional. `warn()` raises under `-W error`, and
+    # can raise anything at all if `warnings.showwarning` has been replaced,
+    # which daemonised and embedded hosts do. Then `print` can raise in turn
+    # on a closed or detached stderr. A diagnostic that kills the import it is
+    # diagnosing is the failure this whole function exists to avoid, so the
+    # last resort is to give up quietly -- there is nowhere left to say it.
     try:
         _warnings.warn(message, RuntimeWarning, stacklevel=2)
-    except Warning:
-        import sys as _sys
-        print('RuntimeWarning: ' + message, file=_sys.stderr)
+    except Exception:
+        try:
+            import sys as _sys
+            print('RuntimeWarning: ' + message, file=_sys.stderr)
+        except Exception:                                # pragma: no cover
+            pass
 
 
 _warn_if_schwab_py_is_also_installed()
