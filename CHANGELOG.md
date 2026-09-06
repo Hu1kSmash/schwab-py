@@ -40,6 +40,7 @@ else. These are the things that need an edit, and only if you use them:
 | pin `schwaby[login]` or `schwaby[codegen]` | Drop the bracket. The pin still installs, with a warning. |
 | call `set_destination_link_name` to pick a venue | Use `set_requested_destination`. The old one was writing to a field that does not select one. |
 | pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
+| let `AccountHashMismatchException` propagate | It now carries `.order_id`, so a live order on the wrong account is recoverable for the first time — but **anything between the call and your return is skipped on that path too**, journalling included. Catch it, record from `exc.order_id`, then re-raise. |
 | construct `AccountHashMismatchException` yourself | It now requires `(response, order_id, account_hash, message)` rather than a bare message. Catching it is unchanged. |
 | pin by git URL rather than from PyPI | A PyPI install writes no `direct_url.json`, so anything verifying the pin by reading `requested_revision` out of it stops answering. Check how you assert your pin before you switch. |
 | check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. **Anything you do between that call and your return is now skipped on that path**, so check what sits there: journalling and bookkeeping most often. |
@@ -138,14 +139,18 @@ the last one that should arrive as a `TypeError` about argument counts. Fixed
 once on `SchwabError` rather than fourteen times, and a test round-trips every
 exception class the package defines.
 
-**`AccountHashMismatchException` said the wiring was wrong and not that an
-order existed.** It is raised only after the response came back successful *and*
-a valid order ID was parsed out of it — so Schwab placed something, on an
-account the caller was not expecting to trade. The message was
-`order request account hash != Utils.account_hash`, which reads as a
-configuration complaint, and the exception carried neither the response nor the
-ID it had just parsed. A caller who caught it could not reach the live order
-without re-deriving the ID from the header themselves.
+**`AccountHashMismatchException` parsed the order ID and threw it away.** It is raised only after the response came back successful *and* a valid order ID
+was parsed out of it, on the line above — so Schwab placed something, on an
+account the caller was not expecting to trade, and the ID was discarded on the
+way out. The message was `order request account hash != Utils.account_hash`,
+which reads as a configuration complaint.
+
+So on 2.x that order was not merely untracked, it was **unrecoverable** short of
+going back to `get_orders_for_account` and guessing which one it was. This is the
+first release in which it can be owned.
+
+In a fleet the plausible trigger is a `Utils` cross-wired between accounts, which
+is exactly the fault you would most want to find with the order ID in hand.
 
 It now carries `.order_id`, `.account_hash`, `.response` and
 `.expected_account_hash` — the last keyword-only, so it cannot take the slot a
