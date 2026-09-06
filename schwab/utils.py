@@ -150,8 +150,14 @@ class SchwabError(Exception):
         # order is live on the wrong account is the last one that should arrive
         # as a TypeError about argument counts.
         #
-        # Rebuilding around __init__ handles every signature below uniformly,
-        # including the keyword-only ones, and needs no per-class __reduce__.
+        # _rebuild_exception bypasses __init__ entirely -- __new__, then
+        # BaseException.__init__ for the message, then __dict__. That handles
+        # every signature below uniformly, including keyword-only ones, and
+        # needs no per-class __reduce__. The cost is that any invariant a
+        # subclass establishes in __init__ beyond plain assignment -- coercing
+        # an id to int, normalising a hash -- is skipped on reconstruction. No
+        # subclass does that today; one that starts to needs its own
+        # __reduce__ or a __setstate__.
         return (_rebuild_exception, (type(self), self.args, dict(self.__dict__)))
 
 
@@ -239,7 +245,9 @@ class AccountHashMismatchException(SchwabError, ValueError):
 
     * ``.order_id`` --- the order Schwab created
     * ``.account_hash`` --- the account it was placed on, as Schwab reported it
-    * ``.expected_account_hash`` --- the one this :class:`Utils` was built with
+    * ``.expected_account_hash`` --- the one this :class:`Utils` was built
+      with. ``None`` if the exception was raised by something other than
+      :meth:`Utils.extract_order_id`, so compare it before trusting it
     * ``.response`` --- the whole ``place_order`` response
 
     The two hashes are both here on purpose. A handler far from the call site
@@ -253,8 +261,16 @@ class AccountHashMismatchException(SchwabError, ValueError):
        swallow it. Given what it means, narrow that.
     '''
 
-    def __init__(self, response, order_id, account_hash,
-                 expected_account_hash=None, *args, **kwargs):
+    # expected_account_hash is keyword-only, and that is not stylistic. Added
+    # ahead of *args it took the slot the message had been passed in, so the
+    # four-argument call that already existed bound the message to it and left
+    # self.args empty -- an exception whose str() is '' on the one failure that
+    # means an order is live on the wrong account. That is the same
+    # succeeded-while-losing-the-message defect this class's __reduce__ exists
+    # to fix, through a different door. UnusableMessage and TokenRefreshError
+    # in this file already take their extras keyword-only for this reason.
+    def __init__(self, response, order_id, account_hash, *args,
+                 expected_account_hash=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.response = response
         self.order_id = order_id
@@ -388,10 +404,10 @@ class Utils(EnumEnforcer):
         if str(account_hash) != str(self.account_hash):
             raise AccountHashMismatchException(
                 place_order_response, order_id, account_hash,
-                self.account_hash,
                 'order {} was placed on account {!r}, but this Utils was built '
                 'with {!r}. The order is live on the account Schwab named; its '
                 'id is on this exception as .order_id.'.format(
-                    order_id, account_hash, self.account_hash))
+                    order_id, account_hash, self.account_hash),
+                expected_account_hash=self.account_hash)
 
         return order_id

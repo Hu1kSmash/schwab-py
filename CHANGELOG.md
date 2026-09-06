@@ -143,8 +143,11 @@ configuration complaint, and the exception carried neither the response nor the
 ID it had just parsed. A caller who caught it could not reach the live order
 without re-deriving the ID from the header themselves.
 
-It now carries `.order_id`, `.account_hash` and `.response`, and says
-*the order is live on the account Schwab named*. It keeps `ValueError`, because
+It now carries `.order_id`, `.account_hash`, `.response` and
+`.expected_account_hash` — the last keyword-only, so it cannot take the slot a
+message is passed in — and says *the order is live on the account Schwab
+named*. If you construct this exception yourself, the signature gained a
+keyword argument and nothing positional moved. It keeps `ValueError`, because
 that predates this release and it does describe a caller mistake, but the
 docstring warns that a broad `except ValueError` will swallow it.
 

@@ -1,4 +1,21 @@
 from unittest.mock import MagicMock
+
+
+class PicklableResponse:
+    '''Stands in for a response where the test really pickles.
+
+    MagicMock is not picklable, so a round-trip test built on one can only ever
+    call copy() -- which is in-process, and therefore not the thing the fix is
+    about. Module level so pickle can find it by name.
+    '''
+
+    def __init__(self, marker='response'):
+        self.marker = marker
+
+    def __eq__(self, other):
+        return (isinstance(other, PicklableResponse)
+                and other.marker == self.marker)
+
 from schwab.utils import (
     AccountHashMismatchException,
     MissingLocationHeaderError,
@@ -239,9 +256,14 @@ class UtilsTest(unittest.TestCase):
                     bad()
                 self.assertNotIsInstance(cm.exception, SchwabError)
 
-        # The overclaim this replaced, in the words it used.
-        self.assertNotIn('nothing else', SchwabError.__doc__)
+        # Assert the positive statement rather than the absence of one
+        # phrasing: "not everything" can be reworded a dozen ways, but the
+        # docstring has to keep saying that builtin ValueError is still raised.
+        # Skipped under -OO, where docstrings are stripped and __doc__ is None.
+        if SchwabError.__doc__ is None:                  # pragma: no cover
+            self.skipTest('docstrings stripped (-OO)')
         self.assertIn('ValueError', SchwabError.__doc__)
+        self.assertIn('not', SchwabError.__doc__)
 
     @no_duplicates
     def test_every_exception_survives_a_process_boundary(self):
@@ -257,38 +279,54 @@ class UtilsTest(unittest.TestCase):
         import copy, importlib, inspect, pickle, pkgutil
         import schwab
 
+        r = PicklableResponse
         samples = {
             'SchwabError': ('m',),          # the base is a class too
-            'UnexpectedResponse': (MagicMock(), 'm'),
-            'UnexpectedResponseCode': (MagicMock(), 'm'),
+            'UnexpectedResponse': (r(), 'm'),
+            'UnexpectedResponseCode': (r(), 'm'),
             'UnparsableMessage': ('raw', ValueError('x'), 'm'),
-            'UnusableMessage': ('m',),
+            # ('m',) alone binds to the offending value, not to BaseException,
+            # so str() would be '' and the message assertion below would
+            # compare '' to '' and pass regardless.
+            'UnusableMessage': ('frame', 'm'),
             'ResponseTimeoutError': ('svc', 'cmd', 60, 'm'),
-            'UnsuccessfulOrderException': (MagicMock(), 'm'),
-            'OrderIdNotFoundError': (MagicMock(), None, 'm'),
-            'MissingLocationHeaderError': (MagicMock(), None, 'm'),
-            'UnrecognizedLocationError': (MagicMock(), 'loc', 'm'),
-            'AccountHashMismatchException': (MagicMock(), 123, 'BBBB', 'AAAA', 'm'),
+            'UnsuccessfulOrderException': (r(), 'm'),
+            'OrderIdNotFoundError': (r(), None, 'm'),
+            'MissingLocationHeaderError': (r(), None, 'm'),
+            'UnrecognizedLocationError': (r(), 'loc', 'm'),
+            'AccountHashMismatchException': (r(), 123, 'BBBB', 'm'),
             'TokenRefreshError': ('m',),
             'RedirectTimeoutError': ('m',),
             'RedirectServerExitedError': ('m',),
             'InvalidOrderException': ('m',),
         }
 
-        seen = 0
-        for info in pkgutil.walk_packages(schwab.__path__, 'schwab.'):
-            module = importlib.import_module(info.name)
+        # Seeded with `schwab` for the same reason as the walk above: an
+        # exception defined in schwab/__init__.py is not a submodule, so it
+        # would get no sample, never be round-tripped, and the count control
+        # below would still pass because it counts only what the walk found.
+        seen, modules = 0, ['schwab']
+        modules.extend(i.name for i in pkgutil.walk_packages(
+                schwab.__path__, 'schwab.',
+                onerror=lambda n: self.fail('could not import %s' % n)))
+
+        for name in modules:
+            module = importlib.import_module(name)
             for attr, obj in vars(module).items():
                 if not (inspect.isclass(obj) and issubclass(obj, BaseException)
-                        and obj.__module__ == info.name):
+                        and obj.__module__ == name):
                     continue
                 self.assertIn(attr, samples, 'new exception, add a sample')
                 seen += 1
                 exc = obj(*samples[attr])
                 with self.subTest(exception=attr):
-                    for rebuilt in (copy.copy(exc), copy.deepcopy(exc)):
+                    # pickle is the one that matters -- copy is in-process, so
+                    # a test built only on it does not cross a boundary at all.
+                    for rebuilt in (copy.copy(exc), copy.deepcopy(exc),
+                                    pickle.loads(pickle.dumps(exc))):
                         self.assertIs(type(rebuilt), obj)
                         self.assertEqual(str(exc), str(rebuilt))
+                        self.assertNotEqual('', str(rebuilt))
 
         # The walk found them, rather than the loop never running.
         self.assertEqual(len(samples), seen)
@@ -298,12 +336,20 @@ class UtilsTest(unittest.TestCase):
         # A message that survives while .order_id does not would be the same
         # bug wearing a different face: the handler is told an order is live
         # and cannot reach it.
-        import copy
-        exc = AccountHashMismatchException(MagicMock(), 987, 'BBBB', 'm')
-        rebuilt = copy.copy(exc)
-        self.assertEqual(987, rebuilt.order_id)
-        self.assertEqual('BBBB', rebuilt.account_hash)
-        self.assertIsNotNone(rebuilt.response)
+        import copy, pickle
+        response = PicklableResponse('the original')
+        exc = AccountHashMismatchException(
+                response, 987, 'BBBB', 'm', expected_account_hash='AAAA')
+
+        for rebuilt in (copy.copy(exc), pickle.loads(pickle.dumps(exc))):
+            self.assertEqual(987, rebuilt.order_id)
+            self.assertEqual('BBBB', rebuilt.account_hash)
+            self.assertEqual('AAAA', rebuilt.expected_account_hash)
+            # The historical defect was not a LOST response but a WRONG one --
+            # the message bound into the response slot. assertIsNotNone cannot
+            # see that; equality can.
+            self.assertEqual(response, rebuilt.response)
+            self.assertEqual('m', str(rebuilt))
 
     @no_duplicates
     def test_the_two_causes_are_distinguishable(self):
