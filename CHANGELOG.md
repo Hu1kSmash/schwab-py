@@ -14,6 +14,60 @@ current model.
 
 ---
 
+## 3.0.1
+
+Two fixes and one addition, all found in the hours after 3.0.0 shipped. Nothing
+in 3.0.0's published artifact is wrong; upgrading is worthwhile but not urgent.
+
+### Fixed
+
+**`setup.py` read `README.md` and `version.py` without an encoding**, so Python
+decoded them with the locale's preferred one. On Linux that is UTF-8 and the
+result is correct; on Windows it is a codepage, and every em dash in the README
+became a replacement character in the `long_description` the build produced. A
+wheel built on Linux is fine and one built on Windows is quietly corrupt.
+
+The published 3.0.0 is unaffected — it was built on `ubuntu-latest`, and its
+description on PyPI has its em dashes and no replacement characters.
+
+There was already a test for this. It compares a UTF-8 read against what
+`setup.py` produced, so it cannot fail where the locale is UTF-8 — which is
+everywhere the suite normally runs. It passed on every Linux run and failed on
+every Windows one. The new test reads `setup.py`'s source and requires an
+encoding on every `open()`, which is locale-independent.
+
+**Four tests failed on Windows** because `os.path.relpath` raises when the two
+paths are on different drives, and the control fixtures live in a temp
+directory — `D:` on a runner where the checkout is `C:`. This only ever showed
+on tag pushes, since pushes to `main` run Linux alone and the full matrix runs
+on tags.
+
+### Added
+
+**`import schwab` now warns when `schwab-py` is installed beside it.** This is
+the only place it can be said. `pip` does not implement `Conflicts-Dist` — its
+resolver never reads the field — and a wheel runs no code when it is installed,
+by design, so nothing can refuse or flag the install itself. Import is the first
+moment.
+
+A warning rather than an exception: the library places orders, the files usually
+work, and the damage comes from the *next* `pip uninstall`. Failing the import
+would break a running system to complain about a state that has not broken it
+yet. The message says not to run `pip uninstall schwab-py`, and what to run
+instead.
+
+It is a directory scan rather than an `importlib.metadata` lookup — 0.012 ms
+against 35 ms, on an import that is otherwise about 155 ms. Paying a fifth of
+import time for a diagnostic is the wrong trade.
+
+### Documentation
+
+**The upgrade order is now in the README, the getting-started guide and the
+3.0.0 upgrade table**, because installing `schwaby` over `schwab-py` leaves both
+registered claiming the same files, and `pip uninstall schwab-py` afterwards
+deletes the shared files and destroys the install — `pip` goes on reporting
+`schwaby` as present while `import schwab` raises `ModuleNotFoundError`.
+
 ## 3.0.0
 
 **This release removes public API.** `schwab.contrib.orders` and the
@@ -306,23 +360,6 @@ authorship rather than process.
 The warnings that `schwaby` and `schwab-py` cannot be installed together stay
 too. Those are about a real collision that silently overwrites files, not about
 the relationship between the projects.
-
-
-**`import schwab` now warns when `schwab-py` is installed beside it.** This is
-the only place it can be said. `pip` does not implement `Conflicts-Dist` — its
-resolver never reads the field — and a wheel runs no code when it is installed,
-by design, so nothing can refuse or flag the install itself. Import is the first
-moment.
-
-A warning rather than an exception: the library places orders, the files usually
-work, and the damage comes from the *next* `pip uninstall`. Failing the import
-would break a running system to complain about a state that has not broken it
-yet. The message says not to run `pip uninstall schwab-py`, and what to run
-instead.
-
-It is a directory scan rather than an `importlib.metadata` lookup — 0.012 ms
-against 35 ms, on an import that is otherwise about 155 ms. Paying a fifth of
-import time for a diagnostic is the wrong trade.
 
 ### Documentation
 
