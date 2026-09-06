@@ -160,7 +160,11 @@ the *original* project, which is a different and much older codebase:
   Modules removed in the newer version survive on disk and stay importable. And
   ``pip uninstall schwab-py`` afterwards deletes the shared files and destroys
   the install --- ``pip`` still lists ``schwaby``, but ``import schwab`` raises
-  ``ModuleNotFoundError``. Nothing warns you at any point.
+  ``ModuleNotFoundError``.
+
+  ``pip`` never warns about this --- it does not implement ``Conflicts-Dist``,
+  and a wheel runs no code when it is installed. Since 3.0.1 ``import schwab``
+  does, because import is the first moment the situation can be described.
 
   Migrating from ``schwab-py``? Uninstall it **first**:
 

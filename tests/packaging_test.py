@@ -998,11 +998,22 @@ class LongDescriptionTest(unittest.TestCase):
             with open('setup.py', encoding='utf-8') as f:
                 source = f.read()
 
-        opens = re.findall(r'open\(([^)]*)\)', source)
+        # Parsed rather than grepped. `open\(([^)]*)\)` stops at the first
+        # `)`, so `open(os.path.join(a, b), encoding='utf-8')` reads as
+        # `os.path.join(a, b` -- no `encoding=` in it, and the guard fails on
+        # correct code. The syntax tree has no such ambiguity, and it sees
+        # `io.open` too.
+        opens = [node for node in ast.walk(ast.parse(source))
+                 if isinstance(node, ast.Call)
+                 and (getattr(node.func, 'id', None) == 'open'
+                      or getattr(node.func, 'attr', None) == 'open')]
+
         self.assertGreater(len(opens), 1)       # it does read files
         for call in opens:
-            self.assertIn('encoding=', call,
-                          'setup.py opens a file without an encoding: %s' % call)
+            self.assertIn(
+                    'encoding', [kw.arg for kw in call.keywords],
+                    'setup.py opens a file without an encoding, at line %d'
+                    % call.lineno)
 
     @no_duplicates
     def test_setup_py_ships_what_was_rendered(self):

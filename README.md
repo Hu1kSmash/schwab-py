@@ -280,8 +280,10 @@ import schwab
 >   files and destroys the install.** Measured: `pip` then lists `schwaby` as
 >   present while `import schwab` raises `ModuleNotFoundError`.
 >
-> Nothing warns you at any point. If you have already done it in the wrong
-> order, uninstall both and reinstall `schwaby`.
+> `pip` never warns about this: it does not implement `Conflicts-Dist`, and a
+> wheel runs no code when it is installed. Since 3.0.1 `import schwab` does —
+> it is the first moment the situation can be described at all. If you have
+> already done it in the wrong order, uninstall both and reinstall `schwaby`.
 
 ---
 

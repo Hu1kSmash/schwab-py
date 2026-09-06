@@ -14,6 +14,40 @@ current model.
 
 ---
 
+## 3.0.2
+
+One fix, to the collision warning 3.0.1 added.
+
+### The warning fired on this project's own working tree
+
+3.0.1 warned whenever it found a `schwab_py-*` distribution registered. That is
+not enough to conclude anything: `schwab_py` is the name **this** project
+published before 2.6.0, so an editable install made from a checkout of that era
+registers it, and the warning reported a collision between the working tree and
+itself. It fired on every `pytest` run in this repository.
+
+The check now requires both names — `schwaby` **and** `schwab-py` — before it
+says anything, which is what "both are installed" was always supposed to mean.
+
+Three smaller things came out of the same fix:
+
+- **`.egg-info` no longer counts.** It is what a *source tree* accumulates as a
+  build artefact, and a checkout on `sys.path` carries one. `pip` writes
+  `.dist-info` for both of these distributions under every install method since
+  PEP 660, including editable ones, so nothing real is lost.
+- **The distribution name is split at the version, not the first hyphen.**
+  `schwab-py-2.5.1.dist-info` — the unescaped spelling older tooling wrote —
+  read as a project called `schwab`.
+- **The `warn()` call moved outside the `except Exception` guard.** Under
+  `PYTHONWARNINGS=error` a warning *is* an exception, so the one configuration
+  that asked to be told loudly was the only one told nothing at all.
+
+If you are on 3.0.1 and have never installed `schwab-py`, you will not have
+seen any of this. Upgrading is worthwhile only if you did see a warning you
+believe was wrong.
+
+---
+
 ## 3.0.1
 
 Two fixes and one addition, all found in the hours after 3.0.0 shipped. Nothing
@@ -56,8 +90,9 @@ would break a running system to complain about a state that has not broken it
 yet. The message says not to run `pip uninstall schwab-py`, and what to run
 instead.
 
-It is a directory scan rather than an `importlib.metadata` lookup — 0.012 ms
-against 35 ms, on an import that is otherwise about 155 ms. Paying a fifth of
+It is a directory scan rather than an `importlib.metadata` lookup — 0.2 ms
+against 48 ms across 93 installed packages, on an `import schwab` that is
+otherwise around 150 ms. Both answer the same question, and adding a third to
 import time for a diagnostic is the wrong trade.
 
 ### Documentation

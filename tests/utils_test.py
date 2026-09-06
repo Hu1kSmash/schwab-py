@@ -450,7 +450,7 @@ class CollisionWarningTest(unittest.TestCase):
     that has not broken it yet.
     """
 
-    def call_it(self, listing):
+    def call_it(self, listing, filter='always'):
         '''Runs the check against a synthetic sys.path entry.
 
         `listing` is what os.listdir returns for it -- the real check is a
@@ -464,13 +464,14 @@ class CollisionWarningTest(unittest.TestCase):
                 os.mkdir(os.path.join(tmp, name))
             with patch.object(sys, 'path', [tmp]):
                 with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter('always')
+                    warnings.simplefilter(filter)
                     schwab._warn_if_schwab_py_is_also_installed()
         return caught
 
     @no_duplicates
-    def test_warns_when_schwab_py_is_present(self):
-        caught = self.call_it(['schwab_py-2.5.1.dist-info', 'schwaby-3.0.0.dist-info'])
+    def test_warns_when_both_are_installed(self):
+        caught = self.call_it(
+                ['schwab_py-2.5.1.dist-info', 'schwaby-3.0.1.dist-info'])
 
         self.assertEqual(1, len(caught))
         self.assertIs(RuntimeWarning, caught[0].category)
@@ -482,24 +483,62 @@ class CollisionWarningTest(unittest.TestCase):
         self.assertIn('pip uninstall -y schwab-py schwaby', message)
 
     @no_duplicates
-    def test_silent_when_it_is_not(self):
-        self.assertEqual([], self.call_it(['schwaby-3.0.0.dist-info']))
+    def test_silent_when_only_this_project_is_installed(self):
+        self.assertEqual([], self.call_it(['schwaby-3.0.1.dist-info']))
+
+    @no_duplicates
+    def test_silent_when_schwab_py_is_this_project_under_its_old_name(self):
+        # The case that matters most, because it is every checkout of this
+        # repository made before 2.6.0: an editable install from that era
+        # registers `schwab_py`, and nothing named `schwaby` exists beside it.
+        # There is no second copy of anything, so there is nothing to say --
+        # and a warning here would fire on every `pytest` run in the tree,
+        # which is the fastest way to teach a reader to ignore it.
+        for name in ('schwab_py-2.0.0.dist-info', 'schwab-py-2.5.1.dist-info'):
+            with self.subTest(alone=name):
+                self.assertEqual([], self.call_it([name]), name)
+
+    @no_duplicates
+    def test_silent_for_a_source_tree_build_artefact(self):
+        # The second half of the same case, and the one that actually fired:
+        # a checkout of this repository is on sys.path for every `pytest` run
+        # from its root, and it carries a `schwaby.egg-info` left by a build.
+        # Paired with the stale `schwab_py` registration a pre-2.6.0 editable
+        # install leaves in the virtualenv, that read as a collision between
+        # this project and itself.
+        #
+        # Only `.dist-info` counts now, which is what pip writes for both
+        # distributions under every install method since PEP 660.
+        self.assertEqual([], self.call_it(
+                ['schwaby.egg-info', 'schwab_py-2.0.0.dist-info']))
+        self.assertEqual([], self.call_it(
+                ['schwaby-3.0.1.dist-info', 'schwab_py-2.5.1.egg-info']))
 
     @no_duplicates
     def test_the_layouts_it_recognises(self):
-        # dist-info and egg-info, and the hyphen spelling as well as the
-        # normalised underscore one, because which appears depends on how the
-        # old version was installed.
-        for name in ('schwab_py-2.5.1.dist-info', 'schwab_py-2.5.1.egg-info',
-                     'schwab-py-2.5.1.dist-info', 'SCHWAB_PY-2.5.1.DIST-INFO'):
-            with self.subTest(layout=name):
-                self.assertEqual(1, len(self.call_it([name])), name)
+        # The hyphen spelling as well as the normalised underscore one, and
+        # versioned as well as not -- which appears depends on how each side
+        # was installed, and old enough tooling wrote the name unescaped.
+        pairs = (
+            ('schwab_py-2.5.1.dist-info', 'schwaby-3.0.1.dist-info'),
+            ('schwab-py-2.5.1.dist-info', 'schwaby-3.0.1.dist-info'),
+            ('schwab.py-2.5.1.dist-info', 'schwaby-3.0.1.dist-info'),
+            ('SCHWAB_PY-2.5.1.DIST-INFO', 'SCHWABY-3.0.1.DIST-INFO'),
+            ('schwab_py.dist-info', 'schwaby.dist-info'),
+        )
+        for old, new in pairs:
+            with self.subTest(layout=old):
+                self.assertEqual(1, len(self.call_it([old, new])), old)
 
-        # And things that merely start similarly must not trip it.
-        for name in ('schwaby-3.0.0.dist-info', 'schwab_pyx-1.0.dist-info',
-                     'schwab_py_extras-1.0.dist-info'):
-            with self.subTest(layout=name):
-                self.assertEqual([], self.call_it([name]), name)
+        # And things that merely start similarly must not trip it, however
+        # they are paired.
+        for name in ('schwab_pyx-1.0.dist-info', 'schwab_py_extras-1.0.dist-info',
+                     'schwabypy-1.0.dist-info', 'schwab_py-2.5.1.txt',
+                     'schwab_py-2.5.1.egg-info'):
+            with self.subTest(near_miss=name):
+                self.assertEqual(
+                        [], self.call_it([name, 'schwaby-3.0.1.dist-info']),
+                        name)
 
     @no_duplicates
     def test_an_unreadable_entry_does_not_hide_a_later_one(self):
@@ -514,6 +553,7 @@ class CollisionWarningTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as good:
             os.mkdir(os.path.join(good, 'schwab_py-2.5.1.dist-info'))
+            os.mkdir(os.path.join(good, 'schwaby-3.0.1.dist-info'))
             bad = os.path.join(good, 'nope')
 
             def listdir(entry):
@@ -532,16 +572,69 @@ class CollisionWarningTest(unittest.TestCase):
                          'an unreadable earlier entry hid a later match')
 
     @no_duplicates
-    def test_a_broken_lookup_cannot_break_the_import(self):
-        # A diagnostic that raises is worse than the thing it diagnoses, and
-        # this one runs before anything else in the package.
+    def test_the_two_halves_can_live_on_different_path_entries(self):
+        # site-packages and a `--user` directory are two entries, and the
+        # collision is exactly as real when the pair is split across them.
         import os
         import schwab
 
-        def explode(entry):
-            raise OSError('directory is unreadable')
+        with tempfile.TemporaryDirectory() as first:
+            with tempfile.TemporaryDirectory() as second:
+                os.mkdir(os.path.join(first, 'schwaby-3.0.1.dist-info'))
+                os.mkdir(os.path.join(second, 'schwab_py-2.5.1.dist-info'))
 
-        with patch.object(os, 'listdir', explode):
-            with warnings.catch_warnings(record=True):
-                warnings.simplefilter('always')
-                schwab._warn_if_schwab_py_is_also_installed()   # must not raise
+                with patch.object(sys, 'path', [first, second]):
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter('always')
+                        schwab._warn_if_schwab_py_is_also_installed()
+
+        self.assertEqual(1, len(caught))
+
+    @no_duplicates
+    def test_warnings_as_errors_gets_the_warning(self):
+        # `_warn_if_schwab_py_is_also_installed` swallows exceptions on
+        # purpose, and under `-W error` a warning *is* an exception. If the
+        # `warn()` call sits inside that guard, the one configuration that
+        # asked to be told loudly becomes the only one told nothing at all --
+        # so the raise has to escape.
+        with self.assertRaises(RuntimeWarning):
+            self.call_it(['schwab_py-2.5.1.dist-info',
+                          'schwaby-3.0.1.dist-info'], filter='error')
+
+    @no_duplicates
+    def test_a_broken_lookup_cannot_break_the_import(self):
+        # A diagnostic that raises is worse than the thing it diagnoses, and
+        # this one runs before anything else in the package.
+        #
+        # It has to be something other than OSError. `except OSError: continue`
+        # inside the scan handles that one, so an unreadable directory never
+        # reaches the outer guard and cannot prove it exists -- which is what
+        # the earlier version of this test was doing.
+        import os
+        import schwab
+
+        def explode(path):
+            raise RuntimeError('os.path.isdir is not itself today')
+
+        with patch.object(sys, 'path', ['/anything']):
+            with patch.object(os.path, 'isdir', explode):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter('always')
+                    schwab._warn_if_schwab_py_is_also_installed()  # no raise
+
+        self.assertEqual([], caught)
+
+    @no_duplicates
+    def test_the_package_calls_it_on_import(self):
+        # The check is only worth anything if it runs, and nothing else in the
+        # suite would notice the call at the bottom of `schwab/__init__.py`
+        # being deleted.
+        import os
+
+        source = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'schwab', '__init__.py')
+        with open(source, encoding='utf-8') as f:
+            body = f.read()
+
+        self.assertIn('\n_warn_if_schwab_py_is_also_installed()\n', body)
