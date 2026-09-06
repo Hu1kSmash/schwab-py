@@ -29,18 +29,27 @@ itself. It fired on every `pytest` run in this repository.
 The check now requires both names — `schwaby` **and** `schwab-py` — before it
 says anything, which is what "both are installed" was always supposed to mean.
 
-Three smaller things came out of the same fix:
+Three smaller things came out of the same fix. Only the first was needed to
+stop the false positive; the other two are defects the same code path had:
 
-- **`.egg-info` no longer counts.** It is what a *source tree* accumulates as a
-  build artefact, and a checkout on `sys.path` carries one. `pip` writes
-  `.dist-info` for both of these distributions under every install method since
-  PEP 660, including editable ones, so nothing real is lost.
-- **The distribution name is split at the version, not the first hyphen.**
-  `schwab-py-2.5.1.dist-info` — the unescaped spelling older tooling wrote —
-  read as a project called `schwab`.
+- **`.egg-info` no longer counts.** Not because it is old, but because it is
+  ambiguous: the same name is written into `site-packages` by a legacy install
+  *and* into a source tree as a build artefact, and nothing about the name
+  separates them. A checkout is on `sys.path` for every `pytest` run from its
+  root and carries one, so counting them means calling a project installed
+  because its source is present. `.dist-info` has no such ambiguity and is what
+  `pip` writes for both of these distributions under every install method since
+  PEP 660, editable included.
+- **The distribution name is split at the version, not at a hyphen.** A name
+  can end in one — `schwab-py.dist-info`, the unversioned unescaped spelling —
+  and splitting at the last hyphen gave up its `py`. A version component always
+  begins with a digit and a name never does, which is what separates the two
+  readings.
 - **The `warn()` call moved outside the `except Exception` guard.** Under
   `PYTHONWARNINGS=error` a warning *is* an exception, so the one configuration
-  that asked to be told loudly was the only one told nothing at all.
+  that asked to be told loudly was the only one told nothing at all. The
+  consequence is deliberate and now documented: under `-W error` this warning
+  fails the import, because that is what the operator asked for.
 
 If you are on 3.0.1 and have never installed `schwab-py`, you will not have
 seen any of this. Upgrading is worthwhile only if you did see a warning you
@@ -90,10 +99,16 @@ would break a running system to complain about a state that has not broken it
 yet. The message says not to run `pip uninstall schwab-py`, and what to run
 instead.
 
-It is a directory scan rather than an `importlib.metadata` lookup — 0.2 ms
-against 48 ms across 93 installed packages, on an `import schwab` that is
-otherwise around 150 ms. Both answer the same question, and adding a third to
-import time for a diagnostic is the wrong trade.
+It is a directory listing rather than an `importlib.metadata` lookup, which
+opens and parses a metadata file for every installed package. Both answer the
+question identically. Measured with `time.perf_counter` around a single call in
+a fresh interpreter, five runs, 92 distributions installed, on the maintainer's
+aarch64 Linux box: the listing 0.21–0.23 ms, `importlib.metadata` 104–105 ms,
+`import schwab` itself 143–166 ms. Those absolutes move a lot with the machine,
+the filesystem cache and the number of packages — a reviewer on other hardware
+measured 23–27 ms and 70–77 ms for the same two — so the ratio is the durable
+part, and it says the metadata walk costs a large fraction of the import while
+telling us nothing extra.
 
 ### Documentation
 

@@ -1001,17 +1001,33 @@ class LongDescriptionTest(unittest.TestCase):
         # Parsed rather than grepped. `open\(([^)]*)\)` stops at the first
         # `)`, so `open(os.path.join(a, b), encoding='utf-8')` reads as
         # `os.path.join(a, b` -- no `encoding=` in it, and the guard fails on
-        # correct code. The syntax tree has no such ambiguity, and it sees
-        # `io.open` too.
-        opens = [node for node in ast.walk(ast.parse(source))
-                 if isinstance(node, ast.Call)
-                 and (getattr(node.func, 'id', None) == 'open'
-                      or getattr(node.func, 'attr', None) == 'open')]
+        # correct code.
+        #
+        # Bare `open` and `io.open`, and nothing else. Matching any attribute
+        # call named `open` catches `os.open`, which takes no `encoding` at
+        # all, and `webbrowser.open`, which opens nothing on disk -- either
+        # would fail this test with a message blaming the wrong thing.
+        def is_open(node):
+            if not isinstance(node, ast.Call):
+                return False
+            if isinstance(node.func, ast.Name):
+                return node.func.id == 'open'
+            return (isinstance(node.func, ast.Attribute)
+                    and node.func.attr == 'open'
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == 'io')
 
+        opens = [n for n in ast.walk(ast.parse(source)) if is_open(n)]
         self.assertGreater(len(opens), 1)       # it does read files
+
         for call in opens:
-            self.assertIn(
-                    'encoding', [kw.arg for kw in call.keywords],
+            # `open(file, mode, buffering, encoding)` -- the fourth
+            # positional is the encoding, so a call that passes it that way
+            # is correct and must not be reported as missing it.
+            named = 'encoding' in [kw.arg for kw in call.keywords]
+            positional = len(call.args) >= 4
+            self.assertTrue(
+                    named or positional,
                     'setup.py opens a file without an encoding, at line %d'
                     % call.lineno)
 

@@ -4,20 +4,25 @@ import warnings as _warnings
 def _installed_distribution_names():
     """Returns the normalised names of the distributions on `sys.path`.
 
-    A directory scan rather than `importlib.metadata.distributions()`, which
-    has to read and parse metadata for every installed package. Measured here
-    against 93 installed packages: 0.2 ms for the scan against 48 ms for the
-    metadata lookup, on an `import schwab` that is otherwise around 150 ms.
-    Both agree in both states, so the lookup would add a third to import time
-    and tell us nothing extra -- the wrong trade in a library that gets
-    imported on a latency path.
+    A directory listing rather than `importlib.metadata.distributions()`,
+    which opens and parses a metadata file for every installed package. Both
+    answer this question identically; the listing costs a fraction of a
+    millisecond and the metadata walk costs tens of them, which on this
+    machine is a sizeable fraction of `import schwab` itself. Numbers are not
+    quoted here because they move with the machine, the filesystem cache and
+    the number of packages installed -- `CHANGELOG.md` records what was
+    measured and how. Paying any of it for a diagnostic is the wrong trade in
+    a library that gets imported on a latency path.
 
-    Only `.dist-info` counts. That is what pip writes for both of these
-    distributions, and has been for every install method since PEP 660 --
-    including editable ones. `.egg-info` is what a *source tree* accumulates
-    as a build artefact, and a checkout of this repository on `sys.path` (any
-    `pytest` run from the root) carries one; counting those made the check
-    report a collision against the project's own working tree.
+    Only `.dist-info` counts, and the reason is that `.egg-info` is
+    ambiguous rather than merely old: the same name is written both into
+    `site-packages` by a legacy install and into a *source tree* as a build
+    artefact, and nothing about the name separates them. A checkout is on
+    `sys.path` for every `pytest` run from its root and carries one, so
+    counting them means reporting a project as installed because its source
+    is present. `.dist-info` has no such ambiguity, and it is what pip writes
+    for both of these distributions under every install method since PEP 660,
+    editable included.
 
     Best effort by construction, and a miss costs a warning rather than
     correctness -- the documentation covers the same ground.
@@ -27,6 +32,7 @@ def _installed_distribution_names():
     are the one name.
     """
     import os as _os
+    import re as _re
     import sys as _sys
 
     names = set()
@@ -44,18 +50,18 @@ def _installed_distribution_names():
             if not lowered.endswith('.dist-info'):
                 continue
             stem = lowered[:-len('.dist-info')]
-            # The version is the boundary, not the first hyphen: a name can
-            # contain one (`schwab-py-2.5.1.dist-info`, which older tooling
-            # wrote before the escaped spelling became the rule), and
-            # splitting on the first would read that as a project called
-            # `schwab`. A version component always begins with a digit.
+
+            # `<name>-<version>`, or a bare `<name>`. Splitting at the last
+            # hyphen is not enough on its own, because the name may itself
+            # end in one: `schwab-py.dist-info` would give up its `py`. A
+            # version component always begins with a digit, and a name never
+            # does -- PEP 508 requires a letter or digit at both ends and pip
+            # would resolve a leading-digit name as a version -- so that is
+            # what separates the two readings.
             head, sep, tail = stem.rpartition('-')
             project = head if (sep and tail[:1].isdigit()) else stem
-            normalised = ''
-            for char in project:
-                normalised += '-' if char in '-_.' else char
-            while '--' in normalised:
-                normalised = normalised.replace('--', '-')
+
+            normalised = _re.sub(r'[-_.]+', '-', project)
             if normalised:
                 names.add(normalised)
     return names
@@ -97,6 +103,14 @@ def _warn_if_schwab_py_is_also_installed():
     would be complaining about -- the installed files usually work; it is the
     next `pip uninstall` that does the damage. The person who needs to act is a
     human reading output, so give them something to read.
+
+    One caveat, and it is deliberate: under `PYTHONWARNINGS=error` or
+    `-W error` this *does* fail the import, because there a warning is an
+    exception. That is the operator's own instruction -- they configured the
+    process to treat any warning as fatal -- and quietly exempting this one
+    would mean the configuration that asked to be told loudest is the only one
+    told nothing. `-W error::UserWarning` or an explicit `ignore` filter for
+    `RuntimeWarning` narrows it back if that is not wanted.
     """
     try:
         detected = _schwab_py_is_also_installed()

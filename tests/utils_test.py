@@ -500,19 +500,40 @@ class CollisionWarningTest(unittest.TestCase):
 
     @no_duplicates
     def test_silent_for_a_source_tree_build_artefact(self):
-        # The second half of the same case, and the one that actually fired:
-        # a checkout of this repository is on sys.path for every `pytest` run
-        # from its root, and it carries a `schwaby.egg-info` left by a build.
-        # Paired with the stale `schwab_py` registration a pre-2.6.0 editable
-        # install leaves in the virtualenv, that read as a collision between
-        # this project and itself.
+        # `.egg-info` is excluded because the name is ambiguous, not because
+        # it is old: setuptools writes the same name into `site-packages` for
+        # a legacy install and into a *source tree* as a build artefact, and
+        # nothing about it separates the two. A checkout is on sys.path for
+        # every `pytest` run from its root, so counting them means calling a
+        # project installed because its source is present -- which is what
+        # this repository's own `schwaby.egg-info` did, once the check
+        # required both names.
         #
-        # Only `.dist-info` counts now, which is what pip writes for both
-        # distributions under every install method since PEP 660.
+        # (The false positive 3.0.2 fixes was not this. That was a stale
+        # `schwab_py-2.0.0.dist-info` left by a pre-2.6.0 editable install,
+        # and requiring both names is what stops it. This is a second defect
+        # in the same code, found while fixing the first.)
         self.assertEqual([], self.call_it(
                 ['schwaby.egg-info', 'schwab_py-2.0.0.dist-info']))
         self.assertEqual([], self.call_it(
                 ['schwaby-3.0.1.dist-info', 'schwab_py-2.5.1.egg-info']))
+
+    @no_duplicates
+    def test_a_nameless_dist_info_contributes_no_name(self):
+        # A directory called exactly `.dist-info` leaves an empty stem. The
+        # empty string could never equal either name we look for, so nothing
+        # would misfire -- but the function is documented as returning the
+        # names of the installed distributions, and `{''}` is not one.
+        import os
+        import schwab
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, '.dist-info'))
+            os.mkdir(os.path.join(tmp, 'schwaby-3.0.2.dist-info'))
+            with patch.object(sys, 'path', [tmp]):
+                names = schwab._installed_distribution_names()
+
+        self.assertEqual({'schwaby'}, names)
 
     @no_duplicates
     def test_the_layouts_it_recognises(self):
@@ -525,6 +546,10 @@ class CollisionWarningTest(unittest.TestCase):
             ('schwab.py-2.5.1.dist-info', 'schwaby-3.0.1.dist-info'),
             ('SCHWAB_PY-2.5.1.DIST-INFO', 'SCHWABY-3.0.1.DIST-INFO'),
             ('schwab_py.dist-info', 'schwaby.dist-info'),
+            # The unversioned *hyphenated* spelling, which is the only shape
+            # the digit test decides: `schwab-py`.rpartition('-') gives up
+            # its `py` unless the tail is checked for a version.
+            ('schwab-py.dist-info', 'schwaby.dist-info'),
         )
         for old, new in pairs:
             with self.subTest(layout=old):
