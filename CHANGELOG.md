@@ -51,6 +51,38 @@ stop the false positive; the other two are defects the same code path had:
   consequence is deliberate and now documented: under `-W error` this warning
   fails the import, because that is what the operator asked for.
 
+### Four more, from reviewing the fix
+
+- **`.egg-info` counts again, with a discriminator.** Skipping the layout
+  outright was too blunt: on a Debian or Ubuntu system interpreter the
+  distro-packaged modules register that way and nothing else does — 73
+  `.egg-info` against 35 `.dist-info` on the machine this was measured on — so
+  a legacy-installed `schwab-py`, exactly the old install this check exists to
+  find, was invisible. What separates the two uses is the directory: an install
+  directory never contains `setup.py` or `pyproject.toml`, and a source tree
+  always does.
+- **One working tree registered under both names is no longer a collision.**
+  `pip` uninstalls by project name, so a virtualenv that carried a pre-2.6.0
+  editable install and then received `pip install -e .` holds both
+  registrations, and both editable finders resolve to the same single source
+  tree. Nothing is duplicated — and the remedy this warning prints would have
+  deleted the developer's editable install and replaced their checkout with the
+  PyPI release. `direct_url.json` distinguishes the two situations.
+- **Warnings-as-errors is told without the import dying.** Under
+  `PYTHONWARNINGS=error`, `-W error`, or a consumer's pytest
+  `filterwarnings = error`, `warnings.warn` raises. Raising would fail
+  `import schwab` over a condition where the files on disk still work, which is
+  the opposite of what this check is for; swallowing would leave the
+  configuration that asked to be told loudest the only one told nothing. The
+  raise is now caught and the same text printed to stderr.
+- **The install-order caveat is documented.** Both projects ship a
+  `schwab/__init__.py`, so whichever is installed *second* overwrites the
+  other's — install `schwab-py` over `schwaby` and the file carrying this check
+  is the one that goes. The README and the getting-started guide said "`import
+  schwab` warns" without that condition, which would have let a user read
+  silence as confirmation that the install was fine. That is the precise
+  sequence ending in `pip uninstall schwab-py` and a destroyed install.
+
 If you are on 3.0.1 and have never installed `schwab-py`, you will not have
 seen any of this. Upgrading is worthwhile only if you did see a warning you
 believe was wrong.

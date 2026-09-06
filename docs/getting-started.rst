@@ -162,9 +162,13 @@ the *original* project, which is a different and much older codebase:
   the install --- ``pip`` still lists ``schwaby``, but ``import schwab`` raises
   ``ModuleNotFoundError``.
 
-  ``pip`` never warns about this --- it does not implement ``Conflicts-Dist``,
-  and a wheel runs no code when it is installed. Since 3.0.1 ``import schwab``
-  does, because import is the first moment the situation can be described.
+  ``pip`` never warns about this --- it does not implement
+  ``Conflicts-Dist``, and a wheel runs no code when it is installed.
+  ``import schwab`` does warn, but **only if** ``schwaby`` was installed
+  last: both projects ship a ``schwab/__init__.py``, whichever is installed
+  second overwrites the other's, and installing ``schwab-py`` over
+  ``schwaby`` removes the file that carries the check. Silence is not
+  evidence that the install is clean.
 
   Migrating from ``schwab-py``? Uninstall it **first**:
 

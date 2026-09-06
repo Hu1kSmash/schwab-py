@@ -281,9 +281,14 @@ import schwab
 >   present while `import schwab` raises `ModuleNotFoundError`.
 >
 > `pip` never warns about this: it does not implement `Conflicts-Dist`, and a
-> wheel runs no code when it is installed. Since 3.0.1 `import schwab` does —
-> it is the first moment the situation can be described at all. If you have
-> already done it in the wrong order, uninstall both and reinstall `schwaby`.
+> wheel runs no code when it is installed. `import schwab` does warn — but
+> **only if `schwaby` was installed last.** Both projects ship a file called
+> `schwab/__init__.py`, and whichever is installed second overwrites the
+> other's; install `schwab-py` over `schwaby` and the file carrying the check
+> is the one that goes. So silence is not evidence you are fine.
+>
+> If you have already done it in the wrong order, uninstall both and reinstall
+> `schwaby`.
 
 ---
 

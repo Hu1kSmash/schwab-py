@@ -114,11 +114,16 @@ turned the 2.3.0 `login` split from a saving into three late failure modes.
 
    ```shell
    grep -rn 'schwaby@v\|schwaby==' README.md docs/ schwab/
+   grep -rnE '(Since|As of|In|Before) [0-9]+\.[0-9]+' README.md docs/ schwab/
    ```
 
-   Should be empty. Prose naming a version is worse than a pin, because that
-   grep does not match it and the release may land under a different number than
-   the one written. Say what changed, not which release changed it.
+   The first should be empty. Prose naming a version is worse than a pin,
+   because it will not match a pin grep and the release may land under a
+   different number than the one written --- 3.0.2 shipped "Since 3.0.1
+   `import schwab` warns" past a review that ran this step, because the step
+   only looked for pins. Hence the second grep, which will have hits: read
+   each one and keep only those describing something that already shipped and
+   stays true. Say what changed, not which release changed it.
 
 4. Verify, on **3.11, 3.12 and 3.14** — 3.14 is what the downstream consumer
    runs, and `asyncio` semantics differ below 3.12 as well as above it:

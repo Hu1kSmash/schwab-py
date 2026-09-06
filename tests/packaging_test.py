@@ -1003,32 +1003,47 @@ class LongDescriptionTest(unittest.TestCase):
         # `os.path.join(a, b` -- no `encoding=` in it, and the guard fails on
         # correct code.
         #
-        # Bare `open` and `io.open`, and nothing else. Matching any attribute
-        # call named `open` catches `os.open`, which takes no `encoding` at
-        # all, and `webbrowser.open`, which opens nothing on disk -- either
-        # would fail this test with a message blaming the wrong thing.
+        # A denylist rather than an allowlist, because the failure being
+        # guarded is a file read *added* later, and an allowlist of two
+        # spellings passes anything it has not heard of -- `Path(x).open()`
+        # and `Path(x).read_text()` both read a file and both take an
+        # `encoding`. The only names excluded are the two that would fail
+        # this test with a message blaming the wrong thing: `os.open` takes
+        # no `encoding` at all, and `webbrowser.open` opens nothing on disk.
+        READS = ('open', 'read_text', 'write_text')
+        NOT_FILE_IO = ('os', 'webbrowser', 'sys', 'subprocess')
+
         def is_open(node):
             if not isinstance(node, ast.Call):
                 return False
             if isinstance(node.func, ast.Name):
-                return node.func.id == 'open'
-            return (isinstance(node.func, ast.Attribute)
-                    and node.func.attr == 'open'
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == 'io')
+                return node.func.id in READS
+            if not isinstance(node.func, ast.Attribute):
+                return False
+            if node.func.attr not in READS:
+                return False
+            value = node.func.value
+            return not (isinstance(value, ast.Name)
+                        and value.id in NOT_FILE_IO)
 
         opens = [n for n in ast.walk(ast.parse(source)) if is_open(n)]
         self.assertGreater(len(opens), 1)       # it does read files
 
+        # Where `encoding` sits when it is passed positionally --
+        # `open(file, mode, buffering, encoding)`,
+        # `Path.read_text(encoding, errors)`,
+        # `Path.write_text(data, encoding, errors)`. Reporting one of these
+        # as missing an encoding it did pass is the false failure this test
+        # already had once, in the regex it replaced.
+        ENCODING_POSITION = {'open': 4, 'read_text': 1, 'write_text': 2}
+
         for call in opens:
-            # `open(file, mode, buffering, encoding)` -- the fourth
-            # positional is the encoding, so a call that passes it that way
-            # is correct and must not be reported as missing it.
+            name = getattr(call.func, 'id', None) or call.func.attr
             named = 'encoding' in [kw.arg for kw in call.keywords]
-            positional = len(call.args) >= 4
+            positional = len(call.args) >= ENCODING_POSITION[name]
             self.assertTrue(
                     named or positional,
-                    'setup.py opens a file without an encoding, at line %d'
+                    'setup.py reads a file without an encoding, at line %d'
                     % call.lineno)
 
     @no_duplicates
