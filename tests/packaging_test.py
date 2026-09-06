@@ -957,9 +957,16 @@ class LongDescriptionTest(unittest.TestCase):
         # `pip install schwaby` renders as `pip<span class="w"> </span>install`
         # -- asserting the literal command against the HTML checks the
         # highlighter, not the README. The raw file is checked below instead.
-        for required in ('schwaby', 'schwab-py', 'easy_client',
-                         'Do not install'):
+        for required in ('schwaby', 'schwab-py', 'easy_client'):
             self.assertIn(required, html)
+
+        # The collision warning, by substance rather than by one phrasing --
+        # it has been reworded twice and a literal match broke both times.
+        # What must survive is that it names the other distribution and tells
+        # you to uninstall it.
+        lowered = html.lower()
+        self.assertIn('uninstall', lowered)
+        self.assertIn('schwab-py', lowered)
 
         # Structure, not just length: a description that lost its headings is
         # not a page even if it is long.

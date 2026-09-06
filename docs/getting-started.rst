@@ -152,11 +152,21 @@ the *original* project, which is a different and much older codebase:
 
 .. warning::
 
-  ``schwaby`` and ``schwab-py`` cannot be installed together. Both provide the
-  ``schwab`` package, so whichever is installed second silently overwrites the
-  other's files --- ``pip`` gives no warning and nothing fails until you are
-  running code you did not choose. If you are migrating from ``schwab-py``,
-  uninstall it first.
+  ``schwaby`` and ``schwab-py`` cannot be installed together, and installing
+  one over the other is worse than it sounds. Both provide the ``schwab``
+  package and ``pip`` does not know they are the same project, so both end up
+  registered and both claim the same files.
+
+  Modules removed in the newer version survive on disk and stay importable. And
+  ``pip uninstall schwab-py`` afterwards deletes the shared files and destroys
+  the install --- ``pip`` still lists ``schwaby``, but ``import schwab`` raises
+  ``ModuleNotFoundError``. Nothing warns you at any point.
+
+  Migrating from ``schwab-py``? Uninstall it **first**:
+
+  .. code-block:: shell
+
+    pip uninstall -y schwab-py && pip install schwaby
 
 That's it! You're done! You can verify the install succeeded by importing the
 package:

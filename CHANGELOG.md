@@ -42,6 +42,7 @@ else. These are the things that need an edit, and only if you use them:
 | pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
 | let `AccountHashMismatchException` propagate | It now carries `.order_id`, so a live order on the wrong account is recoverable for the first time — but **anything between the call and your return is skipped on that path too**, journalling included. Catch it, record from `exc.order_id`, then re-raise. |
 | construct `AccountHashMismatchException` yourself | It now requires `(response, order_id, account_hash, message)` rather than a bare message. Catching it is unchanged. |
+| have `schwab-py` installed | **Uninstall it first**: `pip uninstall -y schwab-py && pip install schwaby`. Installing over it leaves both registered claiming the same files, and the obvious cleanup afterwards destroys the install. |
 | pin by git URL rather than from PyPI | A PyPI install writes no `direct_url.json`, so anything verifying the pin by reading `requested_revision` out of it stops answering. Check how you assert your pin before you switch. |
 | check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. **Anything you do between that call and your return is now skipped on that path**, so check what sits there: journalling and bookkeeping most often. |
 
@@ -194,6 +195,12 @@ package. The parent checks for it explicitly, alongside `flask`.
 
 
 ### Changed
+
+**The install is bigger, not smaller.** 2.3.0 split the login packages out and
+took a fresh install from 27 packages to 15. Putting them back reverses that:
+measured, 2.5.1 pulls in 14 packages and 3.0.0 pulls in 24, `cryptography`
+among them. If you remember the slimming, it did not survive — the reasoning
+below is why, and a trading box now has those back to patch and audit.
 
 **`flask`, `multiprocess` and `psutil` are hard dependencies again.** They were
 split out into a `login` extra in 2.3.0. The split saved twelve packages for

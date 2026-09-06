@@ -264,11 +264,24 @@ import schwab
 
 > [!WARNING]
 >
-> **Do not install `schwaby` alongside `schwab-py`.** Both provide the `schwab`
-> package, so whichever lands second silently overwrites the other's files. `pip`
-> gives no warning, nothing fails at install time, and the first sign of trouble is
-> behaviour from a version you did not choose. Uninstall one before installing the
-> other.
+> **Uninstall `schwab-py` before installing `schwaby`. In that order.**
+>
+> ```shell
+> pip uninstall -y schwab-py && pip install schwaby
+> ```
+>
+> Both provide the `schwab` package, and `pip` has no idea they are the same
+> project, so installing one over the other leaves *both* registered and both
+> claiming the same files. Two things then go wrong:
+>
+> - Modules deleted in the newer version survive on disk and stay importable, so
+>   you can `import` something the version you installed does not have.
+> - `pip uninstall schwab-py` — the obvious next step — **deletes the shared
+>   files and destroys the install.** Measured: `pip` then lists `schwaby` as
+>   present while `import schwab` raises `ModuleNotFoundError`.
+>
+> Nothing warns you at any point. If you have already done it in the wrong
+> order, uninstall both and reinstall `schwaby`.
 
 ---
 
