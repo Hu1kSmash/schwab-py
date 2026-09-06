@@ -308,6 +308,22 @@ too. Those are about a real collision that silently overwrites files, not about
 the relationship between the projects.
 
 
+**`import schwab` now warns when `schwab-py` is installed beside it.** This is
+the only place it can be said. `pip` does not implement `Conflicts-Dist` — its
+resolver never reads the field — and a wheel runs no code when it is installed,
+by design, so nothing can refuse or flag the install itself. Import is the first
+moment.
+
+A warning rather than an exception: the library places orders, the files usually
+work, and the damage comes from the *next* `pip uninstall`. Failing the import
+would break a running system to complain about a state that has not broken it
+yet. The message says not to run `pip uninstall schwab-py`, and what to run
+instead.
+
+It is a directory scan rather than an `importlib.metadata` lookup — 0.012 ms
+against 35 ms, on an import that is otherwise about 155 ms. Paying a fifth of
+import time for a diagnostic is the wrong trade.
+
 ### Documentation
 
 **The documentation is published at

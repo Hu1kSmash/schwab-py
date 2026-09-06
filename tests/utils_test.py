@@ -1,4 +1,8 @@
-from unittest.mock import MagicMock
+import sys
+import tempfile
+import warnings
+
+from unittest.mock import MagicMock, patch
 
 
 class PicklableResponse:
@@ -430,3 +434,114 @@ class UtilsTest(unittest.TestCase):
             'https://api.schwabapi.com/trader/v1/accounts/{}/orders/{}'.format(
                 self.account_hash, order_id)})
         self.assertEqual(order_id, self.utils.extract_order_id(response))
+
+
+class CollisionWarningTest(unittest.TestCase):
+    """`import schwab` warns when `schwab-py` is installed beside it.
+
+    This cannot be caught earlier. pip does not implement `Conflicts-Dist` --
+    its resolver never reads the field -- and a wheel runs no code when it is
+    installed, by design. Import is the first moment the situation can be
+    described at all.
+
+    A warning and not an exception: the library places orders, the installed
+    files usually work, and the damage comes from the *next* `pip uninstall`.
+    Failing the import would break a running system to complain about a state
+    that has not broken it yet.
+    """
+
+    def call_it(self, listing):
+        '''Runs the check against a synthetic sys.path entry.
+
+        `listing` is what os.listdir returns for it -- the real check is a
+        directory scan, so that is the seam.
+        '''
+        import os
+        import schwab
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in listing:
+                os.mkdir(os.path.join(tmp, name))
+            with patch.object(sys, 'path', [tmp]):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter('always')
+                    schwab._warn_if_schwab_py_is_also_installed()
+        return caught
+
+    @no_duplicates
+    def test_warns_when_schwab_py_is_present(self):
+        caught = self.call_it(['schwab_py-2.5.1.dist-info', 'schwaby-3.0.0.dist-info'])
+
+        self.assertEqual(1, len(caught))
+        self.assertIs(RuntimeWarning, caught[0].category)
+        message = str(caught[0].message)
+
+        # The two things a reader has to come away with: do not run the
+        # obvious cleanup, and here is what to run instead.
+        self.assertIn('pip uninstall schwab-py', message)
+        self.assertIn('pip uninstall -y schwab-py schwaby', message)
+
+    @no_duplicates
+    def test_silent_when_it_is_not(self):
+        self.assertEqual([], self.call_it(['schwaby-3.0.0.dist-info']))
+
+    @no_duplicates
+    def test_the_layouts_it_recognises(self):
+        # dist-info and egg-info, and the hyphen spelling as well as the
+        # normalised underscore one, because which appears depends on how the
+        # old version was installed.
+        for name in ('schwab_py-2.5.1.dist-info', 'schwab_py-2.5.1.egg-info',
+                     'schwab-py-2.5.1.dist-info', 'SCHWAB_PY-2.5.1.DIST-INFO'):
+            with self.subTest(layout=name):
+                self.assertEqual(1, len(self.call_it([name])), name)
+
+        # And things that merely start similarly must not trip it.
+        for name in ('schwaby-3.0.0.dist-info', 'schwab_pyx-1.0.dist-info',
+                     'schwab_py_extras-1.0.dist-info'):
+            with self.subTest(layout=name):
+                self.assertEqual([], self.call_it([name]), name)
+
+    @no_duplicates
+    def test_an_unreadable_entry_does_not_hide_a_later_one(self):
+        # The inner `except OSError: continue` is not the same as letting the
+        # outer guard catch it. Both keep the import alive, but only `continue`
+        # keeps scanning -- and schwab-py may be on a later sys.path entry than
+        # the directory that could not be read.
+        import os
+        import schwab
+
+        real_listdir = os.listdir
+
+        with tempfile.TemporaryDirectory() as good:
+            os.mkdir(os.path.join(good, 'schwab_py-2.5.1.dist-info'))
+            bad = os.path.join(good, 'nope')
+
+            def listdir(entry):
+                if entry == bad:
+                    raise PermissionError(entry)
+                return real_listdir(entry)
+
+            with patch.object(os.path, 'isdir', lambda p: True):
+                with patch.object(os, 'listdir', listdir):
+                    with patch.object(sys, 'path', [bad, good]):
+                        with warnings.catch_warnings(record=True) as caught:
+                            warnings.simplefilter('always')
+                            schwab._warn_if_schwab_py_is_also_installed()
+
+        self.assertEqual(1, len(caught),
+                         'an unreadable earlier entry hid a later match')
+
+    @no_duplicates
+    def test_a_broken_lookup_cannot_break_the_import(self):
+        # A diagnostic that raises is worse than the thing it diagnoses, and
+        # this one runs before anything else in the package.
+        import os
+        import schwab
+
+        def explode(entry):
+            raise OSError('directory is unreadable')
+
+        with patch.object(os, 'listdir', explode):
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter('always')
+                schwab._warn_if_schwab_py_is_also_installed()   # must not raise

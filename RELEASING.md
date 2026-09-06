@@ -18,6 +18,12 @@ pip installed. Three consecutive reproductions of a reported install collision
 came back "does not reproduce" that way, while inspecting the source tree. `cd`
 somewhere else first, and check `schwab.__file__` before believing the answer.
 
+**A red-proof that greps for `FAILED` cannot see a `subTest`.** pytest reports
+a failing subtest as `SUBFAILED(...)`, so a harness matching `FAILED .*::` calls
+it green. One mutation was reported as unnoticed here and was in fact caught,
+by a subtest, which is the worst direction for that error: it invites deleting a
+guard that works.
+
 **Check the mutation actually applied.** A `sed` expression spanning two lines
 matches nothing, and a restore within the same second reuses stale bytecode
 (CPython invalidates on mtime and size). Both have produced a false green here.
