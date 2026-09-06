@@ -104,6 +104,17 @@ def _describe_error(response):
 _ERROR_DETAIL_LIMIT = 500
 
 
+def _rebuild_exception(cls, args, state):
+    '''Reconstructs an exception without going through its ``__init__``.
+
+    Module level because ``__reduce__`` has to name something picklable.
+    '''
+    exc = cls.__new__(cls)
+    BaseException.__init__(exc, *args)
+    exc.__dict__.update(state)
+    return exc
+
+
 class SchwabError(Exception):
     '''Base class for every exception this library raises.
 
@@ -123,6 +134,25 @@ class SchwabError(Exception):
     works. :class:`OrderIdNotFoundError` deliberately does not: see its own
     documentation.
     '''
+
+    def __reduce__(self):
+        # Exceptions here take the thing they are about as a leading positional
+        # argument -- a response, an order id, a raw frame -- and pass only the
+        # message up to BaseException. The default __reduce__ reconstructs by
+        # calling __init__ with self.args, which is just the message, so a copy
+        # or a pickle either raised TypeError for the missing positionals or,
+        # worse, succeeded with the message bound to the response and the
+        # message itself lost.
+        #
+        # That is not academic: this library runs its own callback server in a
+        # child process, and anything placing orders from a worker pool moves
+        # exceptions across a boundary. The one exception here that says an
+        # order is live on the wrong account is the last one that should arrive
+        # as a TypeError about argument counts.
+        #
+        # Rebuilding around __init__ handles every signature below uniformly,
+        # including the keyword-only ones, and needs no per-class __reduce__.
+        return (_rebuild_exception, (type(self), self.args, dict(self.__dict__)))
 
 
 
@@ -204,9 +234,17 @@ class AccountHashMismatchException(SchwabError, ValueError):
     placed something. The mismatch is in your wiring, and the consequence is an
     order on an account you were not expecting to trade.
 
-    So the ID and the hash Schwab reported are both on the exception, along
-    with the response. Everything needed to go and cancel it is here --- read
-    ``.order_id`` and ``.account_hash``, do not re-derive them.
+    So everything needed to go and cancel it is on the exception --- read it,
+    do not re-derive it from the message:
+
+    * ``.order_id`` --- the order Schwab created
+    * ``.account_hash`` --- the account it was placed on, as Schwab reported it
+    * ``.expected_account_hash`` --- the one this :class:`Utils` was built with
+    * ``.response`` --- the whole ``place_order`` response
+
+    The two hashes are both here on purpose. A handler far from the call site
+    has no ``Utils`` left to ask, and reaching only the one Schwab named leaves
+    it interpolating the other out of the message text.
 
     .. warning::
 
@@ -215,11 +253,13 @@ class AccountHashMismatchException(SchwabError, ValueError):
        swallow it. Given what it means, narrow that.
     '''
 
-    def __init__(self, response, order_id, account_hash, *args, **kwargs):
+    def __init__(self, response, order_id, account_hash,
+                 expected_account_hash=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.response = response
         self.order_id = order_id
         self.account_hash = account_hash
+        self.expected_account_hash = expected_account_hash
 
 
 class TokenRefreshError(SchwabError):
@@ -348,6 +388,7 @@ class Utils(EnumEnforcer):
         if str(account_hash) != str(self.account_hash):
             raise AccountHashMismatchException(
                 place_order_response, order_id, account_hash,
+                self.account_hash,
                 'order {} was placed on account {!r}, but this Utils was built '
                 'with {!r}. The order is live on the account Schwab named; its '
                 'id is on this exception as .order_id.'.format(

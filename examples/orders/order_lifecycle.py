@@ -65,9 +65,13 @@ def place(client, account_hash):
         print('PLACED BUT UNTRACKED: %s' % exc)
         print('reconcile against get_orders_for_account before trading again')
         return None
-    except AccountHashMismatchException:
-        # The response belongs to a different account than this Utils was built
-        # with, which means the wiring is wrong rather than the order.
+    except AccountHashMismatchException as exc:
+        # The order IS live -- this is raised only after a successful response
+        # and a parsed order id -- just on an account you were not expecting to
+        # trade. Everything needed to go and cancel it is on the exception, so
+        # do not re-derive it from the message.
+        print('WRONG ACCOUNT, ORDER IS LIVE: order %s on account %s'
+              % (exc.order_id, exc.account_hash))
         raise
 
 

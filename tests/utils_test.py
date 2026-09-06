@@ -182,16 +182,32 @@ class UtilsTest(unittest.TestCase):
         import importlib, inspect, pkgutil
         import schwab
 
-        modules, found, missing = [], {}, []
-        for info in pkgutil.walk_packages(schwab.__path__, 'schwab.'):
+        # Seeded with `schwab` itself: walk_packages yields only SUBmodules,
+        # and schwab/__init__.py already runs module-level code, so an
+        # exception defined there would never be looked at. Verified by hand
+        # rather than by mutation, because nothing in __init__.py raises today
+        # so a mutation of the seed is green either way: with an exception
+        # added there, the seeded walk fails and the unseeded one passes.
+        #
+        # onerror re-raises rather than defaulting to None, which silently
+        # drops a subpackage out of the walk if one of its imports ever fails.
+        # That one is defensive and cannot be exercised while every module
+        # imports cleanly, which is the point of having it.
+        def _boom(name):
+            self.fail('could not import %s while walking' % name)
+
+        modules, found, missing = ['schwab'], {}, []
+        for info in pkgutil.walk_packages(schwab.__path__, 'schwab.',
+                                          onerror=_boom):
             modules.append(info.name)
-            module = importlib.import_module(info.name)
+        for name in modules:
+            module = importlib.import_module(name)
             for attr, obj in vars(module).items():
                 if (inspect.isclass(obj) and issubclass(obj, BaseException)
-                        and obj.__module__ == info.name):
-                    found['%s.%s' % (info.name, attr)] = obj
+                        and obj.__module__ == name):
+                    found['%s.%s' % (name, attr)] = obj
                     if not issubclass(obj, SchwabError):
-                        missing.append('%s.%s' % (info.name, attr))
+                        missing.append('%s.%s' % (name, attr))
 
         # Controls for the walk itself, since an empty walk satisfies the
         # assertion below. Name specific classes from three separate modules
@@ -209,15 +225,85 @@ class UtilsTest(unittest.TestCase):
     def test_schwab_error_is_not_claimed_to_cover_bare_value_errors(self):
         # The library raises plain ValueError for argument validation in about
         # thirty places, so `except SchwabError` is NOT everything it can
-        # throw. The documentation said it was; this pins the true statement so
-        # the wording cannot drift back.
+        # throw. This pins the BEHAVIOUR; it does not read the docstring, so it
+        # cannot stop the wording drifting back on its own -- the assertion
+        # below does that part.
         from schwab.orders.generic import OrderBuilder
 
-        for bad in (lambda: OrderBuilder().set_quantity(-1),
-                    lambda: OrderBuilder().set_price(0.1)):
-            with self.assertRaises(ValueError) as cm:
-                bad()
-            self.assertNotIsInstance(cm.exception, SchwabError)
+        for label, bad in (('set_quantity(-1)',
+                            lambda: OrderBuilder().set_quantity(-1)),
+                           ('set_price(0.1)',
+                            lambda: OrderBuilder().set_price(0.1))):
+            with self.subTest(call=label):
+                with self.assertRaises(ValueError) as cm:
+                    bad()
+                self.assertNotIsInstance(cm.exception, SchwabError)
+
+        # The overclaim this replaced, in the words it used.
+        self.assertNotIn('nothing else', SchwabError.__doc__)
+        self.assertIn('ValueError', SchwabError.__doc__)
+
+    @no_duplicates
+    def test_every_exception_survives_a_process_boundary(self):
+        # These carry the thing they are about as a leading positional and pass
+        # only the message to BaseException, so the default reconstruction
+        # called __init__ with the message alone: TypeError for most, and for
+        # UnsuccessfulOrderException a copy that bound the message to
+        # `response` and lost the message. This library runs its own callback
+        # server in a child process, and anything placing orders from a worker
+        # pool moves exceptions across a boundary -- where the one saying an
+        # order is live on the wrong account must not arrive as a TypeError
+        # about argument counts.
+        import copy, importlib, inspect, pickle, pkgutil
+        import schwab
+
+        samples = {
+            'SchwabError': ('m',),          # the base is a class too
+            'UnexpectedResponse': (MagicMock(), 'm'),
+            'UnexpectedResponseCode': (MagicMock(), 'm'),
+            'UnparsableMessage': ('raw', ValueError('x'), 'm'),
+            'UnusableMessage': ('m',),
+            'ResponseTimeoutError': ('svc', 'cmd', 60, 'm'),
+            'UnsuccessfulOrderException': (MagicMock(), 'm'),
+            'OrderIdNotFoundError': (MagicMock(), None, 'm'),
+            'MissingLocationHeaderError': (MagicMock(), None, 'm'),
+            'UnrecognizedLocationError': (MagicMock(), 'loc', 'm'),
+            'AccountHashMismatchException': (MagicMock(), 123, 'BBBB', 'AAAA', 'm'),
+            'TokenRefreshError': ('m',),
+            'RedirectTimeoutError': ('m',),
+            'RedirectServerExitedError': ('m',),
+            'InvalidOrderException': ('m',),
+        }
+
+        seen = 0
+        for info in pkgutil.walk_packages(schwab.__path__, 'schwab.'):
+            module = importlib.import_module(info.name)
+            for attr, obj in vars(module).items():
+                if not (inspect.isclass(obj) and issubclass(obj, BaseException)
+                        and obj.__module__ == info.name):
+                    continue
+                self.assertIn(attr, samples, 'new exception, add a sample')
+                seen += 1
+                exc = obj(*samples[attr])
+                with self.subTest(exception=attr):
+                    for rebuilt in (copy.copy(exc), copy.deepcopy(exc)):
+                        self.assertIs(type(rebuilt), obj)
+                        self.assertEqual(str(exc), str(rebuilt))
+
+        # The walk found them, rather than the loop never running.
+        self.assertEqual(len(samples), seen)
+
+    @no_duplicates
+    def test_the_attributes_survive_it_too(self):
+        # A message that survives while .order_id does not would be the same
+        # bug wearing a different face: the handler is told an order is live
+        # and cannot reach it.
+        import copy
+        exc = AccountHashMismatchException(MagicMock(), 987, 'BBBB', 'm')
+        rebuilt = copy.copy(exc)
+        self.assertEqual(987, rebuilt.order_id)
+        self.assertEqual('BBBB', rebuilt.account_hash)
+        self.assertIsNotNone(rebuilt.response)
 
     @no_duplicates
     def test_the_two_causes_are_distinguishable(self):
@@ -256,6 +342,12 @@ class UtilsTest(unittest.TestCase):
         # somebody to re-derive with a regex.
         self.assertEqual(123, cm.exception.order_id)
         self.assertEqual('badhash', cm.exception.account_hash)
+        # Both hashes: a handler far from the call site has no Utils left to
+        # ask which account it meant, and should not have to parse the message.
+        self.assertEqual(self.utils.account_hash,
+                         cm.exception.expected_account_hash)
+        self.assertNotEqual(cm.exception.account_hash,
+                            cm.exception.expected_account_hash)
         self.assertIs(response, cm.exception.response)
         self.assertIn('is live', str(cm.exception))
 

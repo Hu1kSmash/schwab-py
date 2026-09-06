@@ -118,6 +118,22 @@ include it in a bug report, because it means Schwab changed the URL format.
 The messages say what matters rather than what happened: *the order may be
 live: check get_orders_for_account*.
 
+**Every exception this library defines was broken across a process boundary.**
+They carry the thing they are about as a leading positional argument — a
+response, an order id, a raw frame — and passed only the message up to
+`BaseException`, so the default reconstruction called `__init__` with the
+message alone. `copy`, `deepcopy` and `pickle` therefore raised
+`TypeError: ... missing 2 required positional arguments` for most of them, and
+for `UnsuccessfulOrderException` succeeded while silently losing the message —
+which is Schwab's rejection reason.
+
+That matters here specifically: this library runs its own callback server in a
+child process, and anything placing orders from a worker pool moves exceptions
+across a boundary. The one that says *an order is live on the wrong account* is
+the last one that should arrive as a `TypeError` about argument counts. Fixed
+once on `SchwabError` rather than fourteen times, and a test round-trips every
+exception class the package defines.
+
 **`AccountHashMismatchException` said the wiring was wrong and not that an
 order existed.** It is raised only after the response came back successful *and*
 a valid order ID was parsed out of it — so Schwab placed something, on an
