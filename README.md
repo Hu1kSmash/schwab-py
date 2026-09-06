@@ -208,7 +208,7 @@ async def main():
 asyncio.run(main())
 ```
 
-New here? The **[getting started guide](docs/getting-started.rst)** walks through
+New here? The **[getting started guide](https://schwaby.readthedocs.io/en/stable/getting-started.html)** walks through
 registering an app with Schwab and getting your first token.
 
 ---
@@ -224,7 +224,7 @@ registering an app with Schwab and getting your first token.
 | **Accounts** | Balances, positions, orders and transaction history |
 | **Sync and async** | Swap `Client` for `AsyncClient`, add `await`, change nothing else |
 
-The **[documentation](docs/index.rst)** is worth reading even if you end up calling
+The **[documentation](https://schwaby.readthedocs.io/en/stable/)** is worth reading even if you end up calling
 the API directly. Schwab's own portal is behind a login, so for much of this API
 those pages are the most accessible description of how it actually behaves.
 

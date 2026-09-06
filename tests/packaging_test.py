@@ -225,6 +225,7 @@ class LinkTest(unittest.TestCase):
     """
 
     ALLOWED_HOSTS = frozenset((
+        'schwaby.readthedocs.io',           # our published documentation
         'github.com',                       # ours, plus httpx2's changelog
         'img.shields.io',                   # README badges
         'api.schwabapi.com',                # the API itself
@@ -307,6 +308,11 @@ class LinkTest(unittest.TestCase):
         for name in sorted(os.listdir(REPO_ROOT)):
             if name.endswith(('.rst', '.md')):
                 found.append(os.path.join(REPO_ROOT, name))
+        # setup.py carries the Documentation URL PyPI shows in its sidebar,
+        # which is as reader-facing as anything in the docs and was outside
+        # this walk until a red-proof pointed it at a nonexistent page and
+        # nothing failed.
+        found.append(os.path.join(REPO_ROOT, 'setup.py'))
         return found
 
     @classmethod
@@ -333,23 +339,51 @@ class LinkTest(unittest.TestCase):
         return sorted(set(offenders))
 
     @staticmethod
-    def rst_anchors(path):
-        """GitHub's slugs for the section titles in an .rst file.
+    def rst_titles(path):
+        """The section titles in an .rst file.
 
         A title is a line with a punctuation underline of at least its own
-        length beneath it. GitHub lowercases, drops anything that is not a word
-        character, space or hyphen, and turns spaces into hyphens.
+        length beneath it. Overlined titles fall out of this too: the title is
+        still the line above its underline.
         """
         lines = open(path, encoding='utf-8').read().split('\n')
-        anchors = set()
+        titles = []
         for i, line in enumerate(lines[:-1]):
             title, under = line.strip(), lines[i + 1].strip()
             if (title and len(under) >= len(title) and len(under) > 2
                     and len(set(under)) == 1
                     and under[0] in '=-~+^"\'`#*_:.'):
-                slug = re.sub(r'[^\w\s-]', '', title.lower())
-                anchors.add(re.sub(r'[\s_]+', '-', slug).strip('-'))
-        return anchors
+                titles.append(title)
+        return titles
+
+    @classmethod
+    def rst_anchors(cls, path):
+        """GitHub's slugs: drop non-word characters, spaces become hyphens."""
+        out = set()
+        for title in cls.rst_titles(path):
+            slug = re.sub(r'[^\w\s-]', '', title.lower())
+            out.add(re.sub(r'[\s_]+', '-', slug).strip('-'))
+        return out
+
+    @classmethod
+    def sphinx_anchors(cls, path):
+        """Sphinx's slugs, which are NOT GitHub's.
+
+        Sphinx replaces every non-alphanumeric run with a single hyphen;
+        GitHub deletes the punctuation instead. So the heading
+        "Browser Warnings About Invalid/Self-Signed Certificates" is
+        ...invalid-self-signed... on Read the Docs and ...invalidself-signed...
+        on GitHub. One slugifier for both renderers reported a live anchor as
+        missing, which is how this was found.
+        """
+        out = set()
+        for title in cls.rst_titles(path):
+            out.add(re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-'))
+        # Explicit `.. _label:` targets become anchors too.
+        for label in re.findall(r'^\.\. _([\w-]+):', 
+                                open(path, encoding='utf-8').read(), re.M):
+            out.add(label.replace('_', '-'))
+        return out
 
     @classmethod
     def broken_own_links_in(cls, files):
@@ -428,13 +462,67 @@ class LinkTest(unittest.TestCase):
                 found[target] += 1
         self.assertGreater(sum(found.values()), 3)
 
-        # Named, because these two are the reason the check exists: both are
-        # written as concatenated literals, and both went unseen until the
-        # joining above. A count alone would have stayed green.
-        self.assertIn('docs/auth.rst', found)
+        # Named rather than counted. order-templates is written as
+        # concatenated string literals in orders/generic.py, which is the case
+        # that went unseen until the joining above; a count alone would have
+        # stayed green. auth.rst used to be here too and moved to Read the
+        # Docs, which the check below covers instead.
         self.assertIn('docs/order-templates.rst', found)
 
         self.assertEqual([], self.broken_own_links_in(files))
+
+    # Read the Docs links cannot be resolved against the working tree the way
+    # a blob link can -- the page does not exist until Sphinx builds it. But
+    # the anchor is derived from a section title in docs/*.rst, so retitling
+    # that section is exactly the rot this catches, without a network call.
+    RTD_LINK = re.compile(
+            r'https://schwaby\.readthedocs\.io/en/stable/'
+            r'([a-z0-9-]+)\.html(?:#([a-z0-9-]+))?')
+
+    @classmethod
+    def broken_rtd_anchors_in(cls, files):
+        broken = []
+        for path in files:
+            contents = cls.read_joined(path)
+            for page, anchor in cls.RTD_LINK.findall(contents):
+                where = os.path.relpath(path, REPO_ROOT)
+                source = os.path.join(REPO_ROOT, 'docs', page + '.rst')
+                if not os.path.exists(source):
+                    broken.append((where, page, 'no docs/%s.rst' % page))
+                elif anchor and anchor not in cls.sphinx_anchors(source):
+                    broken.append((where, page + '#' + anchor,
+                                   'no section with that anchor'))
+        return sorted(set(broken))
+
+    @no_duplicates
+    def test_our_readthedocs_links_match_a_real_section(self):
+        files = self.linkable_files()
+
+        # Positive control: these assertions are about an empty list, so prove
+        # the links were found. auth.py alone carries four.
+        found = sum(len(self.RTD_LINK.findall(self.read_joined(p)))
+                    for p in files)
+        self.assertGreater(found, 3)
+
+        self.assertEqual([], self.broken_rtd_anchors_in(files))
+
+    @no_duplicates
+    def test_the_rtd_check_catches_a_retitled_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'shipped.py')
+            with open(path, 'w') as f:
+                f.write('https://schwaby.readthedocs.io/en/stable/'
+                        'auth.html#callback-url-requirements\n'
+                        'https://schwaby.readthedocs.io/en/stable/'
+                        'auth.html#no-such-section\n'
+                        'https://schwaby.readthedocs.io/en/stable/gone.html\n')
+
+            broken = self.broken_rtd_anchors_in([path])
+
+        self.assertEqual(
+                [('auth#no-such-section', 'no section with that anchor'),
+                 ('gone', 'no docs/gone.rst')],
+                [(t, why) for _, t, why in broken])
 
     @no_duplicates
     def test_the_link_check_catches_a_moved_target_and_a_retitled_section(self):

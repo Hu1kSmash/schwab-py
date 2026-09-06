@@ -411,13 +411,14 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     parsed = urllib.parse.urlparse(callback_url)
 
     if parsed.hostname != '127.0.0.1':
-        # Documented at docs/auth.rst "Callback URL Requirements", which is
-        # where the message below links. A test asserts that anchor exists.
+        # Documented under "Callback URL Requirements", which is where the
+        # message below links. A test asserts the anchor exists in the source
+        # that builds that page.
         raise ValueError(
                 ('Disallowed hostname {}. client_from_login_flow only allows '+
                  'callback URLs with hostname 127.0.0.1. See here for ' +
-                 'more information: https://github.com/Hu1kSmash/schwaby/' +
-                 'blob/main/docs/auth.rst#callback-url-requirements').format(
+                 'more information: https://schwaby.readthedocs.io/en/' +
+                 'stable/auth.html#callback-url-requirements').format(
                      parsed.hostname))
 
     callback_port = parsed.port if parsed.port else 443
@@ -548,10 +549,11 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         print('>>',callback_url)
         print()
         print('See here to learn more about self-signed SSL certificates:')
-        print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
+        print('https://schwaby.readthedocs.io/en/stable/auth.html'
+              '#browser-warnings-about-invalid-self-signed-certificates')
         print()
         print('If you encounter any issues, see here for troubleshooting:')
-        print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
+        print('https://schwaby.readthedocs.io/en/stable/auth.html#troubleshooting')
         print('***********************************************************************')
         print()
 
@@ -697,7 +699,7 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
     print('    Enter/Return.')
     print()
     print('If you encounter any issues, see here for troubleshooting:')
-    print('https://github.com/Hu1kSmash/schwaby/blob/main/docs/auth.rst')
+    print('https://schwaby.readthedocs.io/en/stable/auth.html#troubleshooting')
     print('\n**************************************************************\n')
 
     if callback_url.startswith('http://'):

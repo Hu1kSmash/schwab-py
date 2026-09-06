@@ -303,6 +303,15 @@ the relationship between the projects.
 
 ### Documentation
 
+**The documentation is published at
+[schwaby.readthedocs.io](https://schwaby.readthedocs.io/), and every link now
+points there.** Previously they pointed at the `.rst` sources on GitHub, which
+renders them as plain text — including the link PyPI shows in its sidebar, and
+the three URLs `client_from_login_flow` prints during an interactive login.
+
+User-facing links use `/en/stable/`, which tracks the latest tag, so someone on
+3.0.0 reads 3.0.0's documentation rather than whatever is on `main`.
+
 **A caution about real money, where a reader will actually meet it.** The README
 carried an inherited one-paragraph disclaimer at the very bottom, under the
 licence, which is where nobody reads. There is now a `[!CAUTION]` block near the

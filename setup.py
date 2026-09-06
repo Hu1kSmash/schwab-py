@@ -116,7 +116,7 @@ setuptools.setup(
     },
     keywords='finance trading equities bonds options research',
     project_urls={
-        'Documentation': 'https://github.com/Hu1kSmash/schwaby/blob/main/docs/index.rst',
+        'Documentation': 'https://schwaby.readthedocs.io/',
         'Source': 'https://github.com/Hu1kSmash/schwaby',
         'Tracker': 'https://github.com/Hu1kSmash/schwaby/issues',
         'Upstream': 'https://github.com/alexgolec/schwab-py',
