@@ -382,11 +382,15 @@ class Utils(EnumEnforcer):
         try:
             location = place_order_response.headers['Location']
         except KeyError:
+            # `from None` because the chained "During handling of the above
+            # exception" opens the traceback with KeyError: 'Location', which
+            # in a log capture reads as the library crashing on a dict lookup
+            # -- the opposite of what the message below is trying to say.
             raise MissingLocationHeaderError(
                     place_order_response, None,
                     'order was accepted but the response carried no Location '
                     'header, so it has no order ID to return. The order may be '
-                    'live: check get_orders_for_account.')
+                    'live: check get_orders_for_account.') from None
 
         m = re.match(
                 r'https://api.schwabapi.com/trader/v1/accounts/(\w+)/orders/(\d+)',

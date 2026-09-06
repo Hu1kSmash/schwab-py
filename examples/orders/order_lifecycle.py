@@ -8,10 +8,11 @@ path:
   3. poll until it reaches a terminal state
   4. cancel it if it never does
 
-The documentation covers each call. What it cannot show is that step 2 has
-three outcomes wanting three different responses: Schwab rejected it and
-nothing was placed, Schwab accepted it and gave back no id so something is
-probably live and untracked, or you got an id.
+The documentation covers each call. What it cannot show is that step 2 has four
+outcomes wanting four different responses: Schwab rejected it and nothing was
+placed; Schwab accepted it and gave back no id, so something is probably live
+and untracked; the response belongs to another account, so an order is live
+there; or you got an id.
 """
 
 import time
@@ -44,7 +45,11 @@ GIVE_UP_AFTER = 60.0
 
 
 def place(client, account_hash):
-    """Returns the order id, or None if the order did not produce one."""
+    """Returns the order id, or None when there is nothing to follow.
+
+    Re-raises on a hash mismatch: that one is not a placement outcome, it is
+    the wrong account, and continuing would poll the wrong book.
+    """
     order = equity_buy_limit(SYMBOL, QUANTITY, LIMIT_PRICE).build()
 
     response = client.place_order(account_hash, order)

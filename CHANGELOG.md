@@ -40,11 +40,11 @@ else. These are the things that need an edit, and only if you use them:
 | pin `schwaby[login]` or `schwaby[codegen]` | Drop the bracket. The pin still installs, with a warning. |
 | call `set_destination_link_name` to pick a venue | Use `set_requested_destination`. The old one was writing to a field that does not select one. |
 | pass `account_id=` to `StreamClient` | Remove it. It was accepted and never used. |
+| construct `AccountHashMismatchException` yourself | It now requires `(response, order_id, account_hash, message)` rather than a bare message. Catching it is unchanged. |
 | pin by git URL rather than from PyPI | A PyPI install writes no `direct_url.json`, so anything verifying the pin by reading `requested_revision` out of it stops answering. Check how you assert your pin before you switch. |
-| check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. |
+| check `extract_order_id` for `None` | It raises now. Catch `OrderIdNotFoundError` — and read the entry below, because that case means an order may be live. **Anything you do between that call and your return is now skipped on that path**, so check what sits there: journalling and bookkeeping most often. |
 
-Nothing else in the public surface moved. If you install a fresh `3.0.0` and
-your imports resolve, you are done.
+Nothing else in the public surface moved.
 
 
 ### Added
@@ -118,14 +118,18 @@ include it in a bug report, because it means Schwab changed the URL format.
 The messages say what matters rather than what happened: *the order may be
 live: check get_orders_for_account*.
 
-**Every exception this library defines was broken across a process boundary.**
-They carry the thing they are about as a leading positional argument — a
-response, an order id, a raw frame — and passed only the message up to
-`BaseException`, so the default reconstruction called `__init__` with the
-message alone. `copy`, `deepcopy` and `pickle` therefore raised
-`TypeError: ... missing 2 required positional arguments` for most of them, and
-for `UnsuccessfulOrderException` succeeded while silently losing the message —
-which is Schwab's rejection reason.
+**Five exceptions were broken across a process boundary.** Any that carry the
+thing they are about as a leading positional argument — a response, a raw frame
+— passed only the message up to `BaseException`, so the default reconstruction
+called `__init__` with the message alone. Measured on 2.6.0:
+`UnparsableMessage` and `ResponseTimeoutError` raised
+`TypeError: ... missing required positional arguments` under `copy`, `deepcopy`
+and `pickle`; `UnexpectedResponse`, `UnexpectedResponseCode` and
+`UnusableMessage` reconstructed with the message silently gone. The other six
+were fine.
+
+The new exceptions in this release have the same shape, so the fix covers all
+fifteen rather than the five.
 
 That matters here specifically: this library runs its own callback server in a
 child process, and anything placing orders from a worker pool moves exceptions
@@ -146,8 +150,13 @@ without re-deriving the ID from the header themselves.
 It now carries `.order_id`, `.account_hash`, `.response` and
 `.expected_account_hash` — the last keyword-only, so it cannot take the slot a
 message is passed in — and says *the order is live on the account Schwab
-named*. If you construct this exception yourself, the signature gained a
-keyword argument and nothing positional moved. It keeps `ValueError`, because
+named*.
+
+**If you construct this exception yourself, the signature changed.** On 2.x it
+had no `__init__` and took a bare message, so `AccountHashMismatchException('…')`
+worked. It now requires `(response, order_id, account_hash, message)`. Catching
+it is unchanged; only construction breaks, which in practice means test doubles
+and wrappers. It keeps `ValueError`, because
 that predates this release and it does describe a caller mistake, but the
 docstring warns that a broad `except ValueError` will swallow it.
 

@@ -41,8 +41,13 @@ handle on it.
 
 .. code-block:: python
 
-  from schwab.utils import OrderIdNotFoundError, UnsuccessfulOrderException
+  from schwab.utils import (
+      AccountHashMismatchException,
+      OrderIdNotFoundError,
+      UnsuccessfulOrderException,
+  )
 
+  order_id = None
   try:
       order_id = Utils(client, account_hash).extract_order_id(r)
   except UnsuccessfulOrderException as exc:
@@ -52,6 +57,23 @@ handle on it.
       # Something probably was placed. Go and find it.
       log.error('placed but untracked: %s', exc)
       reconcile_recent_orders(account_hash)
+  except AccountHashMismatchException as exc:
+      # An order IS live, on a different account. This one carries its id.
+      log.error('order %s live on account %s', exc.order_id, exc.account_hash)
+      raise
+
+  if order_id is None:
+      return          # nothing to follow; the branch above said why
+
+Note ``order_id = None`` before the ``try``. Two of those branches handle rather
+than re-raise, so without it the name is unbound afterwards and using it raises
+``NameError`` --- in the middle of deciding what happened to an order.
+
+Note also what sits *between* the call and whatever you return. On 2.x this
+method returned ``None`` and execution carried on, so any journalling or
+bookkeeping after it still ran. It raises now, so that code is skipped on
+exactly the path where an order may be live and unrecorded. Move anything of
+that kind above the call, or into the handlers.
 
 .. automethod:: schwab.utils.Utils.extract_order_id
 
