@@ -1,9 +1,14 @@
 import setuptools
 
-with open('README.md', 'r') as f:
+# encoding= is not optional. Without it Python decodes with the locale's
+# preferred encoding, which on Windows is a codepage rather than UTF-8, and
+# every em dash in the README becomes a replacement character in the
+# long_description this builds. A wheel built on Linux is fine and one built on
+# Windows is quietly corrupt, which is the worst way for it to be wrong.
+with open('README.md', 'r', encoding='utf-8') as f:
     long_description = f.read()
 
-with open('schwab/version.py', 'r') as f:
+with open('schwab/version.py', 'r', encoding='utf-8') as f:
     '''Version looks like `version = '1.2.3'`'''
     version = [s.strip() for s in f.read().strip().split('=')][1]
     version = version[1:-1]

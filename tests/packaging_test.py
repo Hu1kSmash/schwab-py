@@ -26,6 +26,21 @@ from .utils import no_duplicates
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+
+def display_path(path):
+    '''Path relative to the repository, or absolute if it is not under one.
+
+    os.path.relpath raises on Windows when the two paths are on different
+    drives, and the control fixtures in this file live in a temp directory --
+    D: on a GitHub runner, where the checkout is C:. Linux and macOS have a
+    single root, so this only ever failed on the platform the matrix runs
+    least often: pushes are Linux-only, and the full matrix runs on tags.
+    '''
+    try:
+        return os.path.relpath(path, REPO_ROOT)
+    except ValueError:
+        return path
 SETUP_PY = os.path.join(REPO_ROOT, 'setup.py')
 
 
@@ -335,7 +350,7 @@ class LinkTest(unittest.TestCase):
                         or bare.endswith(cls.EXAMPLE_SUFFIXES)):
                     continue
                 if host not in cls.ALLOWED_HOSTS:
-                    offenders.append((os.path.relpath(path, REPO_ROOT), host))
+                    offenders.append((display_path(path), host))
         return sorted(set(offenders))
 
     @staticmethod
@@ -396,7 +411,7 @@ class LinkTest(unittest.TestCase):
         for path in files:
             contents = cls.read_joined(path)
             for target, fragment in cls.OUR_LINK.findall(contents):
-                where = os.path.relpath(path, REPO_ROOT)
+                where = display_path(path)
                 absolute = os.path.join(REPO_ROOT, target)
                 if not os.path.exists(absolute):
                     broken.append((where, target, 'no such file'))
@@ -485,7 +500,7 @@ class LinkTest(unittest.TestCase):
         for path in files:
             contents = cls.read_joined(path)
             for page, anchor in cls.RTD_LINK.findall(contents):
-                where = os.path.relpath(path, REPO_ROOT)
+                where = display_path(path)
                 source = os.path.join(REPO_ROOT, 'docs', page + '.rst')
                 if not os.path.exists(source):
                     broken.append((where, page, 'no docs/%s.rst' % page))
@@ -756,7 +771,7 @@ class DocExampleTest(unittest.TestCase):
                 # had nothing watching it: the one example here passed
                 # `account_id=` to StreamClient for years after that parameter
                 # stopped meaning anything.
-                blocks.append((os.path.relpath(path, REPO_ROOT), 1, contents))
+                blocks.append((display_path(path), 1, contents))
                 continue
             for m in cls.CODE_BLOCK.finditer(contents):
                 line = contents[:m.start()].count('\n') + 1
@@ -960,6 +975,27 @@ class LongDescriptionTest(unittest.TestCase):
                 text = f.read()
         self.assertIn('pip install schwaby', text)
         self.assertNotIn('pip install schwab-py', text)
+
+    @no_duplicates
+    def test_setup_py_names_an_encoding_when_it_reads_a_file(self):
+        # test_setup_py_ships_what_was_rendered catches this only where the
+        # locale is not UTF-8, which on Linux it is -- so that test passed here
+        # for a year and failed on every Windows runner, and Windows only runs
+        # on tags. This one is locale-independent: it reads the source.
+        #
+        # Without an encoding Python uses the locale's preferred one, so a
+        # build on Windows decoded the README as a codepage and put replacement
+        # characters where the em dashes are. A wheel built on Linux is fine
+        # and one built on Windows is quietly corrupt.
+        with in_repo_root():
+            with open('setup.py', encoding='utf-8') as f:
+                source = f.read()
+
+        opens = re.findall(r'open\(([^)]*)\)', source)
+        self.assertGreater(len(opens), 1)       # it does read files
+        for call in opens:
+            self.assertIn('encoding=', call,
+                          'setup.py opens a file without an encoding: %s' % call)
 
     @no_duplicates
     def test_setup_py_ships_what_was_rendered(self):
