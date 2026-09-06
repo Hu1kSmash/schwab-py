@@ -144,11 +144,13 @@ class SchwabError(Exception):
         # worse, succeeded with the message bound to the response and the
         # message itself lost.
         #
-        # That is not academic: this library runs its own callback server in a
-        # child process, and anything placing orders from a worker pool moves
-        # exceptions across a boundary. The one exception here that says an
-        # order is live on the wrong account is the last one that should arrive
-        # as a TypeError about argument counts.
+        # Nothing in this library moves an exception across a boundary --
+        # checked: the login flow's queue carries flask.request.url and
+        # RedirectServerExitedError is constructed in the parent. This is for
+        # callers who do, a ProcessPoolExecutor over placements being the
+        # obvious one, where the exception saying an order is live on the wrong
+        # account is the last that should arrive as a TypeError about argument
+        # counts.
         #
         # _rebuild_exception bypasses __init__ entirely -- __new__, then
         # BaseException.__init__ for the message, then __dict__. That handles

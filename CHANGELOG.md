@@ -132,12 +132,13 @@ were fine.
 The new exceptions in this release have the same shape, so the fix covers all
 fifteen rather than the five.
 
-That matters here specifically: this library runs its own callback server in a
-child process, and anything placing orders from a worker pool moves exceptions
-across a boundary. The one that says *an order is live on the wrong account* is
-the last one that should arrive as a `TypeError` about argument counts. Fixed
-once on `SchwabError` rather than fourteen times, and a test round-trips every
-exception class the package defines.
+This library does not itself move an exception across a boundary — the login
+flow's child process sends back a URL string, and `RedirectServerExitedError` is
+constructed in the parent. It matters for callers who do: a `ProcessPoolExecutor`
+over placements, say, where the exception saying *an order is live on the wrong
+account* is the last one that should arrive as a `TypeError` about argument
+counts. Fixed once on `SchwabError` rather than fourteen times, and a test
+round-trips every exception class the package defines.
 
 **`AccountHashMismatchException` parsed the order ID and threw it away.** It is raised only after the response came back successful *and* a valid order ID
 was parsed out of it, on the line above — so Schwab placed something, on an

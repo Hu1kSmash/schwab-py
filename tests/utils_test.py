@@ -271,11 +271,11 @@ class UtilsTest(unittest.TestCase):
         # only the message to BaseException, so the default reconstruction
         # called __init__ with the message alone: TypeError for most, and for
         # UnsuccessfulOrderException a copy that bound the message to
-        # `response` and lost the message. This library runs its own callback
-        # server in a child process, and anything placing orders from a worker
-        # pool moves exceptions across a boundary -- where the one saying an
-        # order is live on the wrong account must not arrive as a TypeError
-        # about argument counts.
+        # `response` and lost the message. Nothing in this library crosses a
+        # process boundary with an exception; this is for callers who do -- a
+        # ProcessPoolExecutor over placements -- where the one saying an order
+        # is live on the wrong account must not arrive as a TypeError about
+        # argument counts.
         import copy, importlib, inspect, pickle, pkgutil
         import schwab
 
