@@ -11,6 +11,13 @@ with 100% line coverage. Coverage measures which lines ran, not whether the
 result was right. Before accepting a test, revert the fix and watch it fail — a
 test that passes both ways is worse than none, because it looks like protection.
 
+**A negative result about an installed package is not a result until you know
+which directory produced it.** `sys.path[0]` is the current directory, so
+`import schwab` run from the repository reads the working tree and ignores what
+pip installed. Three consecutive reproductions of a reported install collision
+came back "does not reproduce" that way, while inspecting the source tree. `cd`
+somewhere else first, and check `schwab.__file__` before believing the answer.
+
 **Check the mutation actually applied.** A `sed` expression spanning two lines
 matches nothing, and a restore within the same second reuses stale bytecode
 (CPython invalidates on mtime and size). Both have produced a false green here.
@@ -138,7 +145,27 @@ turned the 2.3.0 `login` split from a saving into three late failure modes.
    publishes nothing, so a tag can be moved before the release is created. After
    it, the version is permanent: PyPI refuses a re-upload even after a delete.
 
-8. **Re-check any claim about the release against the tag, after tagging.**
+8. **If you move a tag, say so — a normal `git fetch` will not follow it.**
+
+   Deleting and re-creating a pushed tag is sometimes right; v3.0.0 was re-cut
+   before publishing to fold in a documentation change. But git will not move a
+   tag ref a client already holds, and says nothing while declining to. So
+   anyone who fetched the old one keeps it silently, and the check most likely
+   to care — does this artifact match the tag I audited — is exactly the one
+   that gets a confident wrong answer.
+
+   A consumer hit this within the hour and had already written "the published
+   wheel does not match its own git tag" into their pin comments as a lost
+   property. The fetch that fixes it:
+
+   ```shell
+   git fetch origin --prune-tags --force --tags
+   ```
+
+   Tell anyone downstream when a tag moves. A stale ref plus a confident tool is
+   worse than a wrong answer, because a wrong answer invites a second look.
+
+9. **Re-check any claim about the release against the tag, after tagging.**
 
    The range available while preparing a release is `vPREV..HEAD`, which excludes
    the commit that bumps `version.py` — so the convenient measurement is
