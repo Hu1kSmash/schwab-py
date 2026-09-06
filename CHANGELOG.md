@@ -74,7 +74,24 @@ found by reviewing the fix for it.
   asked to be told loudest the only one told nothing. The raise is caught and
   the same text printed to stderr — as is a `warnings.showwarning` replacement
   that raises something else, and a stderr closed by the time the fallback
-  runs. No diagnostic fails this import.
+  runs. `sys.stderr` being `None` — pythonw, and hosts that detach it — is
+  handled too, because `print(file=None)` writes to *stdout*, and a
+  multi-line diagnostic in a program's data stream is its own bug. No
+  diagnostic fails this import, and none of them lands anywhere it should
+  not.
+
+- **Nothing a `direct_url.json` can contain turns the check off.** The file
+  is written by another tool, and every step of reading it can fail on content
+  that passed the step before: a list or a bare string is valid JSON and
+  raises on `.get`; `file://[oops` raises in `urlparse`; `%00` becomes a NUL
+  that `realpath` refuses. Guarding these one at a time is how the first two
+  were missed, so the whole read is one best-effort block — any failure means
+  "not an editable install", never "stop checking".
+
+- **A checkout's own metadata is not an install, whichever spelling it is
+  in.** `setup.py dist_info` writes a `.dist-info` into the source root, so
+  restricting the source-tree discriminator to `.egg-info` left the false
+  positive reachable by a different artefact.
 
 - **The install order is documented, because it decides whether you are
   warned at all.** Both projects ship a `schwab/__init__.py`, so whichever is

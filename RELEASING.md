@@ -114,7 +114,8 @@ turned the 2.3.0 `login` split from a saving into three late failure modes.
 
    ```shell
    grep -rn 'schwaby@v\|schwaby==' README.md docs/ schwab/
-   grep -rnE '(Since|As of|In|Before) [0-9]+\.[0-9]+' README.md docs/ schwab/
+   grep -rnE '\b[0-9]+\.[0-9]+\.[0-9]+' README.md docs/*.rst schwab/ \
+       | grep -vE '127\.0\.0\.1|https?://'
    ```
 
    The first should be empty. Prose naming a version is worse than a pin,
@@ -123,10 +124,15 @@ turned the 2.3.0 `login` split from a saving into three late failure modes.
    3.0.1 `import schwab` warns" was written into `README.md` and
    `docs/getting-started.rst` while preparing 3.0.2 and survived a review
    round, because this step only looked for pins. It was caught before the
-   tag, which is luck rather than process. Hence the second grep, which will
-   have hits: read each one and keep only those describing something that
-   already shipped and stays true. Say what changed, not which release
-   changed it.
+   tag, which is luck rather than process.
+
+   Hence the second grep, and note what it is *not*: an allowlist of lead-ins
+   like `Since|As of|New in` catches the sentence that was found and misses
+   `3.0.1 added a warning`, `starting with 3.0.1`, `from v3.0.1 onward`. A
+   check justified by a class of problem has to match the shape --- any
+   version-looking number --- not the phrasings already seen. It will have
+   hits: read each one and keep only those describing something that already
+   shipped and stays true. Say what changed, not which release changed it.
 
 4. Verify, on **3.11, 3.12 and 3.14** — 3.14 is what the downstream consumer
    runs, and `asyncio` semantics differ below 3.12 as well as above it:

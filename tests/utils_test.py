@@ -450,7 +450,7 @@ class CollisionWarningTest(unittest.TestCase):
     that has not broken it yet.
     """
 
-    def call_it(self, listing, filter='always', files=()):
+    def call_it(self, listing, files=()):
         '''Runs the check against a synthetic sys.path entry.
 
         `listing` is what os.listdir returns for it -- the real check is a
@@ -469,7 +469,7 @@ class CollisionWarningTest(unittest.TestCase):
                     f.write('')
             with patch.object(sys, 'path', [tmp]):
                 with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter(filter)
+                    warnings.simplefilter('always')
                     schwab._warn_if_schwab_py_is_also_installed()
         return caught
 
@@ -523,6 +523,20 @@ class CollisionWarningTest(unittest.TestCase):
         # that is *not* a checkout are two real installs.
         self.assertEqual(1, len(self.call_it(
                 ['schwaby.egg-info', 'schwab_py-2.0.0.dist-info'])))
+
+    @no_duplicates
+    def test_a_checkouts_own_dist_info_is_not_an_install_either(self):
+        # `setup.py dist_info` writes a `.dist-info` into the checkout root,
+        # so restricting the source-tree discriminator to `.egg-info` leaves
+        # the same false positive reachable by a different artefact: the
+        # project reported as colliding with itself.
+        self.assertEqual([], self.call_it(
+                ['schwaby-3.0.2.dist-info', 'schwab_py-2.0.0.dist-info'],
+                files=['setup.py']))
+
+        # Positive control: the same two names where there is no checkout.
+        self.assertEqual(1, len(self.call_it(
+                ['schwaby-3.0.2.dist-info', 'schwab_py-2.0.0.dist-info'])))
 
     @no_duplicates
     def test_egg_info_counts_outside_a_source_tree(self):
@@ -627,9 +641,19 @@ class CollisionWarningTest(unittest.TestCase):
         # narrower `except (OSError, ValueError)`, reached the module-level
         # guard, and silently turned the whole check off -- a collision went
         # unreported because a *third* package's metadata was odd.
+        # The types are only half of it. A `url` that is a string, starts
+        # with `file://` and passes every guard can still blow up on the very
+        # next statement: `urlparse` raises on an unclosed IPv6 bracket, and
+        # `realpath` raises on the NUL that `unquote` makes from `%00`. Each
+        # guard added one at a time left the following line open -- so the
+        # read is one block now, and these are the shapes that proved it.
         for body in ('[1, 2, 3]', '"a string"', 'null', '{"url": ',
                      '{"url": 42, "dir_info": {"editable": true}}',
-                     '{"dir_info": {"editable": true}}'):
+                     '{"dir_info": {"editable": true}}',
+                     '{"url": "file://[oops/x", "dir_info":'
+                     ' {"editable": true}}',
+                     '{"url": "file:///a%00b", "dir_info":'
+                     ' {"editable": true}}'):
             with self.subTest(direct_url=body):
                 self.assertEqual(1, len(self.two_editables(
                         None, None,
@@ -644,12 +668,14 @@ class CollisionWarningTest(unittest.TestCase):
         import os
 
         with tempfile.TemporaryDirectory() as tree:
-            link = os.path.join(tempfile.mkdtemp(), 'link')
-            os.symlink(tree, link)
+            with tempfile.TemporaryDirectory() as holder:
+                link = os.path.join(holder, 'link')
+                os.symlink(tree, link)
 
-            for spelling in (tree + '/', link, link + '/'):
-                with self.subTest(spelling=spelling):
-                    self.assertEqual([], self.two_editables(tree, spelling))
+                for spelling in (tree + '/', link, link + '/'):
+                    with self.subTest(spelling=spelling):
+                        self.assertEqual(
+                                [], self.two_editables(tree, spelling))
 
     @no_duplicates
     def test_a_nameless_dist_info_contributes_no_name(self):
@@ -830,6 +856,32 @@ class CollisionWarningTest(unittest.TestCase):
                         warnings.simplefilter('error')
                         # Must not raise.
                         schwab._warn_if_schwab_py_is_also_installed()
+
+    @no_duplicates
+    def test_a_detached_stderr_does_not_leak_into_stdout(self):
+        # `sys.stderr` is None under pythonw and in hosts that detach it --
+        # the same hosts that replace `showwarning`. `print(file=None)` falls
+        # back to *stdout*, which would push a multi-line diagnostic into
+        # whatever the program emits as data: a CLI writing JSON gets output
+        # its caller cannot parse.
+        import io
+        import os
+        import schwab
+
+        stdout = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('schwab_py-2.5.1.dist-info',
+                         'schwaby-3.0.2.dist-info'):
+                os.mkdir(os.path.join(tmp, name))
+            with patch.object(sys, 'path', [tmp]):
+                with patch.object(sys, 'stderr', None):
+                    with patch.object(sys, 'stdout', stdout):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('error')
+                            # Must not raise.
+                            schwab._warn_if_schwab_py_is_also_installed()
+
+        self.assertEqual('', stdout.getvalue())
 
     @no_duplicates
     def test_nothing_is_printed_to_stderr_in_the_ordinary_case(self):

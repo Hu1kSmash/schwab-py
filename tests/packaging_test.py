@@ -1051,7 +1051,13 @@ class LongDescriptionTest(unittest.TestCase):
                 name, table = call.func.attr, METHOD_POSITION
 
             named = 'encoding' in [kw.arg for kw in call.keywords]
-            positional = len(call.args) >= table[name]
+            # A spelling with no entry -- a bare `read_text` from
+            # `from pathlib import Path` shadowing, say -- has no known
+            # signature, so nothing can be concluded from its positionals.
+            # `table[name]` there would raise `KeyError` and blame the wrong
+            # thing, which is what this whole matcher exists to avoid.
+            wanted = table.get(name)
+            positional = wanted is not None and len(call.args) >= wanted
             self.assertTrue(
                     named or positional,
                     'setup.py reads a file without an encoding, at line %d'

@@ -42,12 +42,16 @@ def _distribution_records():
     `.egg-info` against 35 `.dist-info` --- so ignoring the layout would hide
     two thirds of what is installed and make this function's name a lie.
 
-    What it does need is a discriminator, because setuptools writes the same
-    spelling into a *source tree* as a build artefact, and a checkout is on
-    `sys.path` for every `pytest` run from its root. An install directory
-    never contains `setup.py` or `pyproject.toml` and a source tree always
-    does, so the entry's own listing settles it -- no extra syscall, just a
-    membership test against names already fetched.
+    The discriminator is the *directory*, not the layout. A checkout is on
+    `sys.path` for every `pytest` run from its root, and it accumulates both
+    spellings as build artefacts --- `.egg-info` from an editable install or
+    an sdist build, `.dist-info` from `setup.py dist_info`. Either read as an
+    install says "this project is installed here" on the strength of its
+    source being present, which is the false positive this whole release
+    exists to remove. An install directory never contains `setup.py` or
+    `pyproject.toml` and a source tree always does, so the entry's own
+    listing settles it --- no extra syscall, just a membership test against
+    names already fetched.
 
     Best effort by construction, and a miss costs a warning rather than
     correctness -- the documentation covers the same ground.
@@ -78,9 +82,16 @@ def _distribution_records():
             # Lowercased before matching: a case-insensitive filesystem can
             # hand back a spelling that never appeared in a package name.
             lowered = name.lower()
+            if is_source_tree:
+                # Both layouts, not just `.egg-info`: `setup.py dist_info`
+                # writes a `.dist-info` into the checkout root, and reading
+                # that as an install recreates the exact false positive this
+                # release exists to remove -- the project colliding with
+                # itself.
+                continue
             if lowered.endswith('.dist-info'):
                 stem = lowered[:-len('.dist-info')]
-            elif lowered.endswith('.egg-info') and not is_source_tree:
+            elif lowered.endswith('.egg-info'):
                 stem = lowered[:-len('.egg-info')]
             else:
                 continue
@@ -116,30 +127,32 @@ def _editable_source_path(metadata_directory):
     import json as _json
     import os as _os
 
+    # One `try` around everything, on purpose. This reads a file another tool
+    # wrote, and every step after the read can fail on content that passed the
+    # step before it: `json.load` returns whatever the file held, so `.get` on
+    # a list or a bare string raises `AttributeError`; `urlparse` raises
+    # `ValueError` on `file://[oops`; and `realpath` raises on the NUL that
+    # `unquote` produces from `%00`. Guarding these one at a time is how the
+    # first two were missed -- each fix closed a hole and left the next
+    # statement open, and any of them escaping turns the whole check off.
     try:
         with open(_os.path.join(metadata_directory, 'direct_url.json'),
                   encoding='utf-8') as f:
             info = _json.load(f)
+
+        if not isinstance(info, dict):
+            return None
+        if not (info.get('dir_info') or {}).get('editable'):
+            return None
+
+        url = info.get('url')
+        if not isinstance(url, str) or not url.startswith('file://'):
+            return None
+
+        from urllib.parse import unquote as _unquote, urlparse as _urlparse
+        return _os.path.realpath(_unquote(_urlparse(url).path))
     except Exception:
-        # Anything at all: this is a diagnostic reading a file written by
-        # another tool, and no shape it can be in justifies an exception.
         return None
-
-    # `json.load` returns whatever the file held -- a list and a bare string
-    # are both valid JSON, and `.get` on either raises. That escaped the
-    # narrower `except (OSError, ValueError)` this used to have, reached the
-    # module-level guard, and silently disabled the whole check.
-    if not isinstance(info, dict):
-        return None
-    if not (info.get('dir_info') or {}).get('editable'):
-        return None
-
-    url = info.get('url')
-    if not isinstance(url, str) or not url.startswith('file://'):
-        return None
-
-    from urllib.parse import unquote as _unquote, urlparse as _urlparse
-    return _os.path.realpath(_unquote(_urlparse(url).path))
 
 
 def _is_one_working_tree_registered_twice():
@@ -241,8 +254,10 @@ def _warn_if_schwab_py_is_also_installed():
     """
     try:
         detected = _schwab_py_is_also_installed()
-    except Exception:                                    # pragma: no cover
-        # Never let a diagnostic break the import it is diagnosing.
+    except Exception:
+        # Never let a diagnostic break the import it is diagnosing. Covered:
+        # `test_a_broken_lookup_cannot_break_the_import` reaches it, and
+        # `redproof.py` proves mutating it to `raise` turns that test red.
         return
 
     if not detected:
@@ -279,7 +294,12 @@ def _warn_if_schwab_py_is_also_installed():
     except Exception:
         try:
             import sys as _sys
-            print('RuntimeWarning: ' + message, file=_sys.stderr)
+            # `sys.stderr` is None under pythonw and in hosts that detach it
+            # --- the same hosts that replace `showwarning`. `print(file=None)`
+            # falls back to stdout, which would inject a multi-line diagnostic
+            # into whatever the program emits as data.
+            if _sys.stderr is not None:
+                print('RuntimeWarning: ' + message, file=_sys.stderr)
         except Exception:                                # pragma: no cover
             pass
 
