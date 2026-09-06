@@ -107,11 +107,16 @@ _ERROR_DETAIL_LIMIT = 500
 class SchwabError(Exception):
     '''Base class for every exception this library raises.
 
-    ``except SchwabError`` catches anything ``schwaby`` itself raises, and
-    nothing else. It exists so that "catch what this library throws" has a
-    spelling that does not borrow a builtin --- before 3.0.0 the nearest thing
-    was ``except ValueError``, which also catches every ``int()`` and
-    ``float()`` in the same block.
+    Every exception class this library *defines* inherits it, so
+    ``except SchwabError`` is one name for all of them.
+
+    It is **not** everything the library can raise. Argument validation still
+    raises builtin ``ValueError`` in about thirty places --- a negative
+    quantity, a float price, a strike finer than the symbol format carries ---
+    and those are ordinary "you passed a bad value" errors that a builtin
+    describes correctly. Catch ``ValueError`` for those. What this class buys
+    you is the ability to catch the library's own failures *without* also
+    catching every ``int()`` and ``float()`` in the same block.
 
     Two of the order exceptions additionally inherit ``ValueError``, because
     they did before this class existed and code catching them that way still
@@ -191,10 +196,30 @@ class UnrecognizedLocationError(OrderIdNotFoundError):
 
 class AccountHashMismatchException(SchwabError, ValueError):
     '''
-    Raised by :meth:`Utils.extract_order_id` when attempting to extract an
-    order ID from a :meth:`Client.place_order` with a different account hash
-    than the one with which the :class:`Utils` was initialized.
+    Raised by :meth:`Utils.extract_order_id` when the response belongs to a
+    different account than the one this :class:`Utils` was built with.
+
+    **The order is live.** Not "may be": this is raised after the response came
+    back successful *and* a valid order ID was parsed out of it, so Schwab
+    placed something. The mismatch is in your wiring, and the consequence is an
+    order on an account you were not expecting to trade.
+
+    So the ID and the hash Schwab reported are both on the exception, along
+    with the response. Everything needed to go and cancel it is here --- read
+    ``.order_id`` and ``.account_hash``, do not re-derive them.
+
+    .. warning::
+
+       This inherits ``ValueError``, as it did before :class:`SchwabError`
+       existed, so a broad ``except ValueError`` around order building will
+       swallow it. Given what it means, narrow that.
     '''
+
+    def __init__(self, response, order_id, account_hash, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response = response
+        self.order_id = order_id
+        self.account_hash = account_hash
 
 
 class TokenRefreshError(SchwabError):
@@ -279,8 +304,9 @@ class Utils(EnumEnforcer):
           :class:`OrderIdNotFoundError`, so catch that unless you need to tell
           them apart.
         * :class:`AccountHashMismatchException` --- the response belongs to a
-          different account than this :class:`Utils` was built with, which
-          means the wiring is wrong rather than the order.
+          different account than this :class:`Utils` was built with. **The
+          order is live**, on the account Schwab named; the exception carries
+          its ID.
 
         Until 3.0.0 the two middle cases returned ``None`` instead, and shared
         that value with each other. A caller writing ``if order_id:`` therefore
@@ -321,6 +347,10 @@ class Utils(EnumEnforcer):
 
         if str(account_hash) != str(self.account_hash):
             raise AccountHashMismatchException(
-                'order request account hash != Utils.account_hash')
+                place_order_response, order_id, account_hash,
+                'order {} was placed on account {!r}, but this Utils was built '
+                'with {!r}. The order is live on the account Schwab named; its '
+                'id is on this exception as .order_id.'.format(
+                    order_id, account_hash, self.account_hash))
 
         return order_id

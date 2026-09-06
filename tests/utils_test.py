@@ -1,5 +1,4 @@
 from unittest.mock import MagicMock
-from schwab.utils import AccountHashMismatchException, Utils
 from schwab.utils import (
     AccountHashMismatchException,
     MissingLocationHeaderError,
@@ -7,6 +6,7 @@ from schwab.utils import (
     SchwabError,
     UnrecognizedLocationError,
     UnsuccessfulOrderException,
+    Utils,
 )
 from schwab.utils import EnumEnforcer
 from .utils import no_duplicates, MockResponse
@@ -174,21 +174,50 @@ class UtilsTest(unittest.TestCase):
     def test_schwab_error_covers_every_exception_the_library_defines(self):
         # A base that covers most of them is worse than none: it invites
         # `except SchwabError` as a complete guard and is quietly not one.
-        import importlib, inspect
-        found, missing = 0, []
-        for name in ('schwab.auth', 'schwab.utils', 'schwab.streaming',
-                     'schwab.orders.common', 'schwab.orders.generic',
-                     'schwab.client.base', 'schwab.contrib.util'):
-            module = importlib.import_module(name)
+        #
+        # Walked, not listed. The first version named seven modules, so an
+        # exception added to any module outside that list -- schwab.debug, say
+        # -- was simply not looked at, and the test went on passing while the
+        # guarantee it states stopped being true.
+        import importlib, inspect, pkgutil
+        import schwab
+
+        modules, found, missing = [], {}, []
+        for info in pkgutil.walk_packages(schwab.__path__, 'schwab.'):
+            modules.append(info.name)
+            module = importlib.import_module(info.name)
             for attr, obj in vars(module).items():
                 if (inspect.isclass(obj) and issubclass(obj, BaseException)
-                        and obj.__module__ == name):
-                    found += 1
+                        and obj.__module__ == info.name):
+                    found['%s.%s' % (info.name, attr)] = obj
                     if not issubclass(obj, SchwabError):
-                        missing.append('%s.%s' % (name, attr))
+                        missing.append('%s.%s' % (info.name, attr))
 
-        self.assertGreater(found, 10)     # the walk actually found them
+        # Controls for the walk itself, since an empty walk satisfies the
+        # assertion below. Name specific classes from three separate modules
+        # rather than counting: a count survives a whole module dropping out.
+        self.assertGreater(len(modules), 8)
+        for expected in ('schwab.utils.OrderIdNotFoundError',
+                         'schwab.auth.RedirectTimeoutError',
+                         'schwab.streaming.ResponseTimeoutError',
+                         'schwab.orders.common.InvalidOrderException'):
+            self.assertIn(expected, found)
+
         self.assertEqual([], missing)
+
+    @no_duplicates
+    def test_schwab_error_is_not_claimed_to_cover_bare_value_errors(self):
+        # The library raises plain ValueError for argument validation in about
+        # thirty places, so `except SchwabError` is NOT everything it can
+        # throw. The documentation said it was; this pins the true statement so
+        # the wording cannot drift back.
+        from schwab.orders.generic import OrderBuilder
+
+        for bad in (lambda: OrderBuilder().set_quantity(-1),
+                    lambda: OrderBuilder().set_price(0.1)):
+            with self.assertRaises(ValueError) as cm:
+                bad()
+            self.assertNotIsInstance(cm.exception, SchwabError)
 
     @no_duplicates
     def test_the_two_causes_are_distinguishable(self):
@@ -216,10 +245,35 @@ class UtilsTest(unittest.TestCase):
         response = MockResponse({}, 200, headers={
             'Location':
             'https://api.schwabapi.com/trader/v1/accounts/badhash/orders/123'})
-        with self.assertRaisesRegex(
-                AccountHashMismatchException,
-                'order request account hash != Utils.account_hash') as cm:
+
+        with self.assertRaises(AccountHashMismatchException) as cm:
             self.utils.extract_order_id(response)
+
+        # This fires only after the response came back successful AND an order
+        # id parsed out of it, so an order really was placed -- on an account
+        # the caller was not expecting to trade. Everything needed to go and
+        # cancel it is on the exception rather than left in the message for
+        # somebody to re-derive with a regex.
+        self.assertEqual(123, cm.exception.order_id)
+        self.assertEqual('badhash', cm.exception.account_hash)
+        self.assertIs(response, cm.exception.response)
+        self.assertIn('is live', str(cm.exception))
+
+    @no_duplicates
+    def test_the_mismatch_says_the_order_exists(self):
+        # The old message was "order request account hash != Utils.account_hash",
+        # and the docstring called it a wiring problem "rather than the order".
+        # Both read as a configuration complaint. An order had been placed.
+        response = MockResponse({}, 200, headers={
+            'Location':
+            'https://api.schwabapi.com/trader/v1/accounts/badhash/orders/123'})
+
+        with self.assertRaises(AccountHashMismatchException) as cm:
+            self.utils.extract_order_id(response)
+
+        message = str(cm.exception)
+        self.assertIn('123', message)        # which order
+        self.assertIn('badhash', message)    # on which account
 
     @no_duplicates
     def test_get_order_success_200(self):

@@ -31,7 +31,7 @@ help someone who never reads one.
 and the order-code generator is gone with them.
 
 **Upgrading from 2.x.** For most programs this is a version bump and nothing
-else. Four things need an edit, and only if you use them:
+else. These are the things that need an edit, and only if you use them:
 
 | If you | Then |
 |---|---|
@@ -53,13 +53,17 @@ your imports resolve, you are done.
 `Destination` enum has been exported since the beginning and there was no
 setter that put it on the right field --- see Fixed, below.
 
-**`SchwabError`, a base class for every exception this library raises.**
-`except SchwabError` now catches anything `schwaby` throws and nothing else.
-Before this the nearest thing was `except ValueError`, which also catches every
-`int()` and `float()` in the same block.
+**`SchwabError`, a base class for every exception this library defines.**
+`except SchwabError` is now one name for all of them. Before this the nearest
+thing was `except ValueError`, which also catches every `int()` and `float()` in
+the same block.
 
-All fifteen exception classes inherit it, and a test walks the modules and fails
-if one does not — a base covering most of them would be worse than none, since
+It is not everything the library can raise, and the documentation says so:
+argument validation still raises builtin `ValueError` in about thirty places, and
+a builtin describes "you passed a negative quantity" correctly.
+
+All fifteen exception classes inherit it, and a test walks the package with
+`pkgutil` and fails if one does not — a base covering most of them would be worse than none, since
 it invites `except SchwabError` as a complete guard while quietly not being one.
 `UnsuccessfulOrderException` and `AccountHashMismatchException` keep `ValueError`
 as well, because code catching them that way predates this release and they do
@@ -113,6 +117,20 @@ include it in a bug report, because it means Schwab changed the URL format.
 
 The messages say what matters rather than what happened: *the order may be
 live: check get_orders_for_account*.
+
+**`AccountHashMismatchException` said the wiring was wrong and not that an
+order existed.** It is raised only after the response came back successful *and*
+a valid order ID was parsed out of it — so Schwab placed something, on an
+account the caller was not expecting to trade. The message was
+`order request account hash != Utils.account_hash`, which reads as a
+configuration complaint, and the exception carried neither the response nor the
+ID it had just parsed. A caller who caught it could not reach the live order
+without re-deriving the ID from the header themselves.
+
+It now carries `.order_id`, `.account_hash` and `.response`, and says
+*the order is live on the account Schwab named*. It keeps `ValueError`, because
+that predates this release and it does describe a caller mistake, but the
+docstring warns that a broad `except ValueError` will swallow it.
 
 **A rejected order threw away Schwab's explanation of why.**
 `UnsuccessfulOrderException` carried the HTTP status code and nothing else, so

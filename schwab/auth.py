@@ -13,11 +13,10 @@ import tempfile
 import time
 import urllib
 import warnings
-
-from schwab.utils import SchwabError
 import webbrowser
 
 from schwab.client import AsyncClient, Client
+from schwab.utils import SchwabError
 from schwab.debug import register_redactions
 
 
