@@ -35,20 +35,18 @@ says anything, which is what "both are installed" was always supposed to mean.
 Everything below is a defect the check had independently of the false positive,
 found by reviewing the fix for it.
 
-- **One working tree registered under both names is not a collision.** `pip`
-  uninstalls by project name, so a virtualenv that carried a pre-2.6.0 editable
-  install and then received `pip install -e .` holds both registrations, and
-  both editable finders resolve to the same single source tree. Nothing is
-  duplicated — and the remedy this warning prints would have deleted the
-  developer's editable install and replaced their checkout with the PyPI
-  release. `direct_url.json` distinguishes the two, and the recorded path is
-  resolved with `realpath` so one checkout reached by a symlink or a trailing
-  separator is still one checkout.
+- **One known false positive, left in deliberately.** A virtualenv that
+  carried a pre-2.6.0 *editable* install and then received `pip install -e .`
+  holds both names for a single source tree, and this warns about it. Telling
+  that apart needs `direct_url.json` from both registrations; that was
+  written, reviewed and then removed. It was a third of the check's code and
+  produced both of the only two serious defects five review rounds found —
+  one arrangement of registrations went entirely unwarned because of it.
 
-  Both names have to be seen *and* agree. A name that could not have said
-  anything — a `schwab-py` registered as `.egg-info`, which has no
-  `direct_url.json` by construction — must not be read as agreement, or a
-  single editable install silences a real collision.
+  What it bought was suppressing a wrong warning for someone who can clear it
+  with `pip uninstall schwab-py` (safe here: an editable install's `RECORD`
+  claims no files under `schwab/`). That is not worth the code, and it is not
+  worth the risk that the code silences a real collision.
 
 - **Both `.dist-info` and `.egg-info` count, with a discriminator.** On a
   Debian or Ubuntu system interpreter the distro-packaged modules register as
@@ -79,14 +77,6 @@ found by reviewing the fix for it.
   multi-line diagnostic in a program's data stream is its own bug. No
   diagnostic fails this import, and none of them lands anywhere it should
   not.
-
-- **Nothing a `direct_url.json` can contain turns the check off.** The file
-  is written by another tool, and every step of reading it can fail on content
-  that passed the step before: a list or a bare string is valid JSON and
-  raises on `.get`; `file://[oops` raises in `urlparse`; `%00` becomes a NUL
-  that `realpath` refuses. Guarding these one at a time is how the first two
-  were missed, so the whole read is one best-effort block — any failure means
-  "not an editable install", never "stop checking".
 
 - **A checkout's own metadata is not an install, whichever spelling it is
   in.** `setup.py dist_info` writes a `.dist-info` into the source root, so

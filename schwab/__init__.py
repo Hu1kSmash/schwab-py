@@ -21,10 +21,11 @@ _DIST_STEM = r'^(?P<name>.+?)-\d[^-]*(?:-py\d[\d.]*)?$'
 def _distribution_records():
     """Yields `(normalised name, metadata directory)` for what is installed.
 
-    The single walk of `sys.path`. Both callers below go through it, and they
-    have to: an earlier version had two walks that each decided for themselves
-    which layouts to read, they disagreed about `.egg-info`, and the
-    disagreement silently suppressed the warning this module exists to emit.
+    The single walk of `sys.path`. It stays a separate function from its one
+    caller because it briefly had two, which each decided for themselves which
+    layouts to read; they disagreed about `.egg-info`, and the disagreement
+    silently suppressed the warning this module exists to emit. Anything that
+    needs to know what is installed asks here.
 
     A directory listing rather than `importlib.metadata.distributions()`,
     which opens and parses a metadata file for every installed package. Both
@@ -109,111 +110,26 @@ def _installed_distribution_names():
     return {name for name, _ in _distribution_records()}
 
 
-def _editable_source_path(metadata_directory):
-    """Returns the source tree an editable install was made from, or `None`.
-
-    `None` means "not an editable install of a local directory", and covers
-    every way of not being one: no `direct_url.json` at all (pip writes it
-    only for an install made from a URL or a path, so anything from PyPI has
-    none), a non-editable install, an `.egg-info` that has no such file by
-    construction, or a file that cannot be read or understood.
-
-    The path is resolved with `realpath`, because pip records
-    `path_to_url(os.path.abspath(path))` without following symlinks or
-    normalising a trailing separator -- so one checkout installed as
-    `/home/dev/schwaby` and again as `/home/dev/schwaby/` is one tree written
-    two ways, and comparing the raw strings would call it two.
-    """
-    import json as _json
-    import os as _os
-
-    # One `try` around everything, on purpose. This reads a file another tool
-    # wrote, and every step after the read can fail on content that passed the
-    # step before it: `json.load` returns whatever the file held, so `.get` on
-    # a list or a bare string raises `AttributeError`; `urlparse` raises
-    # `ValueError` on `file://[oops`; and `realpath` raises on the NUL that
-    # `unquote` produces from `%00`. Guarding these one at a time is how the
-    # first two were missed -- each fix closed a hole and left the next
-    # statement open, and any of them escaping turns the whole check off.
-    try:
-        with open(_os.path.join(metadata_directory, 'direct_url.json'),
-                  encoding='utf-8') as f:
-            info = _json.load(f)
-
-        if not isinstance(info, dict):
-            return None
-        if not (info.get('dir_info') or {}).get('editable'):
-            return None
-
-        url = info.get('url')
-        if not isinstance(url, str) or not url.startswith('file://'):
-            return None
-
-        from urllib.parse import unquote as _unquote, urlparse as _urlparse
-        return _os.path.realpath(_unquote(_urlparse(url).path))
-    except Exception:
-        return None
-
-
-def _is_one_working_tree_registered_twice():
-    """Reports whether the two names are one checkout registered under both.
-
-    pip uninstalls by project name, so a virtualenv that carried a pre-2.6.0
-    editable install and then received `pip install -e .` at 3.x holds two
-    registrations --- `schwab_py` and `schwaby` --- whose editable finders
-    both resolve to the *same single* source tree. Nothing is duplicated and
-    nothing is at risk, so warning is wrong.
-
-    It is worse than wrong. The remedy the warning prints,
-    `pip uninstall -y schwab-py schwaby && pip install schwaby`, would in
-    that state delete the developer's editable registration and replace their
-    checkout with the PyPI release.
-
-    Absence is not agreement. An earlier version unioned the two names' path
-    sets and asked only whether one path came out, so a name that could not
-    have contributed --- a `schwab-py` registered as `.egg-info`, which has no
-    `direct_url.json` by construction --- read exactly like one that agreed,
-    and a single editable `schwaby` was enough to suppress a real collision.
-
-    `None not in paths` is what prevents that: a name with nothing to say
-    contributes `None`, which is a value rather than a gap. The `not ours or
-    not theirs` guard above it cannot currently fire --- a name with no
-    metadata still lands in `seen` as `{None}` --- and is kept only against
-    the two walks over `sys.path` disagreeing again, which is how the defect
-    arose. `redproof.py` records it as superseded rather than load-bearing.
-    """
-    seen = {}
-    for name, directory in _distribution_records():
-        if name not in ('schwaby', 'schwab-py'):
-            continue
-        seen.setdefault(name, set()).add(_editable_source_path(directory))
-
-    ours = seen.get('schwaby')
-    theirs = seen.get('schwab-py')
-    if not ours or not theirs:
-        return False
-
-    paths = ours | theirs
-    return len(paths) == 1 and None not in paths
-
-
 def _schwab_py_is_also_installed():
-    """Reports whether `schwaby` and `schwab-py` are both really installed.
+    """Reports whether `schwaby` and `schwab-py` are both installed.
 
     Both must be registered for this to be a collision. Seeing `schwab-py`
     alone is this same project under the name it published before 2.6.0 --
     an editable install made from a checkout of that era still registers it,
     and warning there would fire on every developer's own working tree.
 
-    Both being registered is still not sufficient, because they may be the
-    same working tree registered twice; see
-    `_is_one_working_tree_registered_twice`, which only runs once the names
-    say there is something to check.
+    One case is deliberately not distinguished: a virtualenv that carried a
+    pre-2.6.0 *editable* install and then received `pip install -e .` holds
+    both names for one source tree, and this reports it. Telling that apart
+    needs `direct_url.json` from both sides, which was written, reviewed, and
+    removed --- it was a third of this check's code, produced the only two
+    serious defects five review rounds found, and separated one arrangement
+    from another for a reader who can fix it with `pip uninstall schwab-py`.
+    The cost of the false positive is one wrong warning in a maintainer's
+    own venv; the cost of the code was worse.
     """
     installed = _installed_distribution_names()
-    if not ('schwaby' in installed and 'schwab-py' in installed):
-        return False
-    return not _is_one_working_tree_registered_twice()
+    return 'schwaby' in installed and 'schwab-py' in installed
 
 
 def _warn_if_schwab_py_is_also_installed():
